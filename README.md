@@ -264,35 +264,56 @@ This approach:
 
 ### 8.1 Frontend
 
-- **Framework**: React Native with Expo.
-- **Language**: TypeScript.
-- **Navigation**: `@react-navigation` (stack + bottom tabs).
-- **State Management**:
-  - Minimal: React Query / TanStack Query for server state.
-  - Local UI state with React hooks.
-- **Styling**: 
-  - Styled Components or a simple design system using `StyleSheet`.
+- **Framework:** React Native with Expo  
+- **Language:** TypeScript  
+- **Navigation:** `@react-navigation` (stack navigator + bottom tab navigator)  
+- **State Management:**
+  - Server state: React Query / TanStack Query
+  - Local UI state: React hooks (`useState`, `useReducer`, `useContext` where appropriate)
+- **Styling:**
+  - Either Styled Components **or**
+  - A simple design system built with React Native’s `StyleSheet` and reusable components (e.g. `Card`, `Button`, `ListItem`)
+
+The frontend consumes a REST API exposed by the backend service (see 8.2).
+
+---
 
 ### 8.2 Backend
 
-- Prefer a managed backend to focus on product logic.
+The backend is a standalone service responsible for authentication, business logic, and data persistence.
 
-Example choice:
+- **Runtime:** Node.js (LTS)  
+- **Language:** TypeScript  
+- **Framework:** NestJS (modular architecture with Controllers, Services, and Modules)  
+- **Database:** PostgreSQL  
+- **ORM / Data Layer:** Prisma (schema-driven modelling, migrations, and type-safe queries)  
+- **API Style:** RESTful JSON APIs (with room to add GraphQL later if needed)  
+- **Authentication & Authorisation:**
+  - Email/password login
+  - JWT-based authentication (access + refresh tokens)
+  - Role/permission model (organisation admin, team admin, team member)
+- **Testing:**
+  - Jest for unit tests
+  - Supertest (or similar) for HTTP integration tests
+- **Deployment:**
+  - Containerised with Docker
+  - Deployed to a managed hosting platform (e.g. Railway, Render, Fly.io, or similar)
+  - Database hosted on a managed PostgreSQL provider
 
-- **Supabase**:
-  - Postgres database.
-  - Auth (email/password or magic link).
-  - Row Level Security rules per organisation.
-  - REST/RPC endpoints for custom logic where needed.
+The backend exposes endpoints for core features such as users, organisations, teams, events, assignments, “I can’t make it” requests, and the choir song library/setlists.
 
-(Alternatively, any Node/Express or NestJS backend with Postgres can be used.)
+---
 
 ### 8.3 Notifications
 
-- For push notifications: Expo Notifications (if using Expo).
-- Data model should track:
-  - Notification targets (user_id).
-  - Triggers (new assignment, rota change, request update).
+- **Push Notifications:** Expo Notifications (via the React Native app)  
+- **Triggering Notifications:**
+  - The backend tracks events that should trigger notifications (e.g. new assignment, rota changes, “I can’t make it” requests, swap approvals).
+  - The backend stores each user’s Expo push token and sends messages through the Expo push notifications API.
+- **Data Model Considerations:**
+  - Track notification targets (e.g. `user_id`, `team_id`)
+  - Track triggers and metadata (e.g. assignment ID, event ID, request ID)
+  - Optionally log notification deliveries for debugging/auditing
 
 ---
 
