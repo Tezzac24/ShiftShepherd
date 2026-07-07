@@ -1,0 +1,149 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
+
+import { colors, radius, spacing } from '../../../constants/theme';
+import { AppText } from '../../components/AppText';
+import { Badge } from '../../components/Badge';
+import { Button } from '../../components/Button';
+import { Card } from '../../components/Card';
+import { useConfirm } from '../../components/ConfirmDialog';
+import { EmptyState } from '../../components/EmptyState';
+import { Screen } from '../../components/Screen';
+import { useAppData } from '../../lib/appData/AppDataContext';
+import { userName } from '../../lib/appData/selectors';
+import { useRequiredUser } from '../../lib/auth/AuthContext';
+import { canEditAnnouncement } from '../../lib/permissions';
+import { formatRelative, formatUpcoming } from '../../utils/dates';
+
+export default function AnnouncementDetailScreen() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const user = useRequiredUser();
+  const data = useAppData();
+  const confirm = useConfirm();
+
+  const announcement = data.announcements.find((a) => a.id === id);
+
+  if (!announcement) {
+    return (
+      <Screen>
+        <Stack.Screen options={{ title: 'Announcement' }} />
+        <EmptyState
+          icon="megaphone-outline"
+          title="Announcement not found"
+          message="This announcement may have been removed."
+        />
+      </Screen>
+    );
+  }
+
+  const team = announcement.team_id
+    ? data.teams.find((t) => t.id === announcement.team_id)
+    : undefined;
+  const linkedEvent = announcement.linked_event_id
+    ? data.events.find((e) => e.id === announcement.linked_event_id)
+    : undefined;
+
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: 'Delete announcement',
+      message: 'Are you sure you want to delete this announcement?',
+    });
+    if (ok) {
+      data.deleteAnnouncement(announcement.id);
+      router.back();
+    }
+  };
+
+  return (
+    <Screen>
+      <Stack.Screen options={{ title: 'Announcement' }} />
+      <Card>
+        <View style={styles.badges}>
+          {announcement.pinned ? <Badge label="Pinned" tone="accent" /> : null}
+          <Badge
+            label={team ? `${team.name} team` : 'Church-wide'}
+            tone={team ? 'primary' : 'neutral'}
+          />
+        </View>
+        <AppText variant="heading">{announcement.title}</AppText>
+        <AppText variant="small" tone="muted">
+          Posted by {userName(data.users, announcement.created_by)} ·{' '}
+          {formatRelative(announcement.created_at)}
+        </AppText>
+
+        {announcement.image_url ? (
+          <View style={styles.imagePlaceholder} accessibilityLabel="Announcement image placeholder">
+            <Ionicons name="image-outline" size={40} color={colors.textMuted} />
+            <AppText variant="small" tone="muted">
+              Image (placeholder)
+            </AppText>
+          </View>
+        ) : null}
+
+        <AppText style={styles.body}>{announcement.body}</AppText>
+      </Card>
+
+      {linkedEvent ? (
+        <Card
+          onPress={() =>
+            router.push({ pathname: '/events/[id]', params: { id: linkedEvent.id } })
+          }
+          accessibilityLabel={`Linked event: ${linkedEvent.title}`}
+        >
+          <View style={styles.linkedRow}>
+            <Ionicons name="calendar-outline" size={24} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <AppText variant="label" tone="primary">
+                Linked event
+              </AppText>
+              <AppText variant="bodyBold">{linkedEvent.title}</AppText>
+              <AppText variant="small" tone="secondary">
+                {formatUpcoming(new Date(linkedEvent.start_time))}
+              </AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={colors.textMuted} />
+          </View>
+        </Card>
+      ) : null}
+
+      {canEditAnnouncement(user, announcement) ? (
+        <View style={styles.actions}>
+          <Button
+            title="Edit Announcement"
+            variant="secondary"
+            icon="create-outline"
+            onPress={() =>
+              router.push({ pathname: '/announcements/edit', params: { id: announcement.id } })
+            }
+          />
+          <Button
+            title="Delete Announcement"
+            variant="destructive"
+            icon="trash-outline"
+            onPress={handleDelete}
+          />
+        </View>
+      ) : null}
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  badges: { flexDirection: 'row', gap: spacing.sm },
+  body: { marginTop: spacing.xs },
+  imagePlaceholder: {
+    height: 140,
+    borderRadius: radius.md,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  linkedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  actions: { gap: spacing.sm, marginTop: spacing.sm },
+});
