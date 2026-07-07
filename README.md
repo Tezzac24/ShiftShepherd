@@ -59,6 +59,7 @@ src/
   types/              # Entity types mirroring the intended Supabase schema
   utils/              # Dates, ids
 constants/theme.ts    # Design tokens (colours, type, spacing)
+supabase/             # Backend foundation: schema + RLS migrations, dev seed
 docs/                 # Product & build specs
 ```
 
@@ -66,3 +67,5 @@ docs/                 # Product & build specs
 
 - `docs/shift_shepherd_design_doc.md` — full product spec
 - `docs/one-shot-build-prompt.md` — technical build spec
+- `docs/supabase-integration-plan.md` — how and in what order to wire Supabase
+- `supabase/README.md` — schema/RLS overview and setup steps
