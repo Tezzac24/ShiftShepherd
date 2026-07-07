@@ -13,7 +13,7 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the two migrations in order (see `supabase/README.md` for CLI vs dashboard).
+- Run the two migrations in order (see `supabase/README.md` for CLI filename requirements vs dashboard paste order).
 - Run `supabase/seed/dev_seed.sql` and link 4–5 auth users (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
@@ -64,12 +64,12 @@ Read-only in the current UI (no team-management screens yet), so this is fetch-o
 
 ### 7. Rotas & availability
 
-The most relational slice. Service functions: `listEntriesWithAssignments(teamId)`, `saveEntry(entry, assignments)` (create/update + replace assignments), `deleteEntry`, `respondToAssignment(assignmentId, status, note)` — the last one is an **upsert** onto the `unique(rota_assignment_id)` constraint, which matches the app's one-response-per-assignment behaviour exactly. Replace-assignments should be a single RPC (Postgres function) so it's transactional.
+The most relational slice. Service functions: `listEntriesWithAssignments(teamId)`, `saveEntry(entry, assignments)` (create/update + replace assignments), `deleteEntry`, `respondToAssignment(assignmentId, status, note)` — the last one is an **upsert** onto the `unique(rota_assignment_id)` constraint, with `user_id` set from the current profile and matching the assignment. Replace-assignments should be a single RPC (Postgres function) so it is transactional.
 
 ### 8. Songs & song selection
 
 - `songs` + `song_links`: fetch with a join (`select *, links:song_links(*)`) — the nested `links` array then matches the `Song` type as-is. Saving a song writes both tables (RPC or two calls; links are small enough to delete-and-reinsert).
-- `choir_rota_song_selections`: `setSongSelections(entryId, songIds)` = delete existing + insert with `order_index` — wrap in an RPC for atomicity. RLS enforces the song-leader/override rule server-side; test it deliberately as Hannah (member, should fail) vs Michael (assigned leader for his date, should succeed) vs Sarah (team leader override).
+- `choir_rota_song_selections`: `setSongSelections(entryId, songIds)` = delete existing + insert with `order_index` — wrap in an RPC for atomicity. RLS enforces the song-leader/override rule server-side, and the DB rejects songs that do not belong to the rota entry's team; test it deliberately as Hannah (member, should fail), Michael (assigned leader for his date, should succeed), Sarah (team leader override), and a cross-team song id (should fail).
 
 ### 9. Chat
 

@@ -13,6 +13,10 @@ supabase start                 # local stack
 supabase db reset              # applies migrations, then the configured seed
 ```
 
+Before using the CLI, copy or rename the migration files as described in
+`supabase/README.md`; the checked-in `001_...` / `002_...` names preserve
+review order but are not Supabase CLI timestamp names.
+
 Point the CLI at this file by adding to `supabase/config.toml`:
 
 ```toml

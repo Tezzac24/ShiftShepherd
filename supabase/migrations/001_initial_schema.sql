@@ -15,6 +15,12 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
+-- Extensions
+-- ----------------------------------------------------------------------------
+
+create extension if not exists pgcrypto;
+
+-- ----------------------------------------------------------------------------
 -- Enums
 -- ----------------------------------------------------------------------------
 
@@ -376,3 +382,255 @@ create index push_tokens_user_idx on public.push_tokens (user_id);
 create trigger push_tokens_set_updated_at
   before update on public.push_tokens
   for each row execute function public.set_updated_at();
+
+-- ----------------------------------------------------------------------------
+-- Cross-table consistency guard
+-- ----------------------------------------------------------------------------
+--
+-- These checks close the gaps that simple single-column foreign keys cannot:
+-- rows with an organisation_id must not point at teams, events, categories,
+-- or profiles from a different church; availability responses must belong to
+-- the same user as their assignment; and choir song selections must use songs
+-- from the same team as the rota entry.
+
+create or replace function public.validate_cross_table_consistency()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_org uuid;
+  v_related_org uuid;
+  v_team uuid;
+  v_related_team uuid;
+  v_team_type public.team_type;
+  v_user uuid;
+begin
+  if tg_table_name = 'organisation_roles' then
+    select organisation_id into v_related_org
+    from public.profiles
+    where id = new.user_id;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'organisation_roles.user_id must belong to organisation_id';
+    end if;
+
+  elsif tg_table_name = 'team_memberships' then
+    select organisation_id into v_org
+    from public.teams
+    where id = new.team_id;
+
+    select organisation_id into v_related_org
+    from public.profiles
+    where id = new.user_id;
+
+    if v_org is distinct from v_related_org then
+      raise exception 'team_memberships.user_id must belong to the team organisation';
+    end if;
+
+  elsif tg_table_name = 'events' then
+    select organisation_id into v_related_org
+    from public.event_categories
+    where id = new.category_id;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'events.category_id must belong to organisation_id';
+    end if;
+
+    if new.team_id is not null then
+      select organisation_id into v_related_org
+      from public.teams
+      where id = new.team_id;
+
+      if v_related_org is distinct from new.organisation_id then
+        raise exception 'events.team_id must belong to organisation_id';
+      end if;
+    end if;
+
+    select organisation_id into v_related_org
+    from public.profiles
+    where id = new.created_by;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'events.created_by must belong to organisation_id';
+    end if;
+
+  elsif tg_table_name = 'announcements' then
+    if new.team_id is not null then
+      select organisation_id into v_related_org
+      from public.teams
+      where id = new.team_id;
+
+      if v_related_org is distinct from new.organisation_id then
+        raise exception 'announcements.team_id must belong to organisation_id';
+      end if;
+    end if;
+
+    if new.linked_event_id is not null then
+      select organisation_id into v_related_org
+      from public.events
+      where id = new.linked_event_id;
+
+      if v_related_org is distinct from new.organisation_id then
+        raise exception 'announcements.linked_event_id must belong to organisation_id';
+      end if;
+    end if;
+
+    select organisation_id into v_related_org
+    from public.profiles
+    where id = new.created_by;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'announcements.created_by must belong to organisation_id';
+    end if;
+
+  elsif tg_table_name = 'rota_entries' then
+    select organisation_id into v_related_org
+    from public.teams
+    where id = new.team_id;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'rota_entries.team_id must belong to organisation_id';
+    end if;
+
+    select organisation_id into v_related_org
+    from public.profiles
+    where id = new.created_by;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'rota_entries.created_by must belong to organisation_id';
+    end if;
+
+  elsif tg_table_name = 'rota_assignments' then
+    select e.organisation_id, e.team_id into v_org, v_team
+    from public.rota_entries e
+    where e.id = new.rota_entry_id;
+
+    select organisation_id into v_related_org
+    from public.profiles
+    where id = new.user_id;
+
+    if v_related_org is distinct from v_org then
+      raise exception 'rota_assignments.user_id must belong to the rota organisation';
+    end if;
+
+    if not exists (
+      select 1
+      from public.team_memberships m
+      where m.team_id = v_team and m.user_id = new.user_id
+    ) then
+      raise exception 'rota_assignments.user_id must be a member of the rota team';
+    end if;
+
+  elsif tg_table_name = 'availability_responses' then
+    select user_id into v_user
+    from public.rota_assignments
+    where id = new.rota_assignment_id;
+
+    if v_user is distinct from new.user_id then
+      raise exception 'availability_responses.user_id must match the assigned user';
+    end if;
+
+  elsif tg_table_name = 'songs' then
+    select organisation_id, type into v_related_org, v_team_type
+    from public.teams
+    where id = new.team_id;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'songs.team_id must belong to organisation_id';
+    end if;
+
+    if v_team_type is distinct from 'choir'::public.team_type then
+      raise exception 'songs.team_id must be a choir team';
+    end if;
+
+    select organisation_id into v_related_org
+    from public.profiles
+    where id = new.added_by;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'songs.added_by must belong to organisation_id';
+    end if;
+
+  elsif tg_table_name = 'choir_rota_song_selections' then
+    select team_id, organisation_id into v_team, v_org
+    from public.rota_entries
+    where id = new.rota_entry_id;
+
+    select team_id, organisation_id into v_related_team, v_related_org
+    from public.songs
+    where id = new.song_id;
+
+    if v_related_team is distinct from v_team
+       or v_related_org is distinct from v_org then
+      raise exception 'choir_rota_song_selections.song_id must belong to the rota team';
+    end if;
+
+    select organisation_id into v_related_org
+    from public.profiles
+    where id = new.selected_by;
+
+    if v_related_org is distinct from v_org then
+      raise exception 'choir_rota_song_selections.selected_by must belong to the rota organisation';
+    end if;
+
+  elsif tg_table_name = 'chat_messages' then
+    select organisation_id into v_related_org
+    from public.teams
+    where id = new.team_id;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'chat_messages.team_id must belong to organisation_id';
+    end if;
+
+    select organisation_id into v_related_org
+    from public.profiles
+    where id = new.sender_id;
+
+    if v_related_org is distinct from new.organisation_id then
+      raise exception 'chat_messages.sender_id must belong to organisation_id';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger organisation_roles_validate_consistency
+  before insert or update of organisation_id, user_id on public.organisation_roles
+  for each row execute function public.validate_cross_table_consistency();
+
+create trigger team_memberships_validate_consistency
+  before insert or update of team_id, user_id on public.team_memberships
+  for each row execute function public.validate_cross_table_consistency();
+
+create trigger events_validate_consistency
+  before insert or update of organisation_id, category_id, team_id, created_by on public.events
+  for each row execute function public.validate_cross_table_consistency();
+
+create trigger announcements_validate_consistency
+  before insert or update of organisation_id, team_id, linked_event_id, created_by on public.announcements
+  for each row execute function public.validate_cross_table_consistency();
+
+create trigger rota_entries_validate_consistency
+  before insert or update of organisation_id, team_id, created_by on public.rota_entries
+  for each row execute function public.validate_cross_table_consistency();
+
+create trigger rota_assignments_validate_consistency
+  before insert or update of rota_entry_id, user_id on public.rota_assignments
+  for each row execute function public.validate_cross_table_consistency();
+
+create trigger availability_responses_validate_consistency
+  before insert or update of rota_assignment_id, user_id on public.availability_responses
+  for each row execute function public.validate_cross_table_consistency();
+
+create trigger songs_validate_consistency
+  before insert or update of organisation_id, team_id, added_by on public.songs
+  for each row execute function public.validate_cross_table_consistency();
+
+create trigger song_selections_validate_consistency
+  before insert or update of rota_entry_id, song_id, selected_by on public.choir_rota_song_selections
+  for each row execute function public.validate_cross_table_consistency();
+
+create trigger chat_messages_validate_consistency
+  before insert or update of organisation_id, team_id, sender_id on public.chat_messages
+  for each row execute function public.validate_cross_table_consistency();

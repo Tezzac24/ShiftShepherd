@@ -24,8 +24,8 @@ The schema mirrors `src/types/index.ts` one-to-one (snake_case, same names) so s
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
-   - **Local:** `supabase db reset` (runs migrations + configured seed).
-   - **Hosted:** rename the migration files to the CLI's `<14-digit-timestamp>_name.sql` convention (keeping order, e.g. `20260707000001_initial_schema.sql`, `20260707000002_rls_policies.sql`) and `supabase db push` — or paste them into the dashboard SQL editor in order.
+   - **Supabase CLI:** first copy or rename the migration files to the CLI's `<14-digit-timestamp>_name.sql` convention (keeping order, e.g. `20260707000001_initial_schema.sql`, `20260707000002_rls_policies.sql`), then run `supabase db reset` locally or `supabase db push` for a hosted dev project.
+   - **Dashboard SQL editor:** paste `001_initial_schema.sql` first, then `002_rls_policies.sql`.
 4. Seed dev data and link auth users — see `seed/README.md`.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).
 
@@ -35,6 +35,7 @@ In the dashboard SQL editor you can impersonate a user:
 
 ```sql
 -- pretend to be Sarah (after linking her auth user)
+begin;
 select set_config('request.jwt.claims',
   json_build_object('sub', (select auth_user_id from profiles where email = 'sarah@gracecommunity.church'), 'role', 'authenticated')::text,
   true);
@@ -42,6 +43,7 @@ set local role authenticated;
 
 select name from teams;          -- expect: Choir only (not admin)
 select count(*) from songs;      -- expect: 10 (choir member)
+rollback;
 ```
 
 A fuller test matrix lives in `docs/supabase-integration-plan.md`.

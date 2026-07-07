@@ -119,6 +119,18 @@ as $$
   select public.is_team_leader(team) or public.is_church_admin(public.team_org(team));
 $$;
 
+-- Songs are a choir feature in the app.
+create or replace function public.is_choir_team(team uuid)
+returns boolean
+language sql stable security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.teams
+    where id = team and type = 'choir'
+  );
+$$;
+
 -- The team a rota entry belongs to.
 create or replace function public.entry_team(entry uuid)
 returns uuid
@@ -443,12 +455,21 @@ create policy "assigned users create their own response"
 
 create policy "assigned users update their own response"
   on public.availability_responses for update to authenticated
-  using (user_id = public.current_profile_id())
-  with check (user_id = public.current_profile_id());
+  using (
+    user_id = public.current_profile_id()
+    and public.is_my_assignment(rota_assignment_id)
+  )
+  with check (
+    user_id = public.current_profile_id()
+    and public.is_my_assignment(rota_assignment_id)
+  );
 
 create policy "assigned users delete their own response"
   on public.availability_responses for delete to authenticated
-  using (user_id = public.current_profile_id());
+  using (
+    user_id = public.current_profile_id()
+    and public.is_my_assignment(rota_assignment_id)
+  );
 
 -- ----------------------------------------------------------------------------
 -- songs: every member of the owning team (choir) can add, edit, and delete
@@ -457,27 +478,40 @@ create policy "assigned users delete their own response"
 
 create policy "team members can view songs"
   on public.songs for select to authenticated
-  using (public.can_access_team(team_id));
+  using (
+    public.is_choir_team(team_id)
+    and public.can_access_team(team_id)
+  );
 
 create policy "team members add songs"
   on public.songs for insert to authenticated
   with check (
     added_by = public.current_profile_id()
+    and public.is_choir_team(team_id)
     and (public.is_team_member(team_id)
       or public.is_church_admin(public.team_org(team_id)))
   );
 
 create policy "team members update any song"
   on public.songs for update to authenticated
-  using (public.is_team_member(team_id)
+  using (
+    public.is_choir_team(team_id)
+    and (public.is_team_member(team_id)
       or public.is_church_admin(public.team_org(team_id)))
-  with check (public.is_team_member(team_id)
-      or public.is_church_admin(public.team_org(team_id)));
+  )
+  with check (
+    public.is_choir_team(team_id)
+    and (public.is_team_member(team_id)
+      or public.is_church_admin(public.team_org(team_id)))
+  );
 
 create policy "team members delete any song"
   on public.songs for delete to authenticated
-  using (public.is_team_member(team_id)
-      or public.is_church_admin(public.team_org(team_id)));
+  using (
+    public.is_choir_team(team_id)
+    and (public.is_team_member(team_id)
+      or public.is_church_admin(public.team_org(team_id)))
+  );
 
 -- ----------------------------------------------------------------------------
 -- song_links: follow the parent song's team
@@ -502,23 +536,36 @@ create policy "team members manage song links"
 
 create policy "team members can view song selections"
   on public.choir_rota_song_selections for select to authenticated
-  using (public.can_access_team(public.entry_team(rota_entry_id)));
+  using (
+    public.can_access_team(public.entry_team(rota_entry_id))
+    and public.song_team(song_id) = public.entry_team(rota_entry_id)
+  );
 
 create policy "song leaders create song selections"
   on public.choir_rota_song_selections for insert to authenticated
   with check (
     selected_by = public.current_profile_id()
     and public.can_select_songs(rota_entry_id)
+    and public.song_team(song_id) = public.entry_team(rota_entry_id)
   );
 
 create policy "song leaders update song selections"
   on public.choir_rota_song_selections for update to authenticated
-  using (public.can_select_songs(rota_entry_id))
-  with check (public.can_select_songs(rota_entry_id));
+  using (
+    public.can_select_songs(rota_entry_id)
+    and public.song_team(song_id) = public.entry_team(rota_entry_id)
+  )
+  with check (
+    public.can_select_songs(rota_entry_id)
+    and public.song_team(song_id) = public.entry_team(rota_entry_id)
+  );
 
 create policy "song leaders delete song selections"
   on public.choir_rota_song_selections for delete to authenticated
-  using (public.can_select_songs(rota_entry_id));
+  using (
+    public.can_select_songs(rota_entry_id)
+    and public.song_team(song_id) = public.entry_team(rota_entry_id)
+  );
 
 -- ----------------------------------------------------------------------------
 -- chat_messages: team members only (admins can view/post everywhere)
