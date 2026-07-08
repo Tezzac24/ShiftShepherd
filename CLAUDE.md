@@ -138,6 +138,31 @@ V1 is a **functional scaffold with mocked data** — not a production app. Do no
 
 The choir feature is a first-class priority for V1 (song database, song selection for rota dates, choir-specific rota).
 
+## Instruction File Sync Rule
+
+This repo uses two AI instruction files:
+
+- `CLAUDE.md` for Claude Code
+- `AGENTS.md` for Codex
+
+When making changes that affect persistent project guidance, keep both files in sync.
+
+Update both files when changing:
+- architecture
+- folder structure
+- development commands
+- validation commands
+- routing approach
+- backend/Supabase integration approach
+- testing workflow
+- coding conventions
+- AI working rules
+- source-of-truth documentation paths
+
+Do not update these files for normal feature work, bug fixes, UI tweaks, or copy changes unless the guidance itself changes.
+
+If only one agent-specific behaviour changes, update only that agent’s file and mention that in the final summary.
+
 ## Token/Planning Constraint
 
 Avoid long planning-only passes. When asked to implement, produce a short execution checklist, then begin building.
