@@ -6,6 +6,7 @@
  */
 import { Event, EventCategory, EventCategoryName } from '../../types';
 import { at, daysAgo, iso, nextWeekday } from '../../utils/dates';
+import { recurrenceLabelForRule } from '../../utils/recurrence';
 import { ORG_ID } from './people';
 
 const categoryNames: EventCategoryName[] = [
@@ -42,7 +43,12 @@ const event = (
   location: string,
   description: string,
   created_by: string,
-  team_id: string | null = null,
+  opts: Partial<
+    Pick<
+      Event,
+      'team_id' | 'is_recurring' | 'recurrence_rule' | 'recurrence_label' | 'recurrence_end_date'
+    >
+  > = {},
 ): Event => ({
   id,
   organisation_id: ORG_ID,
@@ -52,7 +58,13 @@ const event = (
   start_time: iso(start),
   end_time: iso(end),
   location,
-  team_id,
+  team_id: opts.team_id ?? null,
+  is_recurring: opts.is_recurring ?? false,
+  recurrence_rule: opts.recurrence_rule ?? null,
+  recurrence_label:
+    opts.recurrence_label ??
+    (opts.is_recurring ? recurrenceLabelForRule(opts.recurrence_rule ?? null, start) : null),
+  recurrence_end_date: opts.recurrence_end_date ?? null,
   created_by,
   created_at: iso(daysAgo(14)),
   updated_at: iso(daysAgo(14)),
@@ -75,6 +87,10 @@ export const mockEvents: Event[] = [
     'Main Hall',
     'Our weekly Sunday morning worship service. Everyone is welcome — doors open at 9:30 for tea and coffee.',
     'user-joseph',
+    {
+      is_recurring: true,
+      recurrence_rule: 'FREQ=WEEKLY;INTERVAL=1',
+    },
   ),
   event(
     'event-bible-study',
@@ -85,6 +101,10 @@ export const mockEvents: Event[] = [
     'Room 2',
     'We continue our study through the book of Philippians. Bring a Bible and a friend.',
     'user-joseph',
+    {
+      is_recurring: true,
+      recurrence_rule: 'FREQ=WEEKLY;INTERVAL=1',
+    },
   ),
   event(
     'event-prayer-meeting',
@@ -95,6 +115,10 @@ export const mockEvents: Event[] = [
     'Main Hall',
     'An evening of prayer for our church, our community, and one another.',
     'user-daniel',
+    {
+      is_recurring: true,
+      recurrence_rule: 'FREQ=WEEKLY;INTERVAL=1',
+    },
   ),
   event(
     'event-choir-rehearsal',
@@ -103,9 +127,9 @@ export const mockEvents: Event[] = [
     at(saturday, 17, 0),
     at(saturday, 19, 0),
     'Main Hall',
-    'Weekly choir rehearsal ahead of Sunday. Please arrive on time so we can start together.',
+    'Choir rehearsal ahead of Sunday. Please arrive on time so we can start together.',
     'user-sarah',
-    'team-choir',
+    { team_id: 'team-choir' },
   ),
   event(
     'event-youth-fellowship',
@@ -116,7 +140,7 @@ export const mockEvents: Event[] = [
     'Youth Room',
     'Games, food, and a short talk for ages 11–18. Parents are welcome to stay for coffee.',
     'user-joseph',
-    'team-youth',
+    { team_id: 'team-youth' },
   ),
   event(
     'event-thanksgiving',

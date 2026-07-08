@@ -13,7 +13,7 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the two migrations in order (see `supabase/README.md` for CLI filename requirements vs dashboard paste order).
+- Run the three migrations in order (see `supabase/README.md` for CLI filename requirements vs dashboard paste order).
 - Run `supabase/seed/dev_seed.sql` and link 4–5 auth users (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
@@ -57,6 +57,8 @@ Pattern to establish (then repeat for every feature):
 ### 5. Events
 
 Same pattern as announcements (`events` + read-only `event_categories`). Watch the field mapping: `start_time`/`end_time` come back as ISO strings — same as mocks.
+
+Recurring events stay as base `events` rows with `is_recurring`, `recurrence_rule`, `recurrence_label`, and optional `recurrence_end_date`. The app expands upcoming occurrences through pure utilities before rendering Home and Calendar lists.
 
 ### 6. Teams & memberships
 

@@ -121,9 +121,23 @@ export interface Event {
   location: string;
   /** Optional related team */
   team_id: ID | null;
+  /** True when this row is a recurring event series. */
+  is_recurring: boolean;
+  /** RRULE-style recurrence rule, e.g. FREQ=WEEKLY;INTERVAL=1. */
+  recurrence_rule: string | null;
+  /** Plain-English label for the recurrence pattern. */
+  recurrence_label: string | null;
+  /** Optional YYYY-MM-DD date when recurrence stops. */
+  recurrence_end_date: string | null;
   created_by: ID;
   created_at: string;
   updated_at: string;
+}
+
+/** A display occurrence derived from an Event row. The id remains the base event id. */
+export interface EventOccurrence extends Event {
+  base_event_id: ID;
+  occurrence_id: string;
 }
 
 // ---------------------------------------------------------------------------

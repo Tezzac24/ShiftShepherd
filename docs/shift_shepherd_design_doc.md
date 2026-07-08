@@ -195,7 +195,7 @@ Shift Shepherd should solve this by separating information into clear areas: hom
 
 The V1 product should:
 
-- Provide a simple home page showing the next event, latest announcement, and user's next team responsibility.
+- Provide a simple home page showing the latest announcement, next upcoming event, and user's next team responsibility.
 - Allow members to view a church-wide calendar.
 - Allow authorised users to create announcements.
 - Allow authorised users to create church-wide events.
@@ -271,8 +271,8 @@ The home page should show the most important information first.
 
 Priority order:
 
-1. Next upcoming event.
-2. Latest announcement.
+1. Latest announcement.
+2. Next upcoming event.
 3. User's next team responsibility.
 
 The home page should help users quickly understand what is happening and what matters to them.
@@ -375,22 +375,22 @@ Purpose: Give users a clear overview of what matters now.
 
 Content priority:
 
-1. Next event.
-2. Latest announcement.
+1. Latest announcement.
+2. Next upcoming event.
 3. Next team responsibility.
 
 Suggested sections:
 
 - Greeting.
-- Next event card.
 - Latest announcement card.
+- Next event card.
 - My next responsibility card.
 - My teams shortcut.
 - Upcoming events preview.
 
 UX requirements:
 
-- The next event should be immediately visible.
+- The latest announcement and next upcoming event should both be immediately visible.
 - Cards should be large and easy to tap.
 - Avoid too much information on one screen.
 - Use plain language.
@@ -454,6 +454,7 @@ Event fields:
 - Created by.
 - Visibility/audience.
 - Related team, optional.
+- Recurrence pattern, optional.
 
 Permissions:
 
@@ -466,6 +467,7 @@ V1 functionality:
 - Open event detail.
 - Create event if authorised.
 - Edit/delete event if authorised.
+- Create simple recurring events from weekly, biweekly, monthly, and monthly weekday patterns.
 - Receive event notifications, depending on user settings.
 
 Non-goal:
@@ -998,6 +1000,10 @@ Fields:
 - start_time
 - end_time
 - location
+- is_recurring
+- recurrence_rule
+- recurrence_label
+- recurrence_end_date
 - created_by
 - created_at
 - updated_at
@@ -1304,8 +1310,8 @@ Important information should be visually prioritised.
 
 Home screen priority:
 
-1. Next event.
-2. Latest announcement.
+1. Latest announcement.
+2. Next upcoming event.
 3. Next responsibility.
 
 ### 16.4 Older User Inclusion
@@ -1404,7 +1410,7 @@ A less technical user should be able to open the app and understand the home scr
 
 1. User opens the app.
 2. User lands on the home screen.
-3. User sees the next upcoming event at the top.
+3. User sees the latest announcement first and the next upcoming event immediately after it.
 4. User taps the event card.
 5. User views event details.
 
@@ -1685,7 +1691,7 @@ Core flows that must work with dummy data:
 
 - Mock login using test users.
 - Role-based navigation and UI actions.
-- Home screen showing next event, latest announcement, and next responsibility.
+- Home screen showing latest announcement, next upcoming event, and next responsibility.
 - Calendar browsing and mock event creation/editing.
 - Announcement browsing and mock announcement creation/editing.
 - Team spaces and team rotas.
@@ -1730,7 +1736,7 @@ Do not remove or significantly alter these core requirements:
 - The app must support future Supabase integration.
 - The app must support future multi-church expansion.
 - The app must include home, calendar, teams, messages, and profile areas.
-- The home screen must prioritise next event, latest announcement, and next team responsibility.
+- The home screen must prioritise latest announcement, next upcoming event, and next team responsibility.
 - The app must support generic teams.
 - The choir must have a song database.
 - Choir members must be able to add, edit, and delete songs.

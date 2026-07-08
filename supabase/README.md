@@ -8,12 +8,16 @@ This folder holds the database foundation for Shift Shepherd's intended producti
 supabase/
 ├── migrations/
 │   ├── 001_initial_schema.sql   # 18 tables, enums, FKs, indexes, triggers
-│   └── 002_rls_policies.sql     # helper functions + RLS for every table
+│   ├── 002_rls_policies.sql     # helper functions + RLS for every table
+│   └── 003_add_event_recurrence.sql # event recurrence metadata
 ├── seed/
 │   ├── dev_seed.sql             # mock data ported to SQL (relative dates)
 │   └── README.md                # how to seed + link Supabase Auth users
 └── README.md
 ```
+
+Migration order is `001_initial_schema.sql`, `002_rls_policies.sql`, then
+`003_add_event_recurrence.sql`.
 
 ## Design in one paragraph
 
@@ -24,8 +28,8 @@ The schema mirrors `src/types/index.ts` one-to-one (snake_case, same names) so s
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
-   - **Supabase CLI:** first copy or rename the migration files to the CLI's `<14-digit-timestamp>_name.sql` convention (keeping order, e.g. `20260707000001_initial_schema.sql`, `20260707000002_rls_policies.sql`), then run `supabase db reset` locally or `supabase db push` for a hosted dev project.
-   - **Dashboard SQL editor:** paste `001_initial_schema.sql` first, then `002_rls_policies.sql`.
+   - **Supabase CLI:** first copy or rename the migration files to the CLI's `<14-digit-timestamp>_name.sql` convention (keeping order, e.g. `20260707000001_initial_schema.sql`, `20260707000002_rls_policies.sql`, `20260707000003_add_event_recurrence.sql`), then run `supabase db reset` locally or `supabase db push` for a hosted dev project.
+   - **Dashboard SQL editor:** paste `001_initial_schema.sql` first, then `002_rls_policies.sql`, then `003_add_event_recurrence.sql`.
 4. Seed dev data and link auth users — see `seed/README.md`.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).
 

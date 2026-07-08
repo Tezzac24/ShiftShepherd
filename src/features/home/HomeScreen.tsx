@@ -65,28 +65,7 @@ export default function HomeScreen() {
         <Avatar name={user.profile.full_name} size={48} />
       </View>
 
-      {/* 1. Next event */}
-      <SectionHeader
-        title="Next Event"
-        actionLabel="See calendar"
-        onAction={() => router.push('/(tabs)/calendar')}
-      />
-      {event ? (
-        <EventCard
-          hero
-          event={event}
-          category={data.categories.find((c) => c.id === event.category_id)}
-          onPress={() => router.push({ pathname: '/events/[id]', params: { id: event.id } })}
-        />
-      ) : (
-        <EmptyState
-          icon="calendar-outline"
-          title="No upcoming events"
-          message="There are no upcoming events right now."
-        />
-      )}
-
-      {/* 2. Latest announcement */}
+      {/* 1. Latest announcement */}
       <SectionHeader
         title="Latest Announcement"
         actionLabel="See all"
@@ -110,6 +89,32 @@ export default function HomeScreen() {
           icon="megaphone-outline"
           title="No announcements yet"
           message="There are no announcements yet. Important updates will appear here."
+        />
+      )}
+
+      {/* 2. Next upcoming event */}
+      <SectionHeader
+        title="Next Upcoming Event"
+        actionLabel="See calendar"
+        onAction={() => router.push('/(tabs)/calendar')}
+      />
+      {event ? (
+        <EventCard
+          hero
+          event={event}
+          category={data.categories.find((c) => c.id === event.category_id)}
+          onPress={() =>
+            router.push({
+              pathname: '/events/[id]',
+              params: { id: event.id, occurrenceStart: event.start_time },
+            })
+          }
+        />
+      ) : (
+        <EmptyState
+          icon="calendar-outline"
+          title="No upcoming events"
+          message="There are no upcoming events right now."
         />
       )}
 
@@ -198,8 +203,13 @@ export default function HomeScreen() {
       {thisWeek.length > 0 ? (
         thisWeek.map((e) => (
           <Card
-            key={e.id}
-            onPress={() => router.push({ pathname: '/events/[id]', params: { id: e.id } })}
+            key={e.occurrence_id}
+            onPress={() =>
+              router.push({
+                pathname: '/events/[id]',
+                params: { id: e.id, occurrenceStart: e.start_time },
+              })
+            }
             accessibilityLabel={`${e.title}, ${formatUpcoming(new Date(e.start_time))}`}
             style={styles.weekCard}
           >

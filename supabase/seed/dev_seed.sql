@@ -2,7 +2,7 @@
 -- Shift Shepherd — development seed
 --
 -- A faithful port of src/lib/mockData/ into SQL: Grace Community Church,
--- 8 users, 4 teams, 12 categories, 6 events, 5 announcements, 10 songs,
+-- 8 users, 4 teams, 12 categories, 6 base events (3 recurring), 5 announcements, 10 songs,
 -- 10 rota entries with assignments + mixed availability, song selections
 -- (rota-choir-2 deliberately has none), chat messages, and default
 -- notification preferences.
@@ -122,7 +122,22 @@ insert into public.event_categories (id, organisation_id, name, colour) values
 -- Events (relative dates, like the mock data) --------------------------------------
 
 insert into public.events
-  (id, organisation_id, title, description, category_id, start_time, end_time, location, team_id, created_by)
+  (
+    id,
+    organisation_id,
+    title,
+    description,
+    category_id,
+    start_time,
+    end_time,
+    location,
+    team_id,
+    created_by,
+    is_recurring,
+    recurrence_rule,
+    recurrence_label,
+    recurrence_end_date
+  )
 values
   ('60000000-0000-4000-a000-000000000001', 'a0000000-0000-4000-a000-000000000001',
    'Sunday Morning Service',
@@ -130,7 +145,8 @@ values
    '50000000-0000-4000-a000-000000000001',
    (pg_temp.next_weekday(0) + time '10:00')::timestamptz,
    (pg_temp.next_weekday(0) + time '12:00')::timestamptz,
-   'Main Hall', null, '10000000-0000-4000-a000-000000000003'),
+   'Main Hall', null, '10000000-0000-4000-a000-000000000003',
+   true, 'FREQ=WEEKLY;INTERVAL=1', 'Every Sunday', null),
 
   ('60000000-0000-4000-a000-000000000002', 'a0000000-0000-4000-a000-000000000001',
    'Midweek Bible Study',
@@ -138,7 +154,8 @@ values
    '50000000-0000-4000-a000-000000000004',
    (pg_temp.next_weekday(3) + time '19:00')::timestamptz,
    (pg_temp.next_weekday(3) + time '20:30')::timestamptz,
-   'Room 2', null, '10000000-0000-4000-a000-000000000003'),
+   'Room 2', null, '10000000-0000-4000-a000-000000000003',
+   true, 'FREQ=WEEKLY;INTERVAL=1', 'Every Wednesday', null),
 
   ('60000000-0000-4000-a000-000000000003', 'a0000000-0000-4000-a000-000000000001',
    'Friday Prayer Meeting',
@@ -146,15 +163,17 @@ values
    '50000000-0000-4000-a000-000000000003',
    (pg_temp.next_weekday(5) + time '19:30')::timestamptz,
    (pg_temp.next_weekday(5) + time '21:00')::timestamptz,
-   'Main Hall', null, '10000000-0000-4000-a000-000000000001'),
+   'Main Hall', null, '10000000-0000-4000-a000-000000000001',
+   true, 'FREQ=WEEKLY;INTERVAL=1', 'Every Friday', null),
 
   ('60000000-0000-4000-a000-000000000004', 'a0000000-0000-4000-a000-000000000001',
    'Choir Rehearsal',
-   'Weekly choir rehearsal ahead of Sunday. Please arrive on time so we can start together.',
+   'Choir rehearsal ahead of Sunday. Please arrive on time so we can start together.',
    '50000000-0000-4000-a000-000000000002',
    (pg_temp.next_weekday(6) + time '17:00')::timestamptz,
    (pg_temp.next_weekday(6) + time '19:00')::timestamptz,
-   'Main Hall', '30000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000004'),
+   'Main Hall', '30000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000004',
+   false, null, null, null),
 
   ('60000000-0000-4000-a000-000000000005', 'a0000000-0000-4000-a000-000000000001',
    'Youth Fellowship',
@@ -162,7 +181,8 @@ values
    '50000000-0000-4000-a000-000000000006',
    (pg_temp.next_weekday(5, 1) + time '18:30')::timestamptz,
    (pg_temp.next_weekday(5, 1) + time '20:30')::timestamptz,
-   'Youth Room', '30000000-0000-4000-a000-000000000004', '10000000-0000-4000-a000-000000000003'),
+   'Youth Room', '30000000-0000-4000-a000-000000000004', '10000000-0000-4000-a000-000000000003',
+   false, null, null, null),
 
   ('60000000-0000-4000-a000-000000000006', 'a0000000-0000-4000-a000-000000000001',
    'Special Thanksgiving Service',
@@ -170,7 +190,8 @@ values
    '50000000-0000-4000-a000-000000000009',
    (pg_temp.next_weekday(0, 2) + time '10:00')::timestamptz,
    (pg_temp.next_weekday(0, 2) + time '13:00')::timestamptz,
-   'Main Hall', null, '10000000-0000-4000-a000-000000000003');
+   'Main Hall', null, '10000000-0000-4000-a000-000000000003',
+   false, null, null, null);
 
 -- Announcements ---------------------------------------------------------------------
 

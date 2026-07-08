@@ -223,6 +223,10 @@ events:
 - start_time
 - end_time
 - location
+- is_recurring
+- recurrence_rule
+- recurrence_label
+- recurrence_end_date
 - created_by
 - created_at
 - updated_at
@@ -523,14 +527,14 @@ Purpose:
 Show the most important information first.
 
 Priority order:
-1. Next upcoming event
-2. Latest announcement
+1. Latest announcement
+2. Next upcoming event
 3. User’s next team responsibility
 
 Include:
 - Greeting with user name
-- Next event card
 - Latest announcement card
+- Next event card
 - Next responsibility card
 - My Teams preview
 - Coming up this week section
@@ -655,6 +659,7 @@ Fields:
 - Date
 - Start time
 - End time
+- Repeats toggle with simple weekly, biweekly, monthly, and monthly weekday options
 - Location
 - Related team optional
 
@@ -1274,7 +1279,7 @@ Core flows that must work with dummy data:
 
 - Mock login using test users
 - Role-based navigation and UI actions
-- Home screen showing next event, latest announcement, and next responsibility
+- Home screen showing latest announcement, next upcoming event, and next responsibility
 - Calendar browsing and mock event creation/editing
 - Announcement browsing and mock announcement creation/editing
 - Team spaces and team rotas
@@ -1317,7 +1322,7 @@ Do not remove or significantly alter these core requirements:
 - The app must support future Supabase integration
 - The app must support future multi-church expansion
 - The app must include home, calendar, teams, messages, and profile areas
-- The home screen must prioritise next event, latest announcement, and next team responsibility
+- The home screen must prioritise latest announcement, next upcoming event, and next team responsibility
 - The app must support generic teams
 - The choir must have a song database
 - Choir members must be able to add, edit, and delete songs
@@ -1357,7 +1362,7 @@ The scaffold is successful if:
 
 - A user can log in with a mocked test account
 - The app shows different UI/actions based on the user’s role
-- The home screen clearly shows next event, latest announcement, and next responsibility
+- The home screen clearly shows latest announcement, next upcoming event, and next responsibility
 - Users can browse church-wide calendar events
 - Authorised users can create/edit events in local state
 - Users can read announcements

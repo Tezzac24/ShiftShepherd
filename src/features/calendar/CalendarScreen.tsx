@@ -39,10 +39,15 @@ export default function CalendarScreen() {
       {events.length > 0 ? (
         events.map((event) => (
           <EventCard
-            key={event.id}
+            key={event.occurrence_id}
             event={event}
             category={data.categories.find((c) => c.id === event.category_id)}
-            onPress={() => router.push({ pathname: '/events/[id]', params: { id: event.id } })}
+            onPress={() =>
+              router.push({
+                pathname: '/events/[id]',
+                params: { id: event.id, occurrenceStart: event.start_time },
+              })
+            }
           />
         ))
       ) : (

@@ -16,10 +16,11 @@ import { userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canManageEvents } from '../../lib/permissions';
 import { formatFullDate, formatTime } from '../../utils/dates';
+import { recurrenceLabelForEvent } from '../../utils/recurrence';
 
 export default function EventDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, occurrenceStart } = useLocalSearchParams<{ id: string; occurrenceStart?: string }>();
   const user = useRequiredUser();
   const data = useAppData();
   const confirm = useConfirm();
@@ -42,7 +43,12 @@ export default function EventDetailScreen() {
   const category = data.categories.find((c) => c.id === event.category_id);
   const cat = category ? categoryColors[category.name] : undefined;
   const team = event.team_id ? data.teams.find((t) => t.id === event.team_id) : undefined;
-  const start = new Date(event.start_time);
+  const start = occurrenceStart ? new Date(occurrenceStart) : new Date(event.start_time);
+  const baseStart = new Date(event.start_time);
+  const baseEnd = new Date(event.end_time);
+  const duration = Math.max(0, baseEnd.getTime() - baseStart.getTime());
+  const end = occurrenceStart ? new Date(start.getTime() + duration) : baseEnd;
+  const recurrenceLabel = recurrenceLabelForEvent(event);
 
   const handleDelete = async () => {
     const ok = await confirm({
@@ -69,7 +75,7 @@ export default function EventDetailScreen() {
         <View style={styles.metaRow}>
           <Ionicons name="time-outline" size={20} color={colors.textSecondary} />
           <AppText tone="secondary">
-            {formatTime(event.start_time)} – {formatTime(event.end_time)}
+            {formatTime(start.toISOString())} - {formatTime(end.toISOString())}
           </AppText>
         </View>
         <View style={styles.metaRow}>
@@ -82,6 +88,12 @@ export default function EventDetailScreen() {
             <AppText tone="secondary">Related team: {team.name}</AppText>
           </View>
         ) : null}
+        {recurrenceLabel ? (
+          <View style={styles.metaRow}>
+            <Ionicons name="repeat-outline" size={20} color={colors.textSecondary} />
+            <AppText tone="secondary">{recurrenceLabel}</AppText>
+          </View>
+        ) : null}
       </Card>
 
       <Card>
@@ -90,6 +102,11 @@ export default function EventDetailScreen() {
         <AppText variant="small" tone="muted">
           Added by {userName(data.users, event.created_by)}
         </AppText>
+        {event.is_recurring ? (
+          <AppText variant="small" tone="muted">
+            Editing or deleting this event changes the recurring event series in this demo.
+          </AppText>
+        ) : null}
       </Card>
 
       {canManageEvents(user) ? (

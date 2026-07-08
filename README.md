@@ -4,6 +4,13 @@ A mobile-first church coordination app for **Grace Community Church** — events
 
 **Status:** functional scaffold / demo MVP. All data is mocked and lives in local state; the architecture is ready for Supabase (auth, Postgres, RLS, realtime) to be wired in later.
 
+## Current Scaffold Highlights
+
+- Home prioritises latest announcement, next upcoming event, then the user's next team responsibility.
+- Event create/edit uses an inline calendar date picker, a simple readable time list, and recurrence choices including monthly weekday patterns.
+- Recurring events are stored as base mock rows and expanded locally for upcoming Home and Calendar lists.
+- Supabase planning includes `003_add_event_recurrence.sql`; the app is still not wired to live Supabase.
+
 ## Tech Stack
 
 - React Native + Expo (SDK 54) + TypeScript (strict)
@@ -23,6 +30,7 @@ Other commands:
 ```bash
 npm run lint       # ESLint
 npm run typecheck  # TypeScript check
+npx expo export    # Bundle/export sanity check
 ```
 
 ## Demo Login

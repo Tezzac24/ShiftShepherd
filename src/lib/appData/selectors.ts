@@ -9,6 +9,7 @@ import {
   ChatMessage,
   ChoirSongSelection,
   Event,
+  EventOccurrence,
   RotaAssignment,
   RotaEntry,
   SessionUser,
@@ -18,6 +19,7 @@ import {
   UserProfile,
 } from '../../types';
 import { parseDateKey } from '../../utils/dates';
+import { expandEventOccurrences } from '../../utils/recurrence';
 import { isChurchAdmin } from '../permissions';
 
 // ---------------------------------------------------------------------------
@@ -57,14 +59,11 @@ export function userName(users: UserProfile[], id: string): string {
 // Events
 // ---------------------------------------------------------------------------
 
-export function upcomingEvents(events: Event[]): Event[] {
-  const now = new Date();
-  return events
-    .filter((e) => new Date(e.end_time) >= now)
-    .sort((a, b) => a.start_time.localeCompare(b.start_time));
+export function upcomingEvents(events: Event[]): EventOccurrence[] {
+  return expandEventOccurrences(events);
 }
 
-export function nextEvent(events: Event[]): Event | undefined {
+export function nextEvent(events: Event[]): EventOccurrence | undefined {
   return upcomingEvents(events)[0];
 }
 

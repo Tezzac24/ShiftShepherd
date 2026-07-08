@@ -1,6 +1,6 @@
 # Development Seed
 
-`dev_seed.sql` ports the app's mock data (`src/lib/mockData/`) into Postgres: Grace Community Church, the 8 demo users, 4 teams, 12 event categories, 6 events, 5 announcements, 10 songs with links and tags, 10 rota entries with 28 assignments and mixed availability responses, choir song selections (the entry led by Michael Thompson deliberately has none, so the song-selection flow can be tested), team chat messages, and default notification preferences.
+`dev_seed.sql` ports the app's mock data (`src/lib/mockData/`) into Postgres: Grace Community Church, the 8 demo users, 4 teams, 12 event categories, 6 base events including 3 recurring church events, 5 announcements, 10 songs with links and tags, 10 rota entries with 28 assignments and mixed availability responses, choir song selections (the entry led by Michael Thompson deliberately has none, so the song-selection flow can be tested), team chat messages, and default notification preferences.
 
 Dates are computed **relative to seed time** (same trick as the mock data generator), so events and rotas are always upcoming when you demo. Re-seed occasionally to keep them fresh.
 
@@ -14,7 +14,7 @@ supabase db reset              # applies migrations, then the configured seed
 ```
 
 Before using the CLI, copy or rename the migration files as described in
-`supabase/README.md`; the checked-in `001_...` / `002_...` names preserve
+`supabase/README.md`; the checked-in `001_...` / `002_...` / `003_...` names preserve
 review order but are not Supabase CLI timestamp names.
 
 Point the CLI at this file by adding to `supabase/config.toml`:
