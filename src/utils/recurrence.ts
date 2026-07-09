@@ -8,7 +8,7 @@ const DEFAULT_LIMIT = 60;
 export interface RecurrenceOption<T extends string = string> {
   label: string;
   value: T;
-  description: string;
+  description?: string;
 }
 
 export type RepeatType = 'weekly' | 'biweekly' | 'monthly' | 'monthly_weekday';
@@ -52,14 +52,16 @@ export const ORDINAL_OPTIONS: RecurrenceOption<RecurrenceOrdinal>[] = [
   { label: 'Last', value: '-1', description: 'The last matching weekday in the month.' },
 ];
 
+// No descriptions — the label alone is enough, and a description would just
+// repeat the same day name underneath it in the picker.
 export const WEEKDAY_OPTIONS: RecurrenceOption<WeekdayCode>[] = [
-  { label: 'Monday', value: 'MO', description: 'Monday' },
-  { label: 'Tuesday', value: 'TU', description: 'Tuesday' },
-  { label: 'Wednesday', value: 'WE', description: 'Wednesday' },
-  { label: 'Thursday', value: 'TH', description: 'Thursday' },
-  { label: 'Friday', value: 'FR', description: 'Friday' },
-  { label: 'Saturday', value: 'SA', description: 'Saturday' },
-  { label: 'Sunday', value: 'SU', description: 'Sunday' },
+  { label: 'Monday', value: 'MO' },
+  { label: 'Tuesday', value: 'TU' },
+  { label: 'Wednesday', value: 'WE' },
+  { label: 'Thursday', value: 'TH' },
+  { label: 'Friday', value: 'FR' },
+  { label: 'Saturday', value: 'SA' },
+  { label: 'Sunday', value: 'SU' },
 ];
 
 export interface ParsedRule {
