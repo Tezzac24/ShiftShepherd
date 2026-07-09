@@ -2,7 +2,7 @@
 
 This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + profile lookup and the **announcements** feature slice run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured); everything else still runs on mock data (`src/lib/mockData/` + `src/lib/appData/`). See `docs/supabase-integration-plan.md` for the wiring order.
 
-> **Current dev-project state:** migrations `001`–`002` were applied manually via the dashboard SQL editor, so there is **no tracked migration history** (`supabase_migrations.schema_migrations` doesn't exist). Migration `006` records manual authenticated grants that are already effectively present remotely. Migrations `003`–`005` are **not applied remotely yet** and should be, before events/songs/rota-cancellation are wired. Until history is tracked, verify the remote schema by introspection (the Supabase MCP server works well for this) rather than trusting migration history or running `supabase db push` blindly. See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Current dev-project state (aligned 2026-07-09):** migration history is now **tracked** — remote `supabase_migrations.schema_migrations` records versions `001`–`006`, and migrations `003`–`006` are applied remotely (verified). Migrations `001`–`002` were originally applied by hand via the dashboard and back-filled into history with `supabase migration repair`. Future schema changes use the normal `supabase migration new` → `supabase db push` workflow. **Do not rename `001`–`006`** — remote history tracks those exact version strings. See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ## Contents
 
@@ -38,8 +38,8 @@ The schema mirrors `src/types/index.ts` one-to-one (snake_case, same names) so s
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
-   - **Supabase CLI:** first copy or rename the migration files to the CLI's `<14-digit-timestamp>_name.sql` convention (keeping order, e.g. `20260707000001_initial_schema.sql` … `20260707000006_grant_authenticated_api_privileges.sql`), then run `supabase db reset` locally. For a hosted dev project, reconcile/baseline migration history before using `supabase db push`.
-   - **Dashboard SQL editor:** paste each migration in numeric order (`001` → `006`).
+   - **Hosted dev (already aligned):** remote migration history tracks `001`–`006`; use `supabase db push` for future changes. **Do not rename `001`–`006`** — the remote history records those exact version strings, so renaming would desync history and re-apply migrations. Create new migrations with `supabase migration new <name>` and leave the generated timestamped filename unchanged.
+   - **A fresh project from scratch:** `supabase db push` applies `001`–`006` in order (numeric prefixes are accepted by the CLI); or paste each migration in numeric order (`001` → `006`) in the dashboard SQL editor. `supabase db reset` (local stack) requires Docker.
 4. Seed dev data and link auth users — see `seed/README.md`.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).
 
@@ -67,4 +67,4 @@ A fuller test matrix lives in `docs/supabase-integration-plan.md`.
 - **Never** put the service role key in the app or in `EXPO_PUBLIC_*` variables.
 - The Expo app uses only `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
 - **Never** run `dev_seed.sql` against production.
-- Schema changes go through new numbered migration files — don't edit applied ones.
+- Schema changes go through new migration files created with `supabase migration new` — don't edit or rename already-applied ones (`001`–`006` are tracked in remote history).
