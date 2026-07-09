@@ -25,7 +25,7 @@ const orgRoleLabels: Record<string, string> = {
 export default function ProfileScreen() {
   const router = useRouter();
   const user = useRequiredUser();
-  const { signOut } = useAuth();
+  const { signOut, authMode } = useAuth();
   const data = useAppData();
   const confirm = useConfirm();
 
@@ -43,6 +43,23 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleResetDemoData = async () => {
+    const ok = await confirm({
+      title: 'Reset demo data',
+      message:
+        'This puts all announcements, events, rotas, songs and messages back to the original demo examples. Any changes you made will be removed.',
+      confirmLabel: 'Reset',
+    });
+    if (!ok) return;
+    await data.resetDemoData();
+    const message = 'All demo data has been restored to the original examples.';
+    if (Platform.OS === 'web') {
+      alert(message);
+    } else {
+      Alert.alert('Demo data reset', message);
+    }
+  };
+
   const handleLogout = async () => {
     const ok = await confirm({
       title: 'Log out',
@@ -50,7 +67,7 @@ export default function ProfileScreen() {
       confirmLabel: 'Log out',
     });
     if (ok) {
-      signOut();
+      await signOut();
       router.replace('/login');
     }
   };
@@ -109,6 +126,12 @@ export default function ProfileScreen() {
           onPress={() => router.push('/settings/notifications')}
         />
         <ListRow
+          icon="refresh-outline"
+          title="Reset Demo Data"
+          subtitle="Put all example data back to how it started"
+          onPress={handleResetDemoData}
+        />
+        <ListRow
           icon="help-circle-outline"
           title="Help & Support"
           subtitle="Coming soon"
@@ -119,7 +142,9 @@ export default function ProfileScreen() {
       <View style={styles.logoutWrap}>
         <Button title="Log Out" variant="destructive" icon="log-out-outline" onPress={handleLogout} />
         <AppText variant="small" tone="muted" style={styles.footer}>
-          Shift Shepherd · Demo build with simulated data
+          {authMode === 'supabase'
+            ? 'Shift Shepherd · Signed in with your church account'
+            : 'Shift Shepherd · Demo account with example data'}
         </AppText>
       </View>
     </Screen>

@@ -10,7 +10,7 @@ Guiding principle: the app was built so that screens never touch data directly �
 
 Each step leaves the app fully working. Don't start a step until the previous one is demoable.
 
-### 1. Supabase project & environment setup
+### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
 - Run the three migrations in order (see `supabase/README.md` for CLI filename requirements vs dashboard paste order).
@@ -18,9 +18,15 @@ Each step leaves the app fully working. Don't start a step until the previous on
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-### 2. Auth + profiles
+### 2. Auth + profiles ✅ (mostly done)
 
-The single riskiest step — do it alone, in its own PR.
+The single riskiest step — done in its own pass. What shipped:
+
+- `src/lib/supabase/client.ts` creates an env-guarded client (AsyncStorage-backed session persistence on native; demo mode when env vars are missing).
+- `AuthContext` supports **two modes** behind an unchanged screen-facing API: demo (mock selector, remembered locally) and Supabase email/password with session restore + auth-state listener.
+- After login the `profiles` row is fetched by `auth_user_id = auth.uid()`. Because feature data is still mocked, profiles whose email matches a demo person are bridged onto the mock identity (id, teams, permissions); unrecognised profiles get their real org role and no mock memberships. Auth users with no linked profile get a friendly message and are signed out — no auto-created profiles yet.
+
+Still to do in this step:
 
 - Add a `handle_new_user` trigger (new migration) that inserts a `profiles` row on signup. For V1 single-church, it can hard-code the Grace Community organisation id and a `general_member` org role:
   ```sql
@@ -35,9 +41,7 @@ The single riskiest step — do it alone, in its own PR.
     for each row execute function public.handle_new_user();
   ```
   Multi-church later replaces the hard-coded org with invite codes.
-- Rework `src/lib/auth/AuthContext.tsx` internals: `signInWithEmail` → `supabase.auth.signInWithPassword`, `signOut` → `supabase.auth.signOut`, and build `SessionUser` (profile + orgRole + memberships) from a query instead of mock arrays. **The context's public API does not change**, so no screen changes.
-- Keep the **test-account selector working** during development: behind `__DEV__` or an env flag, map each test account to a real seeded auth user and sign in with a known password. This preserves the multi-role demo workflow.
-- Add session persistence (`AsyncStorage` adapter) and an auth-state listener so cold starts restore the session.
+- Replace the email→mock-identity bridge in `buildSupabaseSession` with sessions built entirely from `profiles` + `organisation_roles` + `team_memberships` queries. This happens naturally once teams/memberships go live (step 6) — until then live team UUIDs would not match mock team ids.
 
 ### 3. Organisations & roles
 
@@ -130,4 +134,4 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## Recommended immediate next task
 
-Step 1 + 2 together: stand up a dev Supabase project, apply migrations, run the seed, link five auth users, then swap `AuthContext` internals to real Supabase Auth behind the unchanged context API — keeping the dev test-account selector working. Everything else stays on mocks. That single PR proves the schema, the RLS helpers, and the auth link end-to-end.
+Steps 1–2 are done (auth + profile lookup are live; everything else is mocked but persisted locally). Next: add the `handle_new_user` trigger migration, then start **step 4 — announcements** as the first vertical data slice, establishing the service/optimistic-update pattern every later slice repeats.

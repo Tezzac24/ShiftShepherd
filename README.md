@@ -2,14 +2,15 @@
 
 A mobile-first church coordination app for **Grace Community Church** — events, announcements, team rotas, choir song management, and team chat, all in one calm place. Built to reduce reliance on WhatsApp.
 
-**Status:** functional scaffold / demo MVP. All data is mocked and lives in local state; the architecture is ready for Supabase (auth, Postgres, RLS, realtime) to be wired in later.
+**Status:** functional scaffold / demo MVP with optional Supabase Auth and local persistence. Feature data (announcements, events, rotas, songs, chat, notification preferences) is still mocked, but changes now survive app restarts. Only auth + profile lookup run against Supabase so far.
 
 ## Current Scaffold Highlights
 
 - Home prioritises latest announcement, next upcoming event, then the user's next team responsibility.
 - Event create/edit uses an inline calendar date picker, a simple readable time list, and recurrence choices including monthly weekday patterns.
 - Recurring events are stored as base mock rows and expanded locally for upcoming Home and Calendar lists.
-- Supabase planning includes `003_add_event_recurrence.sql`; the app is still not wired to live Supabase.
+- Supabase planning includes `003_add_event_recurrence.sql`; only auth + profile lookup are wired to live Supabase, and feature data stays mocked/local.
+- Demo changes (announcements, rotas, songs, messages, notification settings...) persist locally via AsyncStorage and can be reset from **Profile -> Reset Demo Data**.
 
 ## Tech Stack
 
@@ -33,6 +34,33 @@ npm run typecheck  # TypeScript check
 npx expo export    # Bundle/export sanity check
 ```
 
+## Running the App
+
+### Demo mode (no configuration needed)
+
+With no `.env` file the app runs fully offline on mock data. Pick a test account on the login screen (see table below), or type any mock email (e.g. `michael@gracecommunity.church`) with any password. The selected account is remembered between launches.
+
+### With Supabase Auth
+
+1. Copy `.env.example` to `.env` and fill in from your Supabase dev project (Settings -> API):
+   ```
+   EXPO_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon key>
+   ```
+   These are public, RLS-protected values. **Never** put a service_role key in the app.
+2. Make sure the migrations and `supabase/seed/dev_seed.sql` have been run.
+3. Create Supabase Auth users (Dashboard -> Authentication -> Users) for the demo people you want to log in as, and link each one to its seeded profile via `profiles.auth_user_id` - the exact steps are in `supabase/seed/README.md`.
+4. Restart Expo (`npm start`) so the env vars are picked up, then log in with the real email/password. The session is restored on cold start; sign out from the Profile tab.
+
+Notes:
+- A Supabase auth user with **no linked profile** gets a friendly "account not linked yet" message - no profile is auto-created in this phase.
+- Signed-in Supabase users whose profile email matches a demo person get that person's teams/permissions (feature data is still mocked, so demo identities are bridged inside the auth layer).
+- The demo account selector stays available even when Supabase is configured.
+
+### Local persistence & reset
+
+Changes you make in the app (announcements, events, rotas, songs, messages, notification settings) are saved on-device with a versioned envelope. Corrupt or outdated saved data is discarded safely; the app falls back to the original mock examples. **Profile -> Reset Demo Data** restores everything to the original seed state.
+
 ## Demo Login
 
 The login screen has a **test account selector**. Pick any account to explore that role:
@@ -48,7 +76,7 @@ The login screen has a **test account selector**. Pick any account to explore th
 | David Chen | Media Team Leader | Managing the media rota |
 | Ruth Johnson | General Member | Empty states (no teams, no responsibilities) |
 
-You can also "log in" with any mock user's email (e.g. `michael@gracecommunity.church`) and any password.
+When Supabase is **not** configured, you can also "log in" with any mock user's email (e.g. `michael@gracecommunity.church`) and any password. When Supabase **is** configured, the email/password form performs real Supabase Auth sign-in instead.
 
 ## Project Structure
 
@@ -58,11 +86,12 @@ src/
   features/           # Screen implementations, grouped by feature
   components/         # Reusable UI (buttons, cards, badges, dialogs, fields…)
   lib/
-    auth/             # Auth abstraction (mock login — Supabase Auth later)
-    appData/          # App state store + selectors (mock CRUD — Supabase later)
+    auth/             # Auth abstraction (demo mode + real Supabase Auth)
+    appData/          # App state store + selectors (mock CRUD, persisted locally)
     mockData/         # Realistic seed data matching the Supabase schema
     permissions/      # All role/permission checks live here
-    supabase/         # Placeholder client (TODO: wire to Supabase)
+    storage/          # Versioned AsyncStorage persistence helpers
+    supabase/         # Env-guarded Supabase client (auth + profile lookup only)
     notifications/    # Stub (TODO: Expo Notifications)
   types/              # Entity types mirroring the intended Supabase schema
   utils/              # Dates, ids

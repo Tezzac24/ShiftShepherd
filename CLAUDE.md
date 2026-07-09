@@ -68,6 +68,7 @@ The app uses Expo Router: `app/` contains file-based routes (thin re-exports), `
 │  │   ├── auth/
 │  │   ├── mockData/
 │  │   ├── permissions/
+│  │   ├── storage/
 │  │   ├── supabase/
 │  │   └── notifications/
 │  ├── types/
@@ -87,22 +88,23 @@ The app uses Expo Router: `app/` contains file-based routes (thin re-exports), `
 - **React Native** with **Expo** (~54)
 - **TypeScript** (strict mode)
 - **Expo Router** (file-based routing; `app/` routes re-export screens from `src/features/`)
-- **Supabase** — intended production backend (auth, DB, realtime, storage); mock/stub layer during scaffold
+- **Supabase** — production backend. Currently wired: **email/password Auth + signed-in profile lookup only** (env-guarded client in `src/lib/supabase/client.ts`; demo mode when env vars are missing). All feature data stays mocked/local.
+- **AsyncStorage** — versioned local persistence for demo/mock state (`src/lib/storage/persistence.ts`)
 - **@expo/vector-icons**; notifications are stubbed (`src/lib/notifications/`)
 
 ## Architecture Patterns
 
 ### Authentication
-Auth logic must be abstracted behind a service layer (`src/lib/auth/`) so Supabase Auth can be swapped later. The scaffold uses simulated login with hardcoded test user profiles (Church Admin, Team Leader, Choir Member, General Member, etc.).
+Auth logic stays abstracted behind `src/lib/auth/AuthContext.tsx`, which is dual-mode: **demo login** with hardcoded test user profiles (always available; the only mode when Supabase env vars are missing), and **Supabase email/password Auth** with session restore, an auth-state listener, and a `profiles.auth_user_id = auth.uid()` lookup mapped into the app's `SessionUser` shape. Do not spread mode selection or session mapping across screens.
 
 ### Role-Based UI
 All screens render conditionally based on the current user's `OrganisationRole`. Permission checks belong in `src/lib/permissions/`, not inline in components.
 
-### Mock Data
-All mock data goes in `src/lib/mockData/`. The data models must match the intended Supabase schema (defined in `docs/one-shot-build-prompt.md`, section 5) — even for mocked data.
+### Mock Data & Local Persistence
+All mock data goes in `src/lib/mockData/`. The data models must match the intended Supabase schema (defined in `docs/one-shot-build-prompt.md`, section 5) — even for mocked data. Mutable app state is persisted to AsyncStorage through `src/lib/storage/persistence.ts` (version envelope, safe fallback to mock seeds on invalid data); the mock seeds remain the reset source of truth (**Profile → Reset Demo Data**).
 
 ### Backend Abstraction
-API calls go through a service layer (`src/lib/supabase/` or `src/api/`). During the scaffold, these functions return mock data. The interface must match what a real Supabase implementation would look like so swapping is straightforward.
+API calls go through a service layer (`src/lib/supabase/` or `src/api/`). Only auth/session operations and the signed-in user's profile lookup may hit live Supabase; everything else returns mock data through `src/lib/appData/`. The interfaces must match what a real Supabase implementation would look like so swapping is straightforward. Never use service role keys; `.env.example` stays placeholder-only.
 
 ## Data Models
 
@@ -134,7 +136,7 @@ Colour tokens, typography, and spacing are in `constants/theme.ts`.
 
 ## Scope Notes
 
-V1 is a **functional scaffold with mocked data** — not a production app. Do not wire real Supabase, real push notifications, or real auth unless it can be done cleanly without blocking scaffold completion. Use clear `// TODO: wire to Supabase` comments at integration points.
+V1 is a **functional scaffold with mocked, locally persisted data** plus optional real Supabase email/password Auth — not a production app. Do not wire Supabase feature data (announcements, events, rotas, songs, chat, preferences), realtime, storage, push delivery, OAuth, or SMS login unless explicitly requested. Use clear `// TODO: wire to Supabase` comments at integration points.
 
 The choir feature is a first-class priority for V1 (song database, song selection for rota dates, choir-specific rota).
 

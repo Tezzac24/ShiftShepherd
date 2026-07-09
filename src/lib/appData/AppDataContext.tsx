@@ -1,14 +1,27 @@
 /**
  * App data store for the scaffold.
  *
- * Holds every mutable collection in React state, seeded from mock data.
+ * Holds every mutable collection in React state, seeded from mock data and
+ * persisted to AsyncStorage so demo changes survive an app restart. The mock
+ * seed files remain the reset source of truth. The Profile reset clears
+ * persisted state and restores them. Invalid or outdated persisted data is
+ * discarded safely (see lib/storage/persistence.ts).
+ *
  * Actions mirror the calls a Supabase service layer would expose, so wiring
  * the real backend later means swapping implementations, not screens.
  *
  * TODO: wire to Supabase — replace state mutations with inserts/updates/
  * deletes + Realtime subscriptions.
  */
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   Announcement,
@@ -46,13 +59,54 @@ import {
   mockUsers,
   ORG_ID,
 } from '../mockData';
+import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../storage/persistence';
 
 export interface NewRotaAssignmentInput {
   user_id: string;
   role_name: string;
 }
 
+/** Everything mutable that is persisted between app launches. */
+interface PersistedAppData {
+  announcements: Announcement[];
+  events: Event[];
+  rotaEntries: RotaEntry[];
+  rotaAssignments: RotaAssignment[];
+  availabilityResponses: AvailabilityResponse[];
+  songs: Song[];
+  songSelections: ChoirSongSelection[];
+  chatMessages: ChatMessage[];
+  unreadByTeam: Record<string, number>;
+  notificationPrefs: Record<string, NotificationPreferences>;
+}
+
+/** Cheap structural check so corrupt/partial persisted data never loads. */
+function isPersistedAppData(data: unknown): data is PersistedAppData {
+  if (typeof data !== 'object' || data === null) return false;
+  const d = data as Record<string, unknown>;
+  const arrayKeys: (keyof PersistedAppData)[] = [
+    'announcements',
+    'events',
+    'rotaEntries',
+    'rotaAssignments',
+    'availabilityResponses',
+    'songs',
+    'songSelections',
+    'chatMessages',
+  ];
+  return (
+    arrayKeys.every((k) => Array.isArray(d[k])) &&
+    typeof d.unreadByTeam === 'object' &&
+    d.unreadByTeam !== null &&
+    typeof d.notificationPrefs === 'object' &&
+    d.notificationPrefs !== null
+  );
+}
+
 interface AppDataContextValue {
+  /** False until persisted demo state has been restored (or fallen back). */
+  isHydrated: boolean;
+
   // Static reference data (would be Supabase tables)
   organisation: Organisation;
   users: UserProfile[];
@@ -121,6 +175,9 @@ interface AppDataContextValue {
     userId: string,
     patch: Partial<NotificationPreferences>,
   ) => void;
+
+  /** Restores the original mock seed data and clears persisted demo changes. */
+  resetDemoData: () => Promise<void>;
 }
 
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
@@ -141,6 +198,87 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [notificationPrefs, setNotificationPrefs] = useState<
     Record<string, NotificationPreferences>
   >({});
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Restore persisted demo changes once at startup. Anything invalid, stale,
+  // or from an older persistence version simply leaves the mock seeds in place.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const persisted = await loadPersisted<PersistedAppData>(
+        STORAGE_KEYS.appData,
+        isPersistedAppData,
+      );
+      if (persisted && !cancelled) {
+        setAnnouncements(persisted.announcements);
+        setEvents(persisted.events);
+        setRotaEntries(persisted.rotaEntries);
+        setRotaAssignments(persisted.rotaAssignments);
+        setAvailabilityResponses(persisted.availabilityResponses);
+        setSongs(persisted.songs);
+        setSongSelectionsState(persisted.songSelections);
+        setChatMessages(persisted.chatMessages);
+        setUnreadByTeam(persisted.unreadByTeam);
+        setNotificationPrefs(persisted.notificationPrefs);
+      }
+      if (!cancelled) setIsHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Persist demo changes (debounced) after hydration.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    const snapshot: PersistedAppData = {
+      announcements,
+      events,
+      rotaEntries,
+      rotaAssignments,
+      availabilityResponses,
+      songs,
+      songSelections,
+      chatMessages,
+      unreadByTeam,
+      notificationPrefs,
+    };
+    saveTimer.current = setTimeout(() => {
+      savePersisted(STORAGE_KEYS.appData, snapshot);
+    }, 400);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [
+    isHydrated,
+    announcements,
+    events,
+    rotaEntries,
+    rotaAssignments,
+    availabilityResponses,
+    songs,
+    songSelections,
+    chatMessages,
+    unreadByTeam,
+    notificationPrefs,
+  ]);
+
+  const resetDemoData = useCallback(async () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    await clearPersisted(STORAGE_KEYS.appData);
+    setAnnouncements(mockAnnouncements);
+    setEvents(mockEvents);
+    setRotaEntries(mockRotaEntries);
+    setRotaAssignments(mockRotaAssignments);
+    setAvailabilityResponses(mockAvailabilityResponses);
+    setSongs(mockSongs);
+    setSongSelectionsState(mockSongSelections);
+    setChatMessages(mockChatMessages);
+    setUnreadByTeam(mockUnreadByTeam);
+    setNotificationPrefs({});
+  }, []);
 
   const now = () => new Date().toISOString();
 
@@ -389,6 +527,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppDataContextValue>(
     () => ({
+      isHydrated,
       organisation: mockOrganisation,
       users: mockUsers,
       teams: mockTeams,
@@ -421,8 +560,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       markTeamChatRead,
       getNotificationPreferences,
       updateNotificationPreferences,
+      resetDemoData,
     }),
     [
+      isHydrated,
       announcements,
       events,
       rotaEntries,
@@ -450,6 +591,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       markTeamChatRead,
       getNotificationPreferences,
       updateNotificationPreferences,
+      resetDemoData,
     ],
   );
 

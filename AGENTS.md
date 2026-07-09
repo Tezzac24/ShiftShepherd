@@ -17,7 +17,7 @@ The Expo app lives in the repository root:
 
 The app replaces WhatsApp for church operations: scheduling, rotas, team communication, choir song management, and announcements.
 
-The current project state is a functional dummy-data scaffold. The frontend runs on mocked auth, local app state, and seeded mock data. Supabase is the intended production backend, but the app should not be wired to live Supabase unless explicitly requested.
+The current project state is a functional scaffold with locally persisted mock data. Auth supports two modes behind one abstraction: demo mode (mock test users, always available) and real Supabase email/password Auth when `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` are configured. Only auth/session operations and the signed-in user's profile lookup run against live Supabase; all feature data (announcements, events, teams, rotas, songs, chat, notification preferences) stays mocked/local and should not be wired to Supabase unless explicitly requested.
 
 ---
 
@@ -135,6 +135,7 @@ Current architecture:
 │  │   ├── auth/
 │  │   ├── mockData/
 │  │   ├── permissions/
+│  │   ├── storage/
 │  │   ├── supabase/
 │  │   └── notifications/
 │  ├── types/
@@ -172,7 +173,7 @@ Current architecture:
 
 Auth logic must remain abstracted behind `src/lib/auth/`.
 
-The current scaffold uses simulated login with hardcoded test user profiles.
+Auth is dual-mode: demo login with hardcoded test user profiles (always available; the only mode when Supabase env vars are missing), and Supabase email/password Auth with session restore and a `profiles.auth_user_id` lookup. Mode selection and Supabase-profile-to-session mapping live entirely inside `src/lib/auth/AuthContext.tsx`.
 
 Do not scatter auth/session logic across screens.
 
@@ -199,7 +200,7 @@ Client-side permissions only hide/show UI. Supabase RLS is the future server-sid
 
 ### App Data and Local State
 
-The dummy-data scaffold should continue to use local app state unless explicitly asked to wire Supabase.
+Feature data continues to use local app state (persisted to AsyncStorage via `src/lib/storage/persistence.ts`, with a version envelope and safe fallback to mock seeds) unless explicitly asked to wire Supabase. "Reset Demo Data" on the Profile screen restores the mock seeds.
 
 App-wide data/actions/selectors should stay in the existing `src/lib/appData/` structure.
 
@@ -213,11 +214,11 @@ The mock data should stay realistic and should continue to map closely to the in
 
 ### Supabase
 
-Supabase-related stubs and future integration code belong in `src/lib/supabase/`.
+Supabase integration code belongs in `src/lib/supabase/`. The client (`client.ts`) is env-guarded: it returns null without `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` and the app runs in demo mode.
 
-Do not connect to a live Supabase project unless explicitly asked.
+Only auth/session + signed-in profile lookup may hit live Supabase. Do not wire feature data (announcements, events, rotas, songs, chat, notification preferences) to Supabase unless explicitly asked.
 
-Do not ask for or use real Supabase credentials unless the user explicitly begins the integration step.
+Never use or request service role keys; `.env.example` stays placeholder-only.
 
 Supabase SQL and docs live under:
 
@@ -289,11 +290,11 @@ The choir feature is first-class for V1:
 
 ## Current Scope
 
-V1 is a functional scaffold with mocked data.
+V1 is a functional scaffold with mocked, locally persisted data plus optional Supabase email/password Auth.
 
 Do not add these unless explicitly requested:
 
-- Real Supabase connection
+- Supabase feature-data sync (announcements, events, rotas, songs, chat, preferences)
 - Real OAuth
 - Real SMS login
 - Real push notifications

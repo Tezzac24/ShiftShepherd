@@ -1,14 +1,34 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { colors } from '@/constants/theme';
+import { colors, spacing } from '@/constants/theme';
+import { AppText } from '@/src/components/AppText';
 import { ConfirmProvider } from '@/src/components/ConfirmDialog';
-import { AppDataProvider } from '@/src/lib/appData/AppDataContext';
+import { AppDataProvider, useAppData } from '@/src/lib/appData/AppDataContext';
 import { AuthProvider, useAuth } from '@/src/lib/auth/AuthContext';
 
+/** Calm full-screen loader shown while saved data/session is restored. */
+function StartupScreen() {
+  return (
+    <View style={styles.startup}>
+      <AppText variant="title">Shift Shepherd</AppText>
+      <ActivityIndicator size="large" color={colors.primary} />
+      <AppText tone="secondary">Getting things ready...</AppText>
+    </View>
+  );
+}
+
 function RootStack() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+  const { isHydrated } = useAppData();
+
+  // Never show a blank screen or flash the wrong route: wait until the saved
+  // session and demo data have been restored before mounting the router.
+  if (isLoading || !isHydrated) {
+    return <StartupScreen />;
+  }
 
   return (
     <Stack
@@ -63,3 +83,13 @@ export default function RootLayout() {
     </AuthProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  startup: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.background,
+  },
+});

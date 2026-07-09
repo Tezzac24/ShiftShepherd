@@ -14,25 +14,34 @@ import { useAuth } from '../../lib/auth/AuthContext';
 import { mockUsers, testAccounts } from '../../lib/mockData';
 
 /**
- * Login screen. Production sign-in (email/password, Google, Facebook, phone)
- * is represented in the UI but simulated; demo mode signs in as a test user.
- * TODO: wire to Supabase Auth.
+ * Login screen. Email/password uses real Supabase Auth when the app is
+ * configured with Supabase credentials; otherwise it falls back to the demo
+ * behaviour (any password for a known mock email). The demo account selector
+ * is always available. Google/Facebook/phone stay placeholders for now.
  */
 export default function LoginScreen() {
   const router = useRouter();
-  const { signInWithEmail, signInAsTestUser } = useAuth();
+  const { signInWithEmail, signInAsTestUser, supabaseEnabled } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleEmailLogin = () => {
-    const err = signInWithEmail(email, password);
-    setError(err);
-    if (!err) router.replace('/(tabs)/home');
+  const handleEmailLogin = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const err = await signInWithEmail(email, password);
+      setError(err);
+      if (!err) router.replace('/(tabs)/home');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const comingSoon = (method: string) => {
-    const message = `${method} sign-in will be available when the app is connected to Supabase Auth. For now, please use a test account below.`;
+    const message = `${method} sign-in isn’t available yet. Please log in with your email and password, or use a demo account below.`;
     if (Platform.OS === 'web') {
       setError(message);
     } else {
@@ -77,7 +86,12 @@ export default function LoginScreen() {
             onChangeText={setPassword}
             error={error ?? undefined}
           />
-          <Button title="Log in" onPress={handleEmailLogin} icon="log-in-outline" />
+          <Button
+            title="Log in"
+            onPress={handleEmailLogin}
+            icon="log-in-outline"
+            loading={submitting}
+          />
 
           <View style={styles.socialRow}>
             <SocialButton icon="logo-google" label="Google" onPress={() => comingSoon('Google')} />
@@ -94,7 +108,9 @@ export default function LoginScreen() {
           </View>
 
           <AppText variant="small" tone="muted" style={styles.center}>
-            This is a demo build — sign-in is simulated. Production login will use Supabase Auth.
+            {supabaseEnabled
+              ? 'Log in with the email and password your church gave you, or explore with a demo account below.'
+              : 'This build isn’t connected to a live server — sign-in is simulated. Use a demo account below, or any mock email with any password.'}
           </AppText>
         </View>
 
