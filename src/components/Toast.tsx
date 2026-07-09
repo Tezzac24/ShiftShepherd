@@ -1,12 +1,13 @@
 /**
  * Lightweight toast feedback for completed actions ("Event created.").
  *
- * A small self-dismissing banner near the bottom of the screen — calm and
+ * A small self-dismissing banner near the top of the screen - calm and
  * non-blocking, so it never interrupts navigation or requires a tap. Screens
  * show successes here and keep failures as inline messages next to the
  * action, where the context is. Works on iOS, Android, AND web (no Alert).
  */
 import { Ionicons } from '@expo/vector-icons';
+import { useSegments } from 'expo-router';
 import React, {
   createContext,
   useCallback,
@@ -35,14 +36,17 @@ interface ToastState {
 const ToastContext = createContext<ShowToastFn | undefined>(undefined);
 
 const SHOW_MS = 3200;
+const STACK_HEADER_CLEARANCE = 56;
+const ROOT_ROUTES_WITHOUT_HEADER = new Set(['(tabs)', 'index', 'login']);
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
+  const segments = useSegments();
   const [toast, setToast] = useState<ToastState | null>(null);
   const nextId = useRef(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(12)).current;
+  const translateY = useRef(new Animated.Value(-10)).current;
 
   const showToast = useCallback<ShowToastFn>((message, tone = 'success') => {
     nextId.current += 1;
@@ -62,7 +66,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!toast) return;
     opacity.setValue(0);
-    translateY.setValue(12);
+    translateY.setValue(-10);
     Animated.parallel([
       Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
       Animated.timing(translateY, { toValue: 0, duration: 180, useNativeDriver: true }),
@@ -74,6 +78,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, [toast, opacity, translateY, dismiss]);
 
   const tone = toast?.tone ?? 'success';
+  const rootSegment = segments[0];
+  const hasVisibleStackHeader =
+    !!rootSegment && !ROOT_ROUTES_WITHOUT_HEADER.has(rootSegment);
 
   return (
     <ToastContext.Provider value={showToast}>
@@ -82,10 +89,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         // box-none: the wrapper never blocks touches on the screen below.
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
           <Animated.View
+            pointerEvents="box-none"
             style={[
               styles.holder,
-              // Sits above the tab bar (and the home indicator) on every screen.
-              { bottom: insets.bottom + 76 },
+              // Tabs have no native header; pushed screens clear the header/back button.
+              {
+                top:
+                  insets.top +
+                  spacing.md +
+                  (hasVisibleStackHeader ? STACK_HEADER_CLEARANCE : 0),
+              },
               { opacity, transform: [{ translateY }] },
             ]}
           >
