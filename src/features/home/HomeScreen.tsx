@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { colors, spacing } from '../../../constants/theme';
 import { AnnouncementCard } from '../../components/AnnouncementCard';
@@ -83,6 +83,20 @@ export default function HomeScreen() {
           onPress={() =>
             router.push({ pathname: '/announcements/[id]', params: { id: announcement.id } })
           }
+        />
+      ) : data.announcementsLoading ? (
+        // Live mode: announcements are still on their way from the server.
+        <Card>
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={colors.primary} />
+            <AppText tone="secondary">Loading announcements…</AppText>
+          </View>
+        </Card>
+      ) : data.announcementsError ? (
+        <EmptyState
+          icon="cloud-offline-outline"
+          title="Couldn’t load announcements"
+          message={data.announcementsError}
         />
       ) : (
         <EmptyState
@@ -249,6 +263,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   hintRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   teamCard: { paddingVertical: spacing.md },
   weekCard: { paddingVertical: spacing.md },
   teamRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },

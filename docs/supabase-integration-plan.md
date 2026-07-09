@@ -18,6 +18,8 @@ Each step leaves the app fully working. Don't start a step until the previous on
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
+> **Migration-history caveat (dev project, checked July 2026):** migrations `001`–`002` were run manually through the dashboard SQL editor, so `supabase_migrations.schema_migrations` does not exist and the CLI/MCP migration history is empty — **don't treat Supabase migration history as a source of truth**; use live schema introspection (e.g. the Supabase MCP server) together with the local migration files. Migrations `003`–`005` are **not applied remotely yet** (verified: `events.is_recurring`, `choir_rota_song_selections.section`, and `rota_entries.status` are all absent). Align the remote dev DB with `003`–`005` before wiring events, songs, or rota cancellation — none of them block announcements.
+
 ### 2. Auth + profiles ✅ (mostly done)
 
 The single riskiest step — done in its own pass. What shipped:
@@ -47,16 +49,19 @@ Still to do in this step:
 
 Mostly free after step 2 — `SessionUser` already carries org + role. Point the organisation name on Home at the fetched row. No UI changes.
 
-### 4. Announcements — the first vertical slice ⭐
+### 4. Announcements — the first vertical slice ⭐ ✅ (done)
 
 Announcements are the ideal first table: church-wide + team visibility exercises the core RLS patterns, it has full CRUD in the UI, and failure is low-stakes (no cascading features depend on it).
 
-Pattern to establish (then repeat for every feature):
+What shipped (the pattern to repeat for every feature):
 
-1. Create `src/lib/supabase/services/announcements.ts` with `list / create / update / remove` functions returning the existing `Announcement` type.
-2. In `AppDataContext`, replace the `announcements` slice: fetch on login, keep the same state shape, make `addAnnouncement`/`updateAnnouncement`/`deleteAnnouncement` call the service with **optimistic updates + rollback on error** (surface "Your changes could not be saved. Please try again.").
-3. Screens and selectors don't change at all.
-4. Verify RLS from the app: log in as Ruth (can read, no create button, and a hand-crafted insert fails server-side), Miriam (church-wide CRUD), Sarah (choir announcements only).
+1. `src/lib/supabase/services/announcements.ts` — `listAnnouncements / createAnnouncement / updateAnnouncement / deleteAnnouncement` returning the existing `Announcement` type, with all DB↔app mapping centralized there. The live table uses `body` (not "content") and `pinned` (not "priority"); `audience` is always derived from `team_id` so the DB check constraint holds; `updated_at` is trigger-owned and never sent.
+2. `AppDataContext` keeps **two announcement stores**: the persisted local/demo list (unchanged, still reset by Reset Demo Data) and a session-only live list used when `authMode === 'supabase'` and the session carries a linked profile id (`SessionUser.supabaseProfileId`). `add/update/deleteAnnouncement` are now async in both modes; in live mode they apply the server-returned row, then quietly re-sync the list. Errors reject with friendly messages and never mutate state.
+3. Screens gained loading/saving/error states but kept the same selectors and data shapes.
+4. **Id bridging (temporary):** because people/teams are still mocked, the service maps live profile UUIDs ↔ mock user ids by email and live team UUIDs ↔ mock team ids by name (same philosophy as the auth email bridge). Remove when step 6 (teams) goes live.
+5. **Deferred:** `linked_event_id` writes (events are still local — the picker is hidden in live mode) and optimistic-update-with-rollback (simple await + friendly error was safer for a first slice; revisit when a slice needs snappier UX).
+
+Verify RLS from the app: log in as Ruth (can read, no create button, and a hand-crafted insert fails server-side), Miriam (church-wide CRUD), Sarah (choir announcements only).
 
 ### 5. Events
 
@@ -140,4 +145,10 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## Recommended immediate next task
 
-Steps 1–2 are done (auth + profile lookup are live; everything else is mocked but persisted locally). Next: add the `handle_new_user` trigger migration, then start **step 4 — announcements** as the first vertical data slice, establishing the service/optimistic-update pattern every later slice repeats.
+Steps 1–2 and 4 are done (auth + profile lookup + announcements are live; everything else is mocked but persisted locally). Next, in order of value:
+
+1. Apply migrations `003`–`005` to the remote dev DB and start tracking migration history properly (CLI `supabase db push` after renaming to timestamped files — see `supabase/README.md`).
+2. Add the `handle_new_user` trigger migration.
+3. Start **step 5 — events**, repeating the announcements service pattern (which also unblocks live `linked_event_id`).
+
+Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

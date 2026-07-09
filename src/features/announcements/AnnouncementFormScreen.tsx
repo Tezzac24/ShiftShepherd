@@ -66,6 +66,7 @@ export default function AnnouncementFormScreen() {
   );
   const [includeImage, setIncludeImage] = useState(!!existing?.image_url);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const allowed = editing ? canEditAnnouncement(user, existing) : audienceOptions.length > 0;
   if (!allowed) {
@@ -81,7 +82,8 @@ export default function AnnouncementFormScreen() {
     );
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saving) return; // no duplicate submissions
     if (!title.trim() || !body.trim() || !audience) {
       setError('Please add a title, a message, and choose who should see it.');
       return;
@@ -93,15 +95,31 @@ export default function AnnouncementFormScreen() {
       audience: (audience === CHURCH_WIDE ? 'church' : 'team') as 'church' | 'team',
       pinned,
       image_url: includeImage ? 'placeholder' : null,
-      linked_event_id: linkedEventId === 'none' ? null : linkedEventId,
+      // Event linking stays a demo-mode feature until events go live too.
+      linked_event_id: data.announcementsLive
+        ? null
+        : linkedEventId === 'none'
+          ? null
+          : linkedEventId,
       created_by: existing?.created_by ?? user.profile.id,
     };
-    if (existing) {
-      data.updateAnnouncement(existing.id, record);
-    } else {
-      data.addAnnouncement(record);
+    setError(null);
+    setSaving(true);
+    try {
+      if (existing) {
+        await data.updateAnnouncement(existing.id, record);
+      } else {
+        await data.addAnnouncement(record);
+      }
+      router.back();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Your changes could not be saved. Please try again.',
+      );
+      setSaving(false);
     }
-    router.back();
   };
 
   return (
@@ -126,16 +144,20 @@ export default function AnnouncementFormScreen() {
         options={audienceOptions}
         onChange={setAudience}
       />
-      <SelectField
-        label="Linked event (optional)"
-        placeholder="No linked event"
-        value={linkedEventId ?? 'none'}
-        options={[
-          { label: 'No linked event', value: 'none' },
-          ...data.events.map((e) => ({ label: e.title, value: e.id })),
-        ]}
-        onChange={(v) => setLinkedEventId(v === 'none' ? null : v)}
-      />
+      {/* Events are still demo/local data, so live announcements can't link
+          to them yet — the picker only appears in demo mode. */}
+      {!data.announcementsLive ? (
+        <SelectField
+          label="Linked event (optional)"
+          placeholder="No linked event"
+          value={linkedEventId ?? 'none'}
+          options={[
+            { label: 'No linked event', value: 'none' },
+            ...data.events.map((e) => ({ label: e.title, value: e.id })),
+          ]}
+          onChange={(v) => setLinkedEventId(v === 'none' ? null : v)}
+        />
+      ) : null}
 
       <Card style={styles.toggleCard}>
         <View style={styles.toggleRow}>
@@ -178,9 +200,15 @@ export default function AnnouncementFormScreen() {
         <Button
           title={editing ? 'Save Changes' : 'Post Announcement'}
           icon="checkmark-outline"
-          onPress={handleSave}
+          loading={saving}
+          onPress={() => void handleSave()}
         />
-        <Button title="Cancel" variant="secondary" onPress={() => router.back()} />
+        <Button
+          title="Cancel"
+          variant="secondary"
+          disabled={saving}
+          onPress={() => router.back()}
+        />
       </View>
     </Screen>
   );

@@ -17,7 +17,7 @@ The Expo app lives in the repository root:
 
 The app replaces WhatsApp for church operations: scheduling, rotas, team communication, choir song management, and announcements.
 
-The current project state is a functional scaffold with locally persisted mock data. Auth supports two modes behind one abstraction: demo mode (mock test users, always available) and real Supabase email/password Auth when `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` are configured. Only auth/session operations and the signed-in user's profile lookup run against live Supabase; all feature data (announcements, events, teams, rotas, songs, chat, notification preferences) stays mocked/local and should not be wired to Supabase unless explicitly requested.
+The current project state is a functional scaffold with locally persisted mock data. Auth supports two modes behind one abstraction: demo mode (mock test users, always available) and real Supabase email/password Auth when `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` are configured. Live Supabase currently serves auth/session operations, the signed-in user's profile lookup, and the **announcements** feature slice (live only for Supabase-Auth sessions with a linked profile; demo mode keeps announcements local). All other feature data (events, teams, rotas, songs, chat, notification preferences) stays mocked/local and should not be wired to Supabase unless explicitly requested.
 
 ---
 
@@ -216,7 +216,9 @@ The mock data should stay realistic and should continue to map closely to the in
 
 Supabase integration code belongs in `src/lib/supabase/`. The client (`client.ts`) is env-guarded: it returns null without `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` and the app runs in demo mode.
 
-Only auth/session + signed-in profile lookup may hit live Supabase. Do not wire feature data (announcements, events, rotas, songs, chat, notification preferences) to Supabase unless explicitly asked.
+Live Supabase currently serves: auth/session, the signed-in profile lookup, and **announcements** (`src/lib/supabase/services/announcements.ts` — the pattern for future slices; DB↔app mapping stays centralized there, and the live table uses `body` and `pinned`). Do not wire further feature data (events, teams, rotas, songs, chat, notification preferences) to Supabase unless explicitly asked.
+
+The Supabase MCP server is configured against the dev project — use it to inspect the live schema/data. Migration history is not tracked there (early migrations were run manually; `003`–`005` are not applied remotely yet), so introspect the schema rather than trusting migration history, and don't apply migrations unless explicitly asked.
 
 Never use or request service role keys; `.env.example` stays placeholder-only.
 
@@ -290,11 +292,11 @@ The choir feature is first-class for V1:
 
 ## Current Scope
 
-V1 is a functional scaffold with mocked, locally persisted data plus optional Supabase email/password Auth.
+V1 is a functional scaffold with mocked, locally persisted data plus optional Supabase email/password Auth and a live announcements slice.
 
 Do not add these unless explicitly requested:
 
-- Supabase feature-data sync (announcements, events, rotas, songs, chat, preferences)
+- Further Supabase feature-data sync (events, teams, rotas, songs, chat, preferences)
 - Real OAuth
 - Real SMS login
 - Real push notifications

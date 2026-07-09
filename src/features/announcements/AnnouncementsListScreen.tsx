@@ -1,7 +1,10 @@
 import { Stack, useRouter } from 'expo-router';
 import React from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { colors, spacing } from '../../../constants/theme';
 import { AnnouncementCard } from '../../components/AnnouncementCard';
+import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
@@ -16,6 +19,9 @@ export default function AnnouncementsListScreen() {
   const data = useAppData();
 
   const announcements = visibleAnnouncements(user, data.announcements);
+  // Live mode only: a first load shows a spinner instead of pretending the
+  // list is empty; a failed load offers a retry instead of stale content.
+  const loadingFirstTime = data.announcementsLoading && announcements.length === 0;
 
   return (
     <Screen>
@@ -29,7 +35,26 @@ export default function AnnouncementsListScreen() {
         />
       ) : null}
 
-      {announcements.length > 0 ? (
+      {data.announcementsError ? (
+        <View style={styles.errorBox}>
+          <AppText tone="danger" style={styles.errorText}>
+            {data.announcementsError}
+          </AppText>
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshAnnouncements()}
+          />
+        </View>
+      ) : null}
+
+      {loadingFirstTime ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading announcements…</AppText>
+        </View>
+      ) : announcements.length > 0 ? (
         announcements.map((a) => (
           <AnnouncementCard
             key={a.id}
@@ -39,7 +64,7 @@ export default function AnnouncementsListScreen() {
             onPress={() => router.push({ pathname: '/announcements/[id]', params: { id: a.id } })}
           />
         ))
-      ) : (
+      ) : data.announcementsError ? null : (
         <EmptyState
           icon="megaphone-outline"
           title="No announcements yet"
@@ -49,3 +74,9 @@ export default function AnnouncementsListScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingBox: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
+  errorBox: { gap: spacing.sm },
+  errorText: { textAlign: 'center' },
+});

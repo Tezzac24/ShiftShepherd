@@ -104,7 +104,9 @@ async function buildSupabaseSession(authUserId: string): Promise<SessionUser | n
   );
   if (bridged) {
     const session = buildMockSession(bridged.id);
-    if (session) return session;
+    // Keep the real profile id alongside the bridged mock identity — live
+    // data services (announcements) must write real UUIDs, not mock ids.
+    if (session) return { ...session, supabaseProfileId: profileRow.id };
   }
 
   // Unrecognised profile: real profile row + real org role, but no mock team
@@ -127,7 +129,7 @@ async function buildSupabaseSession(authUserId: string): Promise<SessionUser | n
   if (roleError) throw roleError;
   const orgRole = (roleRow?.role ?? 'general_member') as OrganisationRoleName;
   const memberships: TeamMembership[] = [];
-  return { profile, orgRole, memberships };
+  return { profile, orgRole, memberships, supabaseProfileId: profileRow.id };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

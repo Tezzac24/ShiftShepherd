@@ -6,10 +6,10 @@
  * the app). When the env vars are missing the app keeps working in demo mode:
  * `getSupabase()` returns null and callers fall back to mock behaviour.
  *
- * Only auth/session operations and the signed-in user's profile lookup run
- * against Supabase in this phase. Feature data (announcements, events, rotas,
- * songs, chat, notification preferences) stays mocked/local — see
- * docs/supabase-integration-plan.md for the wiring order.
+ * Live Supabase currently handles auth/session operations, the signed-in
+ * user's profile lookup, and the announcements feature slice. Everything
+ * else (events, teams, rotas, songs, chat, notification preferences) stays
+ * mocked/local — see docs/supabase-integration-plan.md for the wiring order.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';

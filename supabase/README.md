@@ -1,6 +1,8 @@
 # Supabase Backend Foundation
 
-This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is not wired to Supabase yet** — it still runs entirely on mock data (`src/lib/mockData/` + `src/lib/appData/`). These files exist so the backend can be stood up and verified independently before any frontend wiring begins (see `docs/supabase-integration-plan.md` for the wiring order).
+This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + profile lookup and the **announcements** feature slice run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured); everything else still runs on mock data (`src/lib/mockData/` + `src/lib/appData/`). See `docs/supabase-integration-plan.md` for the wiring order.
+
+> **Current dev-project state:** migrations `001`–`002` were applied manually via the dashboard SQL editor, so there is **no tracked migration history** (`supabase_migrations.schema_migrations` doesn't exist). Migrations `003`–`005` are **not applied remotely yet** and should be, before events/songs/rota-cancellation are wired. Until history is tracked, verify the remote schema by introspection (the Supabase MCP server works well for this) rather than trusting migration history.
 
 ## Contents
 

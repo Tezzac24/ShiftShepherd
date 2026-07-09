@@ -183,6 +183,12 @@ export default function TeamSpaceScreen() {
             onPress={() => router.push({ pathname: '/announcements/[id]', params: { id: a.id } })}
           />
         ))
+      ) : data.announcementsLoading ? (
+        <EmptyState
+          icon="megaphone-outline"
+          title="Loading announcements…"
+          message="Just a moment while we fetch the latest announcements."
+        />
       ) : (
         <EmptyState
           icon="megaphone-outline"

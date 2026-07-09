@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { colors, radius, spacing } from '../../../constants/theme';
@@ -23,6 +23,8 @@ export default function AnnouncementDetailScreen() {
   const user = useRequiredUser();
   const data = useAppData();
   const confirm = useConfirm();
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const announcement = data.announcements.find((a) => a.id === id);
 
@@ -47,13 +49,24 @@ export default function AnnouncementDetailScreen() {
     : undefined;
 
   const handleDelete = async () => {
+    if (deleting) return;
     const ok = await confirm({
       title: 'Delete announcement',
       message: 'Are you sure you want to delete this announcement?',
     });
-    if (ok) {
-      data.deleteAnnouncement(announcement.id);
+    if (!ok) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await data.deleteAnnouncement(announcement.id);
       router.back();
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error
+          ? error.message
+          : 'This announcement could not be deleted. Please try again.',
+      );
+      setDeleting(false);
     }
   };
 
@@ -111,10 +124,16 @@ export default function AnnouncementDetailScreen() {
 
       {canEditAnnouncement(user, announcement) ? (
         <View style={styles.actions}>
+          {deleteError ? (
+            <AppText tone="danger" style={styles.deleteError}>
+              {deleteError}
+            </AppText>
+          ) : null}
           <Button
             title="Edit Announcement"
             variant="secondary"
             icon="create-outline"
+            disabled={deleting}
             onPress={() =>
               router.push({ pathname: '/announcements/edit', params: { id: announcement.id } })
             }
@@ -123,7 +142,8 @@ export default function AnnouncementDetailScreen() {
             title="Delete Announcement"
             variant="destructive"
             icon="trash-outline"
-            onPress={handleDelete}
+            loading={deleting}
+            onPress={() => void handleDelete()}
           />
         </View>
       ) : null}
@@ -146,4 +166,5 @@ const styles = StyleSheet.create({
   },
   linkedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   actions: { gap: spacing.sm, marginTop: spacing.sm },
+  deleteError: { textAlign: 'center' },
 });

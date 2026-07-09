@@ -88,7 +88,7 @@ The app uses Expo Router: `app/` contains file-based routes (thin re-exports), `
 - **React Native** with **Expo** (~54)
 - **TypeScript** (strict mode)
 - **Expo Router** (file-based routing; `app/` routes re-export screens from `src/features/`)
-- **Supabase** — production backend. Currently wired: **email/password Auth + signed-in profile lookup only** (env-guarded client in `src/lib/supabase/client.ts`; demo mode when env vars are missing). All feature data stays mocked/local.
+- **Supabase** — production backend. Currently wired: **email/password Auth + signed-in profile lookup + the announcements data slice** (env-guarded client in `src/lib/supabase/client.ts`; demo mode when env vars are missing). All other feature data stays mocked/local.
 - **AsyncStorage** — versioned local persistence for demo/mock state (`src/lib/storage/persistence.ts`)
 - **@expo/vector-icons**; notifications are stubbed (`src/lib/notifications/`)
 
@@ -104,7 +104,9 @@ All screens render conditionally based on the current user's `OrganisationRole`.
 All mock data goes in `src/lib/mockData/`. The data models must match the intended Supabase schema (defined in `docs/one-shot-build-prompt.md`, section 5) — even for mocked data. Mutable app state is persisted to AsyncStorage through `src/lib/storage/persistence.ts` (version envelope, safe fallback to mock seeds on invalid data); the mock seeds remain the reset source of truth (**Profile → Reset Demo Data**).
 
 ### Backend Abstraction
-API calls go through a service layer (`src/lib/supabase/` or `src/api/`). Only auth/session operations and the signed-in user's profile lookup may hit live Supabase; everything else returns mock data through `src/lib/appData/`. The interfaces must match what a real Supabase implementation would look like so swapping is straightforward. Never use service role keys; `.env.example` stays placeholder-only.
+API calls go through a service layer (`src/lib/supabase/services/`). Live Supabase currently serves: auth/session operations, the signed-in user's profile lookup, and **announcements** (the first live feature slice — `src/lib/supabase/services/announcements.ts`, live only for Supabase-Auth sessions with a linked profile; demo mode stays local). Everything else returns mock data through `src/lib/appData/`. DB↔app mapping stays centralized in the service (the live table uses `body` and `pinned`; while people/teams are mocked, live UUIDs are bridged onto mock ids there). Never use service role keys; `.env.example` stays placeholder-only.
+
+The Supabase MCP server is configured against the **dev** project — use it to inspect the live schema/data. Migration history is not tracked there (early migrations were run manually; `003`–`005` are not applied remotely yet), so introspect the schema rather than trusting `list_migrations`, and don't apply migrations unless explicitly asked.
 
 ## Data Models
 
@@ -136,7 +138,7 @@ Colour tokens, typography, and spacing are in `constants/theme.ts`.
 
 ## Scope Notes
 
-V1 is a **functional scaffold with mocked, locally persisted data** plus optional real Supabase email/password Auth — not a production app. Do not wire Supabase feature data (announcements, events, rotas, songs, chat, preferences), realtime, storage, push delivery, OAuth, or SMS login unless explicitly requested. Use clear `// TODO: wire to Supabase` comments at integration points.
+V1 is a **functional scaffold with mocked, locally persisted data** plus optional real Supabase email/password Auth and a live announcements slice — not a production app. Do not wire further Supabase feature data (events, teams, rotas, songs, chat, preferences), realtime, storage, push delivery, OAuth, or SMS login unless explicitly requested. Use clear `// TODO: wire to Supabase` comments at integration points.
 
 The choir feature is a first-class priority for V1 (song database, song selection for rota dates, choir-specific rota).
 

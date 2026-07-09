@@ -10,8 +10,17 @@
  * Actions mirror the calls a Supabase service layer would expose, so wiring
  * the real backend later means swapping implementations, not screens.
  *
- * TODO: wire to Supabase — replace state mutations with inserts/updates/
- * deletes + Realtime subscriptions.
+ * ★ Announcements are the first live Supabase slice: when the user is signed
+ * in through Supabase Auth with a linked profile, the announcements collection
+ * and its actions run against the live database (RLS enforces permissions)
+ * via src/lib/supabase/services/announcements.ts. In demo mode — or whenever
+ * Supabase env vars are missing — announcements stay local/mock exactly as
+ * before. Live announcements are session state only: they are never written
+ * to the demo AsyncStorage snapshot and Reset Demo Data does not touch them.
+ *
+ * TODO: wire to Supabase — repeat the announcements pattern for events,
+ * teams, rotas, songs, chat, and notification preferences (see
+ * docs/supabase-integration-plan.md).
  */
 import React, {
   createContext,
@@ -42,6 +51,7 @@ import {
   UserProfile,
 } from '../../types';
 import { makeId } from '../../utils/ids';
+import { useAuth } from '../auth/AuthContext';
 import {
   defaultNotificationPreferences,
   mockAnnouncements,
@@ -61,6 +71,8 @@ import {
   ORG_ID,
 } from '../mockData';
 import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../storage/persistence';
+import { isSupabaseConfigured } from '../supabase/client';
+import * as announcementsService from '../supabase/services/announcements';
 
 export interface NewRotaAssignmentInput {
   user_id: string;
@@ -139,12 +151,23 @@ interface AppDataContextValue {
   chatMessages: ChatMessage[];
   unreadByTeam: Record<string, number>;
 
-  // Announcements
+  // Announcements — the first live Supabase slice. In demo mode the actions
+  // resolve immediately against local state; in live mode they call Supabase
+  // and reject with a friendly message when something goes wrong (screens
+  // show it — nothing is changed locally on failure).
+  /** True when announcements come from live Supabase rather than local demo data. */
+  announcementsLive: boolean;
+  /** True while live announcements are being (re)loaded. Always false in demo mode. */
+  announcementsLoading: boolean;
+  /** Friendly load-failure message, or null. Always null in demo mode. */
+  announcementsError: string | null;
+  /** Reload live announcements (no-op in demo mode). */
+  refreshAnnouncements: () => Promise<void>;
   addAnnouncement: (
     input: Omit<Announcement, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>,
-  ) => Announcement;
-  updateAnnouncement: (id: string, patch: Partial<Announcement>) => void;
-  deleteAnnouncement: (id: string) => void;
+  ) => Promise<Announcement>;
+  updateAnnouncement: (id: string, patch: Partial<Announcement>) => Promise<void>;
+  deleteAnnouncement: (id: string) => Promise<void>;
 
   // Events
   addEvent: (input: Omit<Event, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>) => Event;
@@ -207,7 +230,23 @@ interface AppDataContextValue {
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
-  const [announcements, setAnnouncements] = useState<Announcement[]>(mockAnnouncements);
+  // Live-vs-local announcements mode: Supabase session + configured client +
+  // linked profile ⇒ live; demo mode or missing env vars ⇒ local/mock.
+  const { user, authMode } = useAuth();
+  const supabaseProfileId =
+    authMode === 'supabase' ? (user?.supabaseProfileId ?? null) : null;
+  const announcementsLive = isSupabaseConfigured && supabaseProfileId !== null;
+
+  const [localAnnouncements, setLocalAnnouncements] =
+    useState<Announcement[]>(mockAnnouncements);
+  const [liveAnnouncements, setLiveAnnouncements] = useState<Announcement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(false);
+  const [announcementsError, setAnnouncementsError] = useState<string | null>(null);
+  // Lets in-flight fetches notice the mode flipped (e.g. sign-out mid-load).
+  const announcementsLiveRef = useRef(false);
+  announcementsLiveRef.current = announcementsLive;
+  const supabaseProfileIdRef = useRef<string | null>(null);
+  supabaseProfileIdRef.current = supabaseProfileId;
   const [events, setEvents] = useState<Event[]>(mockEvents);
   const [rotaEntries, setRotaEntries] = useState<RotaEntry[]>(mockRotaEntries);
   const [rotaAssignments, setRotaAssignments] = useState<RotaAssignment[]>(mockRotaAssignments);
@@ -234,7 +273,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         isPersistedAppData,
       );
       if (persisted && !cancelled) {
-        setAnnouncements(persisted.announcements);
+        setLocalAnnouncements(persisted.announcements);
         setEvents(persisted.events);
         setRotaEntries(persisted.rotaEntries);
         setRotaAssignments(persisted.rotaAssignments);
@@ -258,7 +297,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (!isHydrated) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const snapshot: PersistedAppData = {
-      announcements,
+      announcements: localAnnouncements,
       events,
       rotaEntries,
       rotaAssignments,
@@ -277,7 +316,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     };
   }, [
     isHydrated,
-    announcements,
+    localAnnouncements,
     events,
     rotaEntries,
     rotaAssignments,
@@ -292,7 +331,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const resetDemoData = useCallback(async () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     await clearPersisted(STORAGE_KEYS.appData);
-    setAnnouncements(mockAnnouncements);
+    setLocalAnnouncements(mockAnnouncements);
     setEvents(mockEvents);
     setRotaEntries(mockRotaEntries);
     setRotaAssignments(mockRotaAssignments);
@@ -306,32 +345,125 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const now = () => new Date().toISOString();
 
-  // --- Announcements ---------------------------------------------------------
+  // --- Announcements (live Supabase slice ★, with local demo fallback) --------
 
-  const addAnnouncement: AppDataContextValue['addAnnouncement'] = useCallback((input) => {
-    const record: Announcement = {
-      ...input,
-      id: makeId('ann'),
-      organisation_id: ORG_ID,
-      created_at: now(),
-      updated_at: now(),
-    };
-    setAnnouncements((prev) => [record, ...prev]);
-    return record;
+  const refreshAnnouncements: AppDataContextValue['refreshAnnouncements'] =
+    useCallback(async () => {
+      const requestProfileId = supabaseProfileIdRef.current;
+      if (!announcementsLiveRef.current || !requestProfileId) return;
+      setAnnouncementsLoading(true);
+      setAnnouncementsError(null);
+      try {
+        const list = await announcementsService.listAnnouncements();
+        if (
+          announcementsLiveRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setLiveAnnouncements(list);
+        }
+      } catch (error) {
+        if (
+          announcementsLiveRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setAnnouncementsError(
+            error instanceof Error
+              ? error.message
+              : 'We couldn’t load announcements right now. Please try again.',
+          );
+        }
+      } finally {
+        if (
+          announcementsLiveRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setAnnouncementsLoading(false);
+        }
+      }
+    }, []);
+
+  // Load live announcements when a Supabase session appears; clear them (and
+  // any load error) when it goes away. Local demo data is untouched either way.
+  useEffect(() => {
+    if (announcementsLive) {
+      void refreshAnnouncements();
+    } else {
+      setLiveAnnouncements([]);
+      setAnnouncementsError(null);
+      setAnnouncementsLoading(false);
+    }
+  }, [announcementsLive, refreshAnnouncements]);
+
+  // After a live mutation succeeds, quietly re-sync the list in the background
+  // (no loading flicker; a failed re-sync keeps the optimistically-applied
+  // server row, so nothing is lost).
+  const resyncLiveAnnouncements = useCallback(() => {
+    const requestProfileId = supabaseProfileIdRef.current;
+    if (!requestProfileId) return;
+    announcementsService
+      .listAnnouncements()
+      .then((list) => {
+        if (
+          announcementsLiveRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setLiveAnnouncements(list);
+        }
+      })
+      .catch((error) => console.warn('[appData] announcements re-sync failed', error));
   }, []);
 
+  const addAnnouncement: AppDataContextValue['addAnnouncement'] = useCallback(
+    async (input) => {
+      if (announcementsLive && supabaseProfileId) {
+        const created = await announcementsService.createAnnouncement(
+          input,
+          supabaseProfileId,
+        );
+        setLiveAnnouncements((prev) => [created, ...prev]);
+        resyncLiveAnnouncements();
+        return created;
+      }
+      const record: Announcement = {
+        ...input,
+        id: makeId('ann'),
+        organisation_id: ORG_ID,
+        created_at: now(),
+        updated_at: now(),
+      };
+      setLocalAnnouncements((prev) => [record, ...prev]);
+      return record;
+    },
+    [announcementsLive, supabaseProfileId, resyncLiveAnnouncements],
+  );
+
   const updateAnnouncement: AppDataContextValue['updateAnnouncement'] = useCallback(
-    (id, patch) => {
-      setAnnouncements((prev) =>
+    async (id, patch) => {
+      if (announcementsLive) {
+        const updated = await announcementsService.updateAnnouncement(id, patch);
+        setLiveAnnouncements((prev) => prev.map((a) => (a.id === id ? updated : a)));
+        resyncLiveAnnouncements();
+        return;
+      }
+      setLocalAnnouncements((prev) =>
         prev.map((a) => (a.id === id ? { ...a, ...patch, updated_at: now() } : a)),
       );
     },
-    [],
+    [announcementsLive, resyncLiveAnnouncements],
   );
 
-  const deleteAnnouncement = useCallback((id: string) => {
-    setAnnouncements((prev) => prev.filter((a) => a.id !== id));
-  }, []);
+  const deleteAnnouncement: AppDataContextValue['deleteAnnouncement'] = useCallback(
+    async (id) => {
+      if (announcementsLive) {
+        await announcementsService.deleteAnnouncement(id);
+        setLiveAnnouncements((prev) => prev.filter((a) => a.id !== id));
+        resyncLiveAnnouncements();
+        return;
+      }
+      setLocalAnnouncements((prev) => prev.filter((a) => a.id !== id));
+    },
+    [announcementsLive, resyncLiveAnnouncements],
+  );
 
   // --- Events ----------------------------------------------------------------
 
@@ -599,7 +731,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       teams: mockTeams,
       memberships: mockMemberships,
       categories: mockCategories,
-      announcements,
+      announcements: announcementsLive ? liveAnnouncements : localAnnouncements,
+      announcementsLive,
+      announcementsLoading,
+      announcementsError,
+      refreshAnnouncements,
       events,
       rotaEntries,
       rotaAssignments,
@@ -632,7 +768,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       isHydrated,
-      announcements,
+      announcementsLive,
+      liveAnnouncements,
+      localAnnouncements,
+      announcementsLoading,
+      announcementsError,
+      refreshAnnouncements,
       events,
       rotaEntries,
       rotaAssignments,
