@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { PaperProvider } from 'react-native-paper';
 
 import { colors, spacing } from '@/constants/theme';
 import { AppText } from '@/src/components/AppText';
@@ -9,6 +10,7 @@ import { ConfirmProvider } from '@/src/components/ConfirmDialog';
 import { ToastProvider } from '@/src/components/Toast';
 import { AppDataProvider, useAppData } from '@/src/lib/appData/AppDataContext';
 import { AuthProvider, useAuth } from '@/src/lib/auth/AuthContext';
+import { paperTheme } from '@/src/lib/theme/paperTheme';
 
 /** Calm full-screen loader shown while saved data/session is restored. */
 function StartupScreen() {
@@ -77,12 +79,14 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <AppDataProvider>
-        <ConfirmProvider>
-          <ToastProvider>
-            <RootStack />
-            <StatusBar style="dark" />
-          </ToastProvider>
-        </ConfirmProvider>
+        <PaperProvider theme={paperTheme}>
+          <ConfirmProvider>
+            <ToastProvider>
+              <RootStack />
+              <StatusBar style="dark" />
+            </ToastProvider>
+          </ConfirmProvider>
+        </PaperProvider>
       </AppDataProvider>
     </AuthProvider>
   );
