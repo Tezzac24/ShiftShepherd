@@ -13,6 +13,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
 import { SectionHeader } from '../../components/SectionHeader';
 import { SelectField } from '../../components/SelectField';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { rotaEntriesForTeam, teamMembers } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
@@ -74,6 +75,7 @@ export default function PlanMonthScreen() {
   const user = useRequiredUser();
   const data = useAppData();
   const confirm = useConfirm();
+  const showToast = useToast();
 
   const team = data.teams.find((t) => t.id === teamId);
 
@@ -100,6 +102,7 @@ export default function PlanMonthScreen() {
   const [defaultWorshipId, setDefaultWorshipId] = useState<string>(NONE);
   const [overrides, setOverrides] = useState<Record<string, DateOverride>>({});
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   if (!team || team.type !== 'choir' || !canManageTeamRota(user, team.id)) {
     return (
@@ -164,6 +167,7 @@ export default function PlanMonthScreen() {
   const includedDates = plannedDates.filter(isIncluded);
 
   const handleCreate = async () => {
+    if (creating) return;
     if (includedDates.length === 0) {
       setError('There are no dates to create. Turn on Sunday services or rehearsals, or include a date.');
       return;
@@ -177,47 +181,68 @@ export default function PlanMonthScreen() {
     });
     if (!ok) return;
 
-    for (const planned of includedDates) {
-      if (planned.kind === 'service') {
-        const assignments = [
-          ...(praiseFor(planned) !== NONE
-            ? [{ user_id: praiseFor(planned), role_name: PRAISE_LEADER_ROLE }]
-            : []),
-          ...(worshipFor(planned) !== NONE
-            ? [{ user_id: worshipFor(planned), role_name: WORSHIP_LEADER_ROLE }]
-            : []),
-        ];
-        data.addRotaEntry(
-          {
-            team_id: team.id,
-            title: 'Sunday Morning Service',
-            date: planned.dateKey,
-            time: serviceTime,
-            notes: null,
-            created_by: user.profile.id,
-          },
-          assignments,
-        );
-      } else {
-        data.addRotaEntry(
-          {
-            team_id: team.id,
-            title: 'Choir Rehearsal',
-            date: planned.dateKey,
-            time: rehearsalTime,
-            notes: null,
-            created_by: user.profile.id,
-          },
-          // Every choir member is expected at rehearsal, so everyone can
-          // confirm their availability.
-          members.map(({ profile }) => ({
-            user_id: profile.id,
-            role_name: CHOIR_MEMBER_ROLE,
-          })),
-        );
+    setCreating(true);
+    let createdCount = 0;
+    try {
+      for (const planned of includedDates) {
+        if (planned.kind === 'service') {
+          const assignments = [
+            ...(praiseFor(planned) !== NONE
+              ? [{ user_id: praiseFor(planned), role_name: PRAISE_LEADER_ROLE }]
+              : []),
+            ...(worshipFor(planned) !== NONE
+              ? [{ user_id: worshipFor(planned), role_name: WORSHIP_LEADER_ROLE }]
+              : []),
+          ];
+          await data.addRotaEntry(
+            {
+              team_id: team.id,
+              title: 'Sunday Morning Service',
+              date: planned.dateKey,
+              time: serviceTime,
+              notes: null,
+              created_by: user.profile.id,
+            },
+            assignments,
+          );
+        } else {
+          await data.addRotaEntry(
+            {
+              team_id: team.id,
+              title: 'Choir Rehearsal',
+              date: planned.dateKey,
+              time: rehearsalTime,
+              notes: null,
+              created_by: user.profile.id,
+            },
+            // Every choir member is expected at rehearsal, so everyone can
+            // confirm their availability.
+            members.map(({ profile }) => ({
+              user_id: profile.id,
+              role_name: CHOIR_MEMBER_ROLE,
+            })),
+          );
+        }
+        createdCount += 1;
       }
+      showToast(
+        `${createdCount} rota ${createdCount === 1 ? 'entry' : 'entries'} created.`,
+      );
+      router.back();
+    } catch (createError) {
+      const message =
+        createError instanceof Error
+          ? createError.message
+          : 'Your changes could not be saved. Please try again.';
+      // Entries created before the failure are on the rota already — say so,
+      // so nobody re-creates the whole month and doubles up dates.
+      setError(
+        createdCount > 0
+          ? `${message} ${createdCount} of ${includedDates.length} ${createdCount === 1 ? 'date was' : 'dates were'} created before the problem — check the rota before trying again.`
+          : message,
+      );
+      setCreating(false);
     }
-    router.back();
   };
 
   return (
@@ -368,14 +393,23 @@ export default function PlanMonthScreen() {
       <View style={styles.actions}>
         <Button
           title={
-            includedDates.length > 0
-              ? `Create ${includedDates.length} Rota ${includedDates.length === 1 ? 'Entry' : 'Entries'}`
-              : 'Create Rota Entries'
+            creating
+              ? 'Creating…'
+              : includedDates.length > 0
+                ? `Create ${includedDates.length} Rota ${includedDates.length === 1 ? 'Entry' : 'Entries'}`
+                : 'Create Rota Entries'
           }
           icon="checkmark-outline"
-          onPress={handleCreate}
+          loading={creating}
+          disabled={creating}
+          onPress={() => void handleCreate()}
         />
-        <Button title="Cancel" variant="secondary" onPress={() => router.back()} />
+        <Button
+          title="Cancel"
+          variant="secondary"
+          onPress={() => router.back()}
+          disabled={creating}
+        />
       </View>
     </Screen>
   );

@@ -88,19 +88,24 @@ Fetch-only, as planned (the app has no team-management screens; admins manage te
 
 Note the **team-name edge case** under Risks below — still open, and now user-visible: a non-member viewing a church-wide event linked to a team cannot resolve that team's name (RLS hides the team row), so the detail screen simply omits it.
 
-### 7. Rotas & availability
+### 7. Rotas & availability ✅ (app code done — grants migration pending push)
 
-The most relational slice — and the recommended next one.
+The most relational slice. What shipped (same pattern as announcements/events/teams):
 
-> **Grants check (verified read-only 2026-07-09):** `rota_entries`, `rota_assignments`, `availability_responses`, `songs`, `song_links`, `choir_rota_song_selections`, and `chat_messages` have **no** `authenticated` Data API privileges yet (006 and the events grants migration didn't cover them). This slice therefore needs a small grants migration (select/insert/update/delete per the RLS policies' intent) before any of it can go live — RLS itself is already in place from 002/004/005.
+1. `src/lib/supabase/services/rotas.ts` — `fetchRotaData()` (entries + assignments + responses in one parallel, RLS-scoped fetch), `createRotaEntry` / `updateRotaEntry` (with a diffed replace of the assignment list that keeps person+role matches, so their responses survive edits), `cancelRotaEntry` / `restoreRotaEntry` (the migration-005 `status` + `cancelled_*` update, covered by the leaders-manage-rota policy), `deleteRotaEntry`, and `submitAvailability` — an **upsert** onto the `unique(rota_assignment_id)` constraint, `user_id` always the caller's live profile id, note always optional. Postgres `time` values are normalised to `HH:MM` here.
+2. **Deviation from the original sketch:** replace-assignments is a client-side diff (delete removed + insert added), not a transactional RPC. A failure can leave a partial list, but every mutation quietly re-syncs afterwards so the UI heals; an RPC can be added later if it ever matters in practice.
+3. `AppDataContext` keeps two rota stores (persisted local/demo + session-only live), switching on the same condition as the other slices. All rota actions (`addRotaEntry`, `updateRotaEntry`, `deleteRotaEntry`, `cancelRotaEntry`, `restoreRotaEntry`, `setAvailability`) are async in both modes; live mutations apply the server rows then quietly re-sync. Live rota data is never persisted to AsyncStorage and clears on sign-out/user switch.
+4. Rota list/detail/form, Plan the Month, the team space rota section, and Home's "Your Next Responsibility" gained loading, error+retry, and saving states with toast feedback; Home's responsibility card is fully live-backed in Supabase mode.
+5. The demo bridge dropped its rota re-keying — only songs, song selections, and chat still go through it. **Known gap until step 8:** choir song selections reference rota entries by id, so in live mode the seeded selections don't attach to live entries (selections made in live mode are stored locally against the live entry UUID and display fine).
+6. A grants migration (`20260709154733_grant_authenticated_rota_api_privileges.sql`) gives `authenticated` select/insert/update/delete on `rota_entries`, `rota_assignments`, and `availability_responses` — verified missing via read-only introspection; RLS (002/005) stays the authority. **Until it is approved and pushed (`supabase db push`), live rota mode shows the friendly "couldn't load the rota" state with retry; demo mode is unaffected.**
 
-Service functions: `listEntriesWithAssignments(teamId)`, `saveEntry(entry, assignments)` (create/update + replace assignments), `deleteEntry`, `cancelEntry(entryId, reason)` / `restoreEntry(entryId)` (updates `status` + `cancelled_*` from migration 005 — allowed by the existing leaders-manage-rota policy), and `respondToAssignment(assignmentId, status, note)` — the last one is an **upsert** onto the `unique(rota_assignment_id)` constraint, with `user_id` set from the current profile and matching the assignment. Replace-assignments should be a single RPC (Postgres function) so it is transactional.
-
-Choir specifics that ride on this slice:
+Choir specifics that ride on this slice (unchanged product behaviour):
 
 - **Praise/Worship leaders** are plain assignments with role names `'Praise Leader'` / `'Worship Leader'` (legacy `'Song Leader'` still means "leads both"). No schema change needed.
-- **Rehearsal availability**: a rehearsal is a rota entry where every choir member has a `'Choir Member'` assignment; the availability upsert above is the whole tracker. The app's "Plan the Month" flow creates a month of service + rehearsal entries client-side with the same `saveEntry` call in a loop (or one RPC later if it needs to be atomic).
+- **Rehearsal availability**: a rehearsal is a rota entry where every choir member has a `'Choir Member'` assignment; the availability upsert above is the whole tracker. "Plan the Month" creates a month of service + rehearsal entries client-side with sequential `createRotaEntry` calls (a partial failure reports how many dates were created).
 - **Cancellations** are soft: cancelled entries stay queryable and visible until the date passes. Nothing auto-deletes them.
+
+Verify RLS from the app: Daniel (admin) full rota CRUD on every team; Sarah (choir leader) CRUD incl. cancel/restore on the choir rota only; Hannah/Michael respond to their own assignments (and cannot edit entries); Ruth sees no team rotas.
 
 ### 8. Songs & song selection
 
@@ -156,7 +161,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## What stays mocked until later
 
-- **Rotas, songs, chat** — demo/local data until steps 7–9; in live mode they are re-keyed onto live team/profile ids by the temporary demo bridge (`src/lib/appData/demoBridge.ts`) so they keep working next to live teams.
+- **Songs, chat** — demo/local data until steps 8–9; in live mode they are re-keyed onto live team/profile ids by the temporary demo bridge (`src/lib/appData/demoBridge.ts`) so they keep working next to live teams. Seeded choir song selections don't attach to live rota entries (mock entry ids vs live UUIDs) until step 8.
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
 - **Unread badges** — client-side simulation until a `chat_reads` table exists.
 - **Notification delivery** — settings UI persists locally (or to the table) but nothing pushes until step 11.
@@ -166,12 +171,13 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## Recommended immediate next task
 
-Steps 1–6 are done (auth + live sessions + organisations/roles + announcements + events + the read-only teams/people directory; rotas/songs/chat are mocked but persisted locally, re-keyed onto live ids in live mode via the temporary demo bridge). Next, in order of value:
+Steps 1–7 are done in app code (auth + live sessions + organisations/roles + announcements + events + the read-only teams/people directory + rotas/availability; songs/chat are mocked but persisted locally, re-keyed onto live ids in live mode via the temporary demo bridge). Next, in order of value:
 
 1. ✅ **Done (2026-07-09):** migrations `003`–`006` applied remotely with aligned history; the events grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` is pushed and verified.
 2. ✅ **Done (2026-07-09):** **step 5 — events**, including live `linked_event_id` on announcements.
 3. ✅ **Done (2026-07-09):** **step 6 — teams & memberships** (fetch-only), retiring the email/name id bridges in auth, announcements, and events.
-4. Start **step 7 — rotas & availability** (needs the grants migration flagged in that step), which also lets the demo bridge start shrinking. Consider bundling the teams-SELECT relaxation (Risks: team-name visibility, option b) into the same migration pass.
-5. Add the `handle_new_user` trigger migration.
+4. ✅ **Done (2026-07-09):** **step 7 — rotas & availability** app code. **Blocked on approval:** push `20260709154733_grant_authenticated_rota_api_privileges.sql` (`supabase db push` after normal preflight) — until then live rota mode shows the friendly error state. The teams-SELECT relaxation (Risks: team-name visibility, option b) was deliberately **not** bundled in — rota entries are only visible to team members, so their team names always resolve; it remains a candidate for the next migration pass.
+5. Start **step 8 — songs & song selection**, which retires the seeded-selections gap and most of the remaining demo bridge.
+6. Add the `handle_new_user` trigger migration.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

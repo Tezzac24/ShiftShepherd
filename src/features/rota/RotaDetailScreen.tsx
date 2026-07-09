@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
@@ -14,6 +14,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
 import { SectionHeader } from '../../components/SectionHeader';
 import { TextField } from '../../components/TextField';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import {
   availabilitySummaryForEntry,
@@ -43,6 +44,7 @@ export default function RotaDetailScreen() {
   const user = useRequiredUser();
   const data = useAppData();
   const confirm = useConfirm();
+  const showToast = useToast();
 
   const team = data.teams.find((t) => t.id === teamId);
   const entry = data.rotaEntries.find((e) => e.id === entryId);
@@ -55,16 +57,44 @@ export default function RotaDetailScreen() {
   const [responding, setResponding] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<AvailabilityStatus | null>(null);
   const [note, setNote] = useState('');
+  const [savingResponse, setSavingResponse] = useState(false);
+  const [responseError, setResponseError] = useState<string | null>(null);
+  // One flag for cancel/restore/delete — the leader actions never run together.
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   if (!team || !entry || !canViewTeam(user, team.id)) {
+    // Live mode: don't flash "not found" while the rota/directory still loads.
+    const stillLoading = data.rotasLoading || data.teamsLoading;
     return (
       <Screen>
         <Stack.Screen options={{ title: 'Rota' }} />
-        <EmptyState
-          icon="calendar-outline"
-          title="Rota entry not found"
-          message="This rota entry may have been removed."
-        />
+        {stillLoading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <AppText tone="secondary">Loading the rota…</AppText>
+          </View>
+        ) : data.rotasError ? (
+          <>
+            <EmptyState
+              icon="cloud-offline-outline"
+              title="Couldn’t load the rota"
+              message={data.rotasError}
+            />
+            <Button
+              title="Try Again"
+              variant="secondary"
+              icon="refresh-outline"
+              onPress={() => void data.refreshRotas()}
+            />
+          </>
+        ) : (
+          <EmptyState
+            icon="calendar-outline"
+            title="Rota entry not found"
+            message="This rota entry may have been removed."
+          />
+        )}
       </Screen>
     );
   }
@@ -82,27 +112,54 @@ export default function RotaDetailScreen() {
   const startResponding = () => {
     setPendingStatus(me && me.status !== 'not_responded' ? me.status : null);
     setNote(me?.note ?? '');
+    setResponseError(null);
     setResponding(true);
   };
 
-  const saveResponse = () => {
-    if (!me || !pendingStatus) return;
-    // One human answer covers all of this person's roles on the date
-    // (e.g. someone who is both Praise Leader and Worship Leader).
-    for (const a of me.assignments) {
-      data.setAvailability(a.id, user.profile.id, pendingStatus, note.trim() || null);
+  const saveResponse = async () => {
+    if (!me || !pendingStatus || savingResponse) return;
+    setResponseError(null);
+    setSavingResponse(true);
+    try {
+      // One human answer covers all of this person's roles on the date
+      // (e.g. someone who is both Praise Leader and Worship Leader).
+      for (const a of me.assignments) {
+        await data.setAvailability(a.id, user.profile.id, pendingStatus, note.trim() || null);
+      }
+      showToast('Availability saved.');
+      setResponding(false);
+    } catch (error) {
+      setResponseError(
+        error instanceof Error
+          ? error.message
+          : 'Your availability could not be saved. Please try again.',
+      );
+    } finally {
+      setSavingResponse(false);
     }
-    setResponding(false);
   };
 
   const handleCancelEntry = async () => {
+    if (actionBusy) return;
     const ok = await confirm({
       title: 'Cancel this date?',
       message: `“${entry.title}” will stay on the rota marked as Cancelled, so everyone can see it is not going ahead. You can restore it later if plans change.`,
       confirmLabel: 'Cancel This Date',
     });
     if (!ok) return;
-    data.cancelRotaEntry(entry.id, user.profile.id, null);
+    setActionError(null);
+    setActionBusy(true);
+    try {
+      await data.cancelRotaEntry(entry.id, user.profile.id, null);
+      showToast('This date is now marked as cancelled.');
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : 'Your changes could not be saved. Please try again.',
+      );
+      return;
+    } finally {
+      setActionBusy(false);
+    }
     const announce = await confirm({
       title: 'Tell the team?',
       message: 'Would you like to write a team announcement so everyone hears about the cancellation? Nothing is sent without you.',
@@ -122,23 +179,48 @@ export default function RotaDetailScreen() {
   };
 
   const handleRestoreEntry = async () => {
+    if (actionBusy) return;
     const ok = await confirm({
       title: 'Restore this date?',
       message: 'This will put the date back on the rota as normal.',
       confirmLabel: 'Restore',
       destructive: false,
     });
-    if (ok) data.restoreRotaEntry(entry.id);
+    if (!ok) return;
+    setActionError(null);
+    setActionBusy(true);
+    try {
+      await data.restoreRotaEntry(entry.id);
+      showToast('This date is back on the rota.');
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : 'Your changes could not be saved. Please try again.',
+      );
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   const handleDelete = async () => {
+    if (actionBusy) return;
     const ok = await confirm({
       title: 'Delete rota entry',
       message: 'Are you sure you want to delete this rota entry? This cannot be undone.',
     });
-    if (ok) {
-      data.deleteRotaEntry(entry.id);
+    if (!ok) return;
+    setActionError(null);
+    setActionBusy(true);
+    try {
+      await data.deleteRotaEntry(entry.id);
+      showToast('Rota entry deleted.');
       router.back();
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : 'This rota entry could not be deleted. Please try again.',
+      );
+      setActionBusy(false);
     }
   };
 
@@ -255,8 +337,23 @@ export default function RotaDetailScreen() {
                     value={note}
                     onChangeText={setNote}
                   />
-                  <Button title="Save Response" onPress={saveResponse} disabled={!pendingStatus} />
-                  <Button title="Cancel" variant="secondary" onPress={() => setResponding(false)} />
+                  {responseError ? (
+                    <AppText tone="danger" style={styles.errorText}>
+                      {responseError}
+                    </AppText>
+                  ) : null}
+                  <Button
+                    title={savingResponse ? 'Saving…' : 'Save Response'}
+                    onPress={() => void saveResponse()}
+                    disabled={!pendingStatus || savingResponse}
+                    loading={savingResponse}
+                  />
+                  <Button
+                    title="Cancel"
+                    variant="secondary"
+                    onPress={() => setResponding(false)}
+                    disabled={savingResponse}
+                  />
                 </View>
               )}
             </>
@@ -383,12 +480,18 @@ export default function RotaDetailScreen() {
       {/* Leader actions */}
       {isLeader ? (
         <View style={styles.actions}>
+          {actionError ? (
+            <AppText tone="danger" style={styles.errorText}>
+              {actionError}
+            </AppText>
+          ) : null}
           {!cancelled ? (
             <>
               <Button
                 title="Edit Rota Entry"
                 variant="secondary"
                 icon="create-outline"
+                disabled={actionBusy}
                 onPress={() =>
                   router.push({
                     pathname: '/teams/[teamId]/rota/edit',
@@ -401,6 +504,8 @@ export default function RotaDetailScreen() {
                   title="Cancel This Date"
                   variant="destructive"
                   icon="close-circle-outline"
+                  loading={actionBusy}
+                  disabled={actionBusy}
                   onPress={handleCancelEntry}
                 />
               ) : null}
@@ -408,6 +513,7 @@ export default function RotaDetailScreen() {
                 title="Delete Rota Entry"
                 variant="ghost"
                 icon="trash-outline"
+                disabled={actionBusy}
                 onPress={handleDelete}
               />
             </>
@@ -417,12 +523,15 @@ export default function RotaDetailScreen() {
                 title="Restore This Date"
                 variant="secondary"
                 icon="refresh-outline"
+                loading={actionBusy}
+                disabled={actionBusy}
                 onPress={handleRestoreEntry}
               />
               <Button
                 title="Delete Rota Entry"
                 variant="destructive"
                 icon="trash-outline"
+                disabled={actionBusy}
                 onPress={handleDelete}
               />
             </>
@@ -484,4 +593,6 @@ const styles = StyleSheet.create({
   },
   assignmentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   actions: { gap: spacing.sm, marginTop: spacing.sm },
+  errorText: { textAlign: 'center' },
+  loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
 });

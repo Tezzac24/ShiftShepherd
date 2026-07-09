@@ -157,6 +157,26 @@ export default function TeamSpaceScreen() {
             })
           }
         />
+      ) : data.rotasLoading ? (
+        // Live mode: the rota is still on its way from the server.
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} />
+          <AppText tone="secondary">Loading the rota…</AppText>
+        </View>
+      ) : data.rotasError ? (
+        <>
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Couldn’t load the rota"
+            message={data.rotasError}
+          />
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshRotas()}
+          />
+        </>
       ) : (
         <EmptyState
           icon="calendar-outline"

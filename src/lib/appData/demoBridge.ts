@@ -1,33 +1,32 @@
 /**
  * TEMPORARY bridge between the still-local demo slices and the live directory.
  *
- * People and teams are live now (real UUIDs from Supabase), but rotas,
- * availability, songs, song selections, and chat remain demo/local data keyed
- * by mock ids ('team-choir', 'user-sarah'). So that those features keep
- * working in live mode, this module:
+ * People, teams, and rotas are live now (real UUIDs from Supabase), but
+ * songs, song selections, and chat remain demo/local data keyed by mock ids
+ * ('team-choir', 'user-sarah'). So that those features keep working in live
+ * mode, this module:
  *
  *  - re-keys the local demo collections onto their live counterparts for
  *    display (teams matched by name, people matched by email — the dev seed
- *    mirrors the mock data), so live team/user UUIDs find the demo rota,
- *    songs, and chat that belong to them;
+ *    mirrors the mock data), so live team/user UUIDs find the demo songs and
+ *    chat that belong to them;
  *  - maps ids back to mock ids when a demo-slice mutation writes to local
  *    state, so the persisted demo snapshot stays keyed by mock ids and demo
  *    mode is never polluted with live UUIDs.
  *
+ * Known gap until songs go live: song selections reference rota entries by
+ * id, and live rota entries have UUIDs the mock selections don't know. In
+ * live mode the seeded selections therefore don't attach to any entry;
+ * selections made in live mode are stored locally keyed by the live entry
+ * UUID and display fine. The songs/selections slice going live
+ * (docs/supabase-integration-plan.md, step 8) replaces all of that.
+ *
  * Nothing here touches Supabase, and live rows never receive mock ids — this
- * is a display/local-write shim only. Delete it slice by slice as rotas,
- * songs, and chat go live (docs/supabase-integration-plan.md, steps 7–9).
+ * is a display/local-write shim only. Delete the remaining pieces as songs
+ * (step 8) and chat (step 9) go live — once both are live nothing imports
+ * this module and it can be removed.
  */
-import {
-  AvailabilityResponse,
-  ChatMessage,
-  ChoirSongSelection,
-  RotaAssignment,
-  RotaEntry,
-  Song,
-  Team,
-  UserProfile,
-} from '../../types';
+import { ChatMessage, ChoirSongSelection, Song, Team, UserProfile } from '../../types';
 import { mockTeams, mockUsers } from '../mockData';
 
 export interface DemoIdBridge {
@@ -85,9 +84,6 @@ export function toLocalTeamId(bridge: DemoIdBridge | null, id: string): string {
 
 /** The demo/local collections whose ids need re-keying in live mode. */
 export interface DemoCollections {
-  rotaEntries: RotaEntry[];
-  rotaAssignments: RotaAssignment[];
-  availabilityResponses: AvailabilityResponse[];
   songs: Song[];
   songSelections: ChoirSongSelection[];
   chatMessages: ChatMessage[];
@@ -100,20 +96,6 @@ export function bridgeDemoCollections(
   bridge: DemoIdBridge,
 ): DemoCollections {
   return {
-    rotaEntries: collections.rotaEntries.map((e) => ({
-      ...e,
-      team_id: toLiveTeamId(bridge, e.team_id),
-      created_by: toLiveUserId(bridge, e.created_by),
-      cancelled_by: e.cancelled_by ? toLiveUserId(bridge, e.cancelled_by) : e.cancelled_by,
-    })),
-    rotaAssignments: collections.rotaAssignments.map((a) => ({
-      ...a,
-      user_id: toLiveUserId(bridge, a.user_id),
-    })),
-    availabilityResponses: collections.availabilityResponses.map((r) => ({
-      ...r,
-      user_id: toLiveUserId(bridge, r.user_id),
-    })),
     songs: collections.songs.map((s) => ({
       ...s,
       team_id: toLiveTeamId(bridge, s.team_id),

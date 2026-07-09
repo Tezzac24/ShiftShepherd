@@ -1,6 +1,6 @@
 # Supabase Backend Foundation
 
-This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + live sessions, the **announcements** and **events** feature slices, and the **read-only people/teams directory** (organisations, profiles, teams, team memberships) run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured); rotas, songs, and chat still run on mock data (`src/lib/mockData/` + `src/lib/appData/`) — those tables have no Data API grants yet. See `docs/supabase-integration-plan.md` for the wiring order.
+This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + live sessions, the **announcements**, **events**, and **rotas/availability** feature slices, and the **read-only people/teams directory** (organisations, profiles, teams, team memberships) run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured); songs and chat still run on mock data (`src/lib/mockData/` + `src/lib/appData/`) — those tables have no Data API grants yet. **Note:** the rota grants migration (`20260709154733_grant_authenticated_rota_api_privileges.sql`) exists locally but has **not been pushed yet** — until it is applied remotely, live rota mode shows a friendly load-error state. See `docs/supabase-integration-plan.md` for the wiring order.
 
 > **Current dev-project state (aligned 2026-07-09):** migration history is now **tracked** — remote `supabase_migrations.schema_migrations` records versions `001`–`006`, and migrations `003`–`006` are applied remotely (verified). Migrations `001`–`002` were originally applied by hand via the dashboard and back-filled into history with `supabase migration repair`. Future schema changes use the normal `supabase migration new` → `supabase db push` workflow. **Do not rename `001`–`006`** — remote history tracks those exact version strings. See `docs/supabase-migration-alignment-checkpoint.md`.
 
@@ -15,7 +15,8 @@ supabase/
 │   ├── 004_add_choir_song_selection_section.sql # praise/worship sections + section-level RLS
 │   ├── 005_add_rota_entry_cancellation.sql # rota entry status + cancellation fields
 │   ├── 006_grant_authenticated_api_privileges.sql # authenticated Data API grants
-│   └── 20260709093129_grant_authenticated_events_api_privileges.sql # events/categories grants for the live events slice
+│   ├── 20260709093129_grant_authenticated_events_api_privileges.sql # events/categories grants for the live events slice
+│   └── 20260709154733_grant_authenticated_rota_api_privileges.sql # rota entries/assignments/availability grants for the live rotas slice (NOT PUSHED YET)
 ├── seed/
 │   ├── dev_seed.sql             # mock data ported to SQL (relative dates)
 │   └── README.md                # how to seed + link Supabase Auth users

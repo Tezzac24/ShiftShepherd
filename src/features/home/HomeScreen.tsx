@@ -184,14 +184,20 @@ export default function HomeScreen() {
             </View>
           ) : null}
         </Card>
-      ) : data.teamsLoading ? (
-        // Live mode: responsibilities need the teams directory to resolve.
+      ) : data.rotasLoading || data.teamsLoading ? (
+        // Live mode: responsibilities need the rota and the teams directory.
         <Card>
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.primary} />
-            <AppText tone="secondary">Loading your teams…</AppText>
+            <AppText tone="secondary">Loading your rota…</AppText>
           </View>
         </Card>
+      ) : data.rotasError ? (
+        <EmptyState
+          icon="cloud-offline-outline"
+          title="Couldn’t load your rota"
+          message={data.rotasError}
+        />
       ) : (
         <EmptyState
           icon="checkmark-done-outline"

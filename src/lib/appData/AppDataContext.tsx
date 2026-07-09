@@ -10,21 +10,22 @@
  * Actions mirror the calls a Supabase service layer would expose, so wiring
  * the real backend later means swapping implementations, not screens.
  *
- * ★ Announcements, events, and the people/teams directory (organisation,
- * profiles, teams, team memberships) are the live Supabase slices: when the
- * user is signed in through Supabase Auth with a linked profile, those
- * collections and their actions run against the live database (RLS enforces
- * permissions) via src/lib/supabase/services/. In demo mode — or whenever
- * Supabase env vars are missing — they stay local/mock exactly as before.
- * Live data is session state only: it is never written to the demo
- * AsyncStorage snapshot and Reset Demo Data does not touch it.
+ * ★ Announcements, events, the people/teams directory (organisation,
+ * profiles, teams, team memberships), and rotas (entries, assignments,
+ * availability responses) are the live Supabase slices: when the user is
+ * signed in through Supabase Auth with a linked profile, those collections
+ * and their actions run against the live database (RLS enforces permissions)
+ * via src/lib/supabase/services/. In demo mode — or whenever Supabase env
+ * vars are missing — they stay local/mock exactly as before. Live data is
+ * session state only: it is never written to the demo AsyncStorage snapshot
+ * and Reset Demo Data does not touch it.
  *
- * The still-local slices (rotas, songs, chat) are keyed by mock ids; in live
- * mode they are re-keyed onto live team/profile UUIDs through the temporary
+ * The still-local slices (songs, chat) are keyed by mock ids; in live mode
+ * they are re-keyed onto live team/profile UUIDs through the temporary
  * demoBridge so they keep working alongside live teams (see demoBridge.ts).
  *
- * TODO: wire to Supabase — repeat the same pattern for rotas, songs, chat,
- * and notification preferences (see docs/supabase-integration-plan.md).
+ * TODO: wire to Supabase — repeat the same pattern for songs, chat, and
+ * notification preferences (see docs/supabase-integration-plan.md).
  */
 import React, {
   createContext,
@@ -78,6 +79,7 @@ import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../s
 import { isSupabaseConfigured } from '../supabase/client';
 import * as announcementsService from '../supabase/services/announcements';
 import * as eventsService from '../supabase/services/events';
+import * as rotasService from '../supabase/services/rotas';
 import * as teamsService from '../supabase/services/teams';
 import {
   bridgeDemoCollections,
@@ -210,27 +212,38 @@ interface AppDataContextValue {
   updateEvent: (id: string, patch: Partial<Event>) => Promise<void>;
   deleteEvent: (id: string) => Promise<void>;
 
-  // Rotas
+  // Rotas — the fourth live Supabase slice, switching exactly like
+  // announcements/events: live Supabase for linked Supabase sessions, local
+  // demo data otherwise. Actions are async in both modes and reject with a
+  // friendly message on live failures (nothing changes locally on failure).
+  /** True when rotas come from live Supabase rather than local demo data. */
+  rotasLive: boolean;
+  /** True while live rotas are being (re)loaded. Always false in demo mode. */
+  rotasLoading: boolean;
+  /** Friendly load-failure message, or null. Always null in demo mode. */
+  rotasError: string | null;
+  /** Reload live rotas (no-op in demo mode). */
+  refreshRotas: () => Promise<void>;
   addRotaEntry: (
     input: NewRotaEntryInput,
     assignments: NewRotaAssignmentInput[],
-  ) => RotaEntry;
+  ) => Promise<RotaEntry>;
   updateRotaEntry: (
     id: string,
     patch: Partial<RotaEntry>,
     assignments?: NewRotaAssignmentInput[],
-  ) => void;
-  deleteRotaEntry: (id: string) => void;
+  ) => Promise<void>;
+  deleteRotaEntry: (id: string) => Promise<void>;
   /** Marks an entry as cancelled (kept visible) rather than deleting it. */
-  cancelRotaEntry: (id: string, cancelledBy: string, reason: string | null) => void;
+  cancelRotaEntry: (id: string, cancelledBy: string, reason: string | null) => Promise<void>;
   /** Undoes a cancellation (e.g. after a mis-tap). */
-  restoreRotaEntry: (id: string) => void;
+  restoreRotaEntry: (id: string) => Promise<void>;
   setAvailability: (
     assignmentId: string,
     userId: string,
     status: AvailabilityStatus,
     note: string | null,
-  ) => void;
+  ) => Promise<void>;
 
   // Songs
   addSong: (
@@ -276,6 +289,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const announcementsLive = liveDataEnabled;
   const eventsLive = liveDataEnabled;
   const teamsLive = liveDataEnabled;
+  const rotasLive = liveDataEnabled;
 
   const [localAnnouncements, setLocalAnnouncements] =
     useState<Announcement[]>(mockAnnouncements);
@@ -294,11 +308,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [liveDirectory, setLiveDirectory] = useState<teamsService.TeamsDirectory | null>(null);
   const [teamsLoading, setTeamsLoading] = useState(false);
   const [teamsError, setTeamsError] = useState<string | null>(null);
-  const [rotaEntries, setRotaEntries] = useState<RotaEntry[]>(mockRotaEntries);
-  const [rotaAssignments, setRotaAssignments] = useState<RotaAssignment[]>(mockRotaAssignments);
-  const [availabilityResponses, setAvailabilityResponses] = useState<AvailabilityResponse[]>(
-    mockAvailabilityResponses,
-  );
+  const [localRotaEntries, setLocalRotaEntries] = useState<RotaEntry[]>(mockRotaEntries);
+  const [localRotaAssignments, setLocalRotaAssignments] =
+    useState<RotaAssignment[]>(mockRotaAssignments);
+  const [localAvailabilityResponses, setLocalAvailabilityResponses] = useState<
+    AvailabilityResponse[]
+  >(mockAvailabilityResponses);
+  const [liveRota, setLiveRota] = useState<rotasService.RotaData | null>(null);
+  const [rotasLoading, setRotasLoading] = useState(false);
+  const [rotasError, setRotasError] = useState<string | null>(null);
   const [songs, setSongs] = useState<Song[]>(mockSongs);
   const [songSelections, setSongSelectionsState] =
     useState<ChoirSongSelection[]>(mockSongSelections);
@@ -321,9 +339,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (persisted && !cancelled) {
         setLocalAnnouncements(persisted.announcements);
         setLocalEvents(persisted.events);
-        setRotaEntries(persisted.rotaEntries);
-        setRotaAssignments(persisted.rotaAssignments);
-        setAvailabilityResponses(persisted.availabilityResponses);
+        setLocalRotaEntries(persisted.rotaEntries);
+        setLocalRotaAssignments(persisted.rotaAssignments);
+        setLocalAvailabilityResponses(persisted.availabilityResponses);
         setSongs(persisted.songs);
         setSongSelectionsState(persisted.songSelections);
         setChatMessages(persisted.chatMessages);
@@ -345,9 +363,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     const snapshot: PersistedAppData = {
       announcements: localAnnouncements,
       events: localEvents,
-      rotaEntries,
-      rotaAssignments,
-      availabilityResponses,
+      rotaEntries: localRotaEntries,
+      rotaAssignments: localRotaAssignments,
+      availabilityResponses: localAvailabilityResponses,
       songs,
       songSelections,
       chatMessages,
@@ -364,9 +382,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     isHydrated,
     localAnnouncements,
     localEvents,
-    rotaEntries,
-    rotaAssignments,
-    availabilityResponses,
+    localRotaEntries,
+    localRotaAssignments,
+    localAvailabilityResponses,
     songs,
     songSelections,
     chatMessages,
@@ -379,9 +397,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     await clearPersisted(STORAGE_KEYS.appData);
     setLocalAnnouncements(mockAnnouncements);
     setLocalEvents(mockEvents);
-    setRotaEntries(mockRotaEntries);
-    setRotaAssignments(mockRotaAssignments);
-    setAvailabilityResponses(mockAvailabilityResponses);
+    setLocalRotaEntries(mockRotaEntries);
+    setLocalRotaAssignments(mockRotaAssignments);
+    setLocalAvailabilityResponses(mockAvailabilityResponses);
     setSongs(mockSongs);
     setSongSelectionsState(mockSongSelections);
     setChatMessages(mockChatMessages);
@@ -675,10 +693,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [teamsLive, refreshTeams]);
 
-  // TEMPORARY (see demoBridge.ts): while rotas/songs/chat stay demo/local,
-  // re-key them onto live team/profile UUIDs in live mode so they keep
-  // working next to the live directory, and map ids back on local writes so
-  // the persisted demo snapshot stays keyed by mock ids.
+  // TEMPORARY (see demoBridge.ts): while songs/chat stay demo/local, re-key
+  // them onto live team/profile UUIDs in live mode so they keep working next
+  // to the live directory, and map ids back on local writes so the persisted
+  // demo snapshot stays keyed by mock ids.
   const demoBridge = useMemo<DemoIdBridge | null>(
     () =>
       teamsLive && liveDirectory
@@ -692,36 +710,104 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const demoView = useMemo(() => {
     const collections = {
-      rotaEntries,
-      rotaAssignments,
-      availabilityResponses,
       songs,
       songSelections,
       chatMessages,
       unreadByTeam,
     };
     return demoBridge ? bridgeDemoCollections(collections, demoBridge) : collections;
-  }, [
-    demoBridge,
-    rotaEntries,
-    rotaAssignments,
-    availabilityResponses,
-    songs,
-    songSelections,
-    chatMessages,
-    unreadByTeam,
-  ]);
+  }, [demoBridge, songs, songSelections, chatMessages, unreadByTeam]);
 
-  // --- Rotas -----------------------------------------------------------------
+  // --- Rotas (live Supabase slice ★, with local demo fallback) -----------------
+
+  const refreshRotas: AppDataContextValue['refreshRotas'] = useCallback(async () => {
+    const requestProfileId = supabaseProfileIdRef.current;
+    if (!liveDataEnabledRef.current || !requestProfileId) return;
+    setRotasLoading(true);
+    setRotasError(null);
+    try {
+      const rotaData = await rotasService.fetchRotaData();
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setLiveRota(rotaData);
+      }
+    } catch (error) {
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setRotasError(
+          error instanceof Error
+            ? error.message
+            : 'We couldn’t load the rota right now. Please try again.',
+        );
+      }
+    } finally {
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setRotasLoading(false);
+      }
+    }
+  }, []);
+
+  // Load live rotas when a Supabase session appears; clear them (and any
+  // load error) when it goes away. Local demo data is untouched either way.
+  useEffect(() => {
+    if (rotasLive) {
+      void refreshRotas();
+    } else {
+      setLiveRota(null);
+      setRotasError(null);
+      setRotasLoading(false);
+    }
+  }, [rotasLive, refreshRotas]);
+
+  // After a live mutation succeeds, quietly re-sync in the background (no
+  // loading flicker; a failed re-sync keeps the optimistically-applied
+  // server rows, so nothing is lost). This is also what heals the rare
+  // partial assignment replace (see rotas service).
+  const resyncLiveRotas = useCallback(() => {
+    const requestProfileId = supabaseProfileIdRef.current;
+    if (!requestProfileId) return;
+    rotasService
+      .fetchRotaData()
+      .then((rotaData) => {
+        if (
+          liveDataEnabledRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setLiveRota(rotaData);
+        }
+      })
+      .catch((error) => console.warn('[appData] rotas re-sync failed', error));
+  }, []);
 
   const addRotaEntry: AppDataContextValue['addRotaEntry'] = useCallback(
-    (input, assignments) => {
-      // Rotas are still demo/local: store mock ids, not live UUIDs.
-      const bridge = demoBridgeRef.current;
+    async (input, assignments) => {
+      if (rotasLive && supabaseProfileId) {
+        const created = await rotasService.createRotaEntry(
+          input,
+          assignments,
+          supabaseProfileId,
+        );
+        setLiveRota((prev) =>
+          prev
+            ? {
+                ...prev,
+                entries: [...prev.entries, created.entry],
+                assignments: [...prev.assignments, ...created.assignments],
+              }
+            : { entries: [created.entry], assignments: created.assignments, responses: [] },
+        );
+        resyncLiveRotas();
+        return created.entry;
+      }
       const record: RotaEntry = {
         ...input,
-        team_id: toLocalTeamId(bridge, input.team_id),
-        created_by: toLocalUserId(bridge, input.created_by),
         id: makeId('rota'),
         organisation_id: ORG_ID,
         status: 'active',
@@ -731,52 +817,65 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         created_at: now(),
         updated_at: now(),
       };
-      setRotaEntries((prev) => [...prev, record]);
-      setRotaAssignments((prev) => [
+      setLocalRotaEntries((prev) => [...prev, record]);
+      setLocalRotaAssignments((prev) => [
         ...prev,
         ...assignments.map((a) => ({
           id: makeId('ra'),
           rota_entry_id: record.id,
-          user_id: toLocalUserId(bridge, a.user_id),
+          user_id: a.user_id,
           role_name: a.role_name,
           created_at: now(),
         })),
       ]);
       return record;
     },
-    [],
+    [rotasLive, supabaseProfileId, resyncLiveRotas],
   );
 
   const updateRotaEntry: AppDataContextValue['updateRotaEntry'] = useCallback(
-    (id, patch, assignments) => {
-      // Rotas are still demo/local: store mock ids, not live UUIDs.
-      const bridge = demoBridgeRef.current;
-      const localPatch = { ...patch };
-      if (localPatch.team_id) localPatch.team_id = toLocalTeamId(bridge, localPatch.team_id);
-      if (localPatch.created_by) {
-        localPatch.created_by = toLocalUserId(bridge, localPatch.created_by);
+    async (id, patch, assignments) => {
+      if (rotasLive) {
+        const saved = await rotasService.updateRotaEntry(id, patch, assignments);
+        setLiveRota((prev) => {
+          if (!prev) return prev;
+          const keptIds = new Set(saved.assignments.map((a) => a.id));
+          return {
+            entries: prev.entries.map((e) => (e.id === id ? saved.entry : e)),
+            assignments: [
+              ...prev.assignments.filter((a) => a.rota_entry_id !== id),
+              ...saved.assignments,
+            ],
+            // Responses for removed assignments cascade away server-side.
+            responses: prev.responses.filter(
+              (r) =>
+                keptIds.has(r.rota_assignment_id) ||
+                !prev.assignments.some(
+                  (a) => a.id === r.rota_assignment_id && a.rota_entry_id === id,
+                ),
+            ),
+          };
+        });
+        resyncLiveRotas();
+        return;
       }
-      if (localPatch.cancelled_by) {
-        localPatch.cancelled_by = toLocalUserId(bridge, localPatch.cancelled_by);
-      }
-      setRotaEntries((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, ...localPatch, updated_at: now() } : e)),
+      setLocalRotaEntries((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, ...patch, updated_at: now() } : e)),
       );
       if (assignments) {
         // Replace the assignment list; keep ids stable where person+role match
-        setRotaAssignments((prev) => {
+        setLocalRotaAssignments((prev) => {
           const existing = prev.filter((a) => a.rota_entry_id === id);
           const others = prev.filter((a) => a.rota_entry_id !== id);
           const next = assignments.map((a) => {
-            const userId = toLocalUserId(bridge, a.user_id);
             const match = existing.find(
-              (x) => x.user_id === userId && x.role_name === a.role_name,
+              (x) => x.user_id === a.user_id && x.role_name === a.role_name,
             );
             return (
               match ?? {
                 id: makeId('ra'),
                 rota_entry_id: id,
-                user_id: userId,
+                user_id: a.user_id,
                 role_name: a.role_name,
                 created_at: now(),
               }
@@ -784,7 +883,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           });
           const keptIds = new Set(next.map((a) => a.id));
           // Clean up availability responses for removed assignments
-          setAvailabilityResponses((responses) =>
+          setLocalAvailabilityResponses((responses) =>
             responses.filter(
               (r) =>
                 keptIds.has(r.rota_assignment_id) ||
@@ -795,34 +894,64 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [],
+    [rotasLive, resyncLiveRotas],
   );
 
-  const deleteRotaEntry = useCallback((id: string) => {
-    setRotaEntries((prev) => prev.filter((e) => e.id !== id));
-    setRotaAssignments((prev) => {
-      const removed = new Set(
-        prev.filter((a) => a.rota_entry_id === id).map((a) => a.id),
-      );
-      setAvailabilityResponses((responses) =>
-        responses.filter((r) => !removed.has(r.rota_assignment_id)),
-      );
-      return prev.filter((a) => a.rota_entry_id !== id);
-    });
-    setSongSelectionsState((prev) => prev.filter((s) => s.rota_entry_id !== id));
-  }, []);
+  const deleteRotaEntry: AppDataContextValue['deleteRotaEntry'] = useCallback(
+    async (id) => {
+      if (rotasLive) {
+        await rotasService.deleteRotaEntry(id);
+        setLiveRota((prev) => {
+          if (!prev) return prev;
+          const removed = new Set(
+            prev.assignments.filter((a) => a.rota_entry_id === id).map((a) => a.id),
+          );
+          return {
+            entries: prev.entries.filter((e) => e.id !== id),
+            assignments: prev.assignments.filter((a) => a.rota_entry_id !== id),
+            responses: prev.responses.filter((r) => !removed.has(r.rota_assignment_id)),
+          };
+        });
+        // Song selections are still local; drop any made against this entry.
+        setSongSelectionsState((prev) => prev.filter((s) => s.rota_entry_id !== id));
+        resyncLiveRotas();
+        return;
+      }
+      setLocalRotaEntries((prev) => prev.filter((e) => e.id !== id));
+      setLocalRotaAssignments((prev) => {
+        const removed = new Set(
+          prev.filter((a) => a.rota_entry_id === id).map((a) => a.id),
+        );
+        setLocalAvailabilityResponses((responses) =>
+          responses.filter((r) => !removed.has(r.rota_assignment_id)),
+        );
+        return prev.filter((a) => a.rota_entry_id !== id);
+      });
+      setSongSelectionsState((prev) => prev.filter((s) => s.rota_entry_id !== id));
+    },
+    [rotasLive, resyncLiveRotas],
+  );
 
   const cancelRotaEntry: AppDataContextValue['cancelRotaEntry'] = useCallback(
-    (id, cancelledBy, reason) => {
-      const localCancelledBy = toLocalUserId(demoBridgeRef.current, cancelledBy);
-      setRotaEntries((prev) =>
+    async (id, cancelledBy, reason) => {
+      if (rotasLive && supabaseProfileId) {
+        const cancelled = await rotasService.cancelRotaEntry(id, supabaseProfileId, reason);
+        setLiveRota((prev) =>
+          prev
+            ? { ...prev, entries: prev.entries.map((e) => (e.id === id ? cancelled : e)) }
+            : prev,
+        );
+        resyncLiveRotas();
+        return;
+      }
+      setLocalRotaEntries((prev) =>
         prev.map((e) =>
           e.id === id
             ? {
                 ...e,
                 status: 'cancelled',
                 cancelled_at: now(),
-                cancelled_by: localCancelledBy,
+                cancelled_by: cancelledBy,
                 cancellation_reason: reason,
                 updated_at: now(),
               }
@@ -830,30 +959,63 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         ),
       );
     },
-    [],
+    [rotasLive, supabaseProfileId, resyncLiveRotas],
   );
 
-  const restoreRotaEntry = useCallback((id: string) => {
-    setRotaEntries((prev) =>
-      prev.map((e) =>
-        e.id === id
-          ? {
-              ...e,
-              status: 'active',
-              cancelled_at: null,
-              cancelled_by: null,
-              cancellation_reason: null,
-              updated_at: now(),
-            }
-          : e,
-      ),
-    );
-  }, []);
+  const restoreRotaEntry: AppDataContextValue['restoreRotaEntry'] = useCallback(
+    async (id) => {
+      if (rotasLive) {
+        const restored = await rotasService.restoreRotaEntry(id);
+        setLiveRota((prev) =>
+          prev
+            ? { ...prev, entries: prev.entries.map((e) => (e.id === id ? restored : e)) }
+            : prev,
+        );
+        resyncLiveRotas();
+        return;
+      }
+      setLocalRotaEntries((prev) =>
+        prev.map((e) =>
+          e.id === id
+            ? {
+                ...e,
+                status: 'active',
+                cancelled_at: null,
+                cancelled_by: null,
+                cancellation_reason: null,
+                updated_at: now(),
+              }
+            : e,
+        ),
+      );
+    },
+    [rotasLive, resyncLiveRotas],
+  );
 
   const setAvailability: AppDataContextValue['setAvailability'] = useCallback(
-    (assignmentId, userId, status, note) => {
-      const localUserId = toLocalUserId(demoBridgeRef.current, userId);
-      setAvailabilityResponses((prev) => {
+    async (assignmentId, userId, status, note) => {
+      if (rotasLive && supabaseProfileId) {
+        const saved = await rotasService.submitAvailability(
+          assignmentId,
+          supabaseProfileId,
+          status,
+          note,
+        );
+        setLiveRota((prev) =>
+          prev
+            ? {
+                ...prev,
+                responses: [
+                  ...prev.responses.filter((r) => r.rota_assignment_id !== assignmentId),
+                  saved,
+                ],
+              }
+            : prev,
+        );
+        resyncLiveRotas();
+        return;
+      }
+      setLocalAvailabilityResponses((prev) => {
         const existing = prev.find((r) => r.rota_assignment_id === assignmentId);
         if (existing) {
           return prev.map((r) =>
@@ -867,7 +1029,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           {
             id: makeId('av'),
             rota_assignment_id: assignmentId,
-            user_id: localUserId,
+            user_id: userId,
             status,
             note,
             updated_at: now(),
@@ -875,7 +1037,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         ];
       });
     },
-    [],
+    [rotasLive, supabaseProfileId, resyncLiveRotas],
   );
 
   // --- Songs -----------------------------------------------------------------
@@ -1000,10 +1162,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       eventsLoading,
       eventsError,
       refreshEvents,
+      // Rotas: live rows for linked Supabase sessions (empty lists while they
+      // load — screens show the rotasLoading state), local demo data otherwise.
+      rotaEntries: rotasLive ? (liveRota?.entries ?? []) : localRotaEntries,
+      rotaAssignments: rotasLive ? (liveRota?.assignments ?? []) : localRotaAssignments,
+      availabilityResponses: rotasLive
+        ? (liveRota?.responses ?? [])
+        : localAvailabilityResponses,
+      rotasLive,
+      rotasLoading,
+      rotasError,
+      refreshRotas,
       // Still-local slices, re-keyed onto live ids in live mode (demoBridge).
-      rotaEntries: demoView.rotaEntries,
-      rotaAssignments: demoView.rotaAssignments,
-      availabilityResponses: demoView.availabilityResponses,
       songs: demoView.songs,
       songSelections: demoView.songSelections,
       chatMessages: demoView.chatMessages,
@@ -1049,6 +1219,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       eventsLoading,
       eventsError,
       refreshEvents,
+      rotasLive,
+      liveRota,
+      localRotaEntries,
+      localRotaAssignments,
+      localAvailabilityResponses,
+      rotasLoading,
+      rotasError,
+      refreshRotas,
       demoView,
       addAnnouncement,
       updateAnnouncement,

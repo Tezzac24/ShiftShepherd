@@ -1,6 +1,8 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { colors, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
@@ -23,6 +25,19 @@ export default function RotaListScreen() {
   const data = useAppData();
 
   const team = data.teams.find((t) => t.id === teamId);
+
+  // Live mode: don't flash "No permission" while the directory is on its way.
+  if (!team && data.teamsLoading) {
+    return (
+      <Screen>
+        <Stack.Screen options={{ title: 'Rota' }} />
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading the rota…</AppText>
+        </View>
+      </Screen>
+    );
+  }
 
   if (!team || !canViewTeam(user, team.id)) {
     return (
@@ -103,6 +118,26 @@ export default function RotaListScreen() {
             />
           );
         })
+      ) : data.rotasLoading ? (
+        // Live mode: the rota is still on its way from the server.
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading the rota…</AppText>
+        </View>
+      ) : data.rotasError ? (
+        <>
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Couldn’t load the rota"
+            message={data.rotasError}
+          />
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshRotas()}
+          />
+        </>
       ) : (
         <EmptyState
           icon="calendar-outline"
@@ -113,3 +148,7 @@ export default function RotaListScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
+});

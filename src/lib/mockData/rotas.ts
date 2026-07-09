@@ -14,8 +14,9 @@
  *  - Availability responses are mixed (available / unavailable / maybe /
  *    not responded) with optional notes on some.
  *
- * TODO: wire to Supabase — `rota_entries`, `rota_assignments`,
- * `availability_responses`, `choir_rota_song_selections` tables.
+ * Rota entries, assignments, and availability responses are live in Supabase
+ * mode now — these seeds serve demo mode (and Reset Demo Data) only.
+ * TODO: wire to Supabase — `choir_rota_song_selections` table.
  */
 import {
   AvailabilityResponse,

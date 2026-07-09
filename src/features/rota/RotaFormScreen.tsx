@@ -12,6 +12,7 @@ import { Screen } from '../../components/Screen';
 import { DateField, TimeField } from '../../components/DateTimeFields';
 import { SelectField } from '../../components/SelectField';
 import { TextField } from '../../components/TextField';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { assignmentsForEntry, teamMembers } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
@@ -40,6 +41,7 @@ export default function RotaFormScreen() {
   const { teamId, entryId } = useLocalSearchParams<{ teamId: string; entryId?: string }>();
   const user = useRequiredUser();
   const data = useAppData();
+  const showToast = useToast();
 
   const team = data.teams.find((t) => t.id === teamId);
   const existing = entryId ? data.rotaEntries.find((e) => e.id === entryId) : undefined;
@@ -58,6 +60,7 @@ export default function RotaFormScreen() {
       : [{ user_id: null, role_name: null }],
   );
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   if (!team || !canManageTeamRota(user, team.id)) {
     return (
@@ -83,7 +86,8 @@ export default function RotaFormScreen() {
     setAssignments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saving) return;
     if (!title.trim() || !dateKey) {
       setError('Please add a title and choose a date.');
       return;
@@ -121,12 +125,25 @@ export default function RotaFormScreen() {
       notes: notes.trim() || null,
       created_by: existing?.created_by ?? user.profile.id,
     };
-    if (existing) {
-      data.updateRotaEntry(existing.id, record, complete);
-    } else {
-      data.addRotaEntry(record, complete);
+    setError(null);
+    setSaving(true);
+    try {
+      if (existing) {
+        await data.updateRotaEntry(existing.id, record, complete);
+        showToast('Rota entry updated.');
+      } else {
+        await data.addRotaEntry(record, complete);
+        showToast('Rota entry added.');
+      }
+      router.back();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Your changes could not be saved. Please try again.',
+      );
+      setSaving(false);
     }
-    router.back();
   };
 
   return (
@@ -230,11 +247,18 @@ export default function RotaFormScreen() {
 
       <View style={styles.actions}>
         <Button
-          title={editing ? 'Save Changes' : 'Add Rota Entry'}
+          title={saving ? 'Saving…' : editing ? 'Save Changes' : 'Add Rota Entry'}
           icon="checkmark-outline"
-          onPress={handleSave}
+          loading={saving}
+          disabled={saving}
+          onPress={() => void handleSave()}
         />
-        <Button title="Cancel" variant="secondary" onPress={() => router.back()} />
+        <Button
+          title="Cancel"
+          variant="secondary"
+          onPress={() => router.back()}
+          disabled={saving}
+        />
       </View>
     </Screen>
   );
