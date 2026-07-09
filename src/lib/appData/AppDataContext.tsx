@@ -26,8 +26,11 @@
  * counts are demo-only (real unread tracking needs a chat_reads table), so
  * live mode simply shows no unread badges.
  *
- * TODO: wire to Supabase — repeat the same pattern for notification
- * preferences (see docs/supabase-integration-plan.md).
+ * Notification preferences are live too (one row per profile, upserted on
+ * first change; a user with no row gets the all-on defaults client-side).
+ * Push token registration is deferred — no expo-notifications, no EAS
+ * project id, and Expo Go cannot receive remote pushes — and no push is
+ * actually delivered yet either way (see src/lib/notifications/).
  */
 import React, {
   createContext,
@@ -82,6 +85,7 @@ import { isSupabaseConfigured } from '../supabase/client';
 import * as announcementsService from '../supabase/services/announcements';
 import * as chatService from '../supabase/services/chat';
 import * as eventsService from '../supabase/services/events';
+import * as notificationsService from '../supabase/services/notifications';
 import * as rotasService from '../supabase/services/rotas';
 import * as songsService from '../supabase/services/songs';
 import * as teamsService from '../supabase/services/teams';
@@ -284,12 +288,26 @@ interface AppDataContextValue {
   sendChatMessage: (teamId: string, senderId: string, body: string) => Promise<void>;
   markTeamChatRead: (teamId: string) => void;
 
-  // Notification preferences
+  // Notification preferences — the seventh live Supabase slice, switching
+  // exactly like the earlier slices: live Supabase for linked Supabase
+  // sessions, local demo data otherwise. One row per profile; a user who has
+  // never saved has no row and gets the all-on defaults client-side (the row
+  // is only created — upserted — on their first change). Live preferences are
+  // session-only, never persisted to AsyncStorage.
+  /** True when notification preferences come from live Supabase rather than local demo data. */
+  notificationPrefsLive: boolean;
+  /** True while live notification preferences are being (re)loaded. Always false in demo mode. */
+  notificationPrefsLoading: boolean;
+  /** Friendly load-failure message, or null. Always null in demo mode. */
+  notificationPrefsError: string | null;
+  /** Reload live notification preferences (no-op in demo mode). */
+  refreshNotificationPrefs: () => Promise<void>;
   getNotificationPreferences: (userId: string) => NotificationPreferences;
+  /** Async in both modes; rejects with a friendly message on live failures. */
   updateNotificationPreferences: (
     userId: string,
     patch: Partial<NotificationPreferences>,
-  ) => void;
+  ) => Promise<void>;
 
   /** Restores the original mock seed data and clears persisted demo changes. */
   resetDemoData: () => Promise<void>;
@@ -315,6 +333,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const rotasLive = liveDataEnabled;
   const songsLive = liveDataEnabled;
   const chatLive = liveDataEnabled;
+  const notificationPrefsLive = liveDataEnabled;
 
   const [localAnnouncements, setLocalAnnouncements] =
     useState<Announcement[]>(mockAnnouncements);
@@ -356,6 +375,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [notificationPrefs, setNotificationPrefs] = useState<
     Record<string, NotificationPreferences>
   >({});
+  // Null in live mode means "no saved row yet" — the getter falls back to the
+  // all-on defaults without creating one.
+  const [liveNotificationPrefs, setLiveNotificationPrefs] =
+    useState<NotificationPreferences | null>(null);
+  const [notificationPrefsLoading, setNotificationPrefsLoading] = useState(false);
+  const [notificationPrefsError, setNotificationPrefsError] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
 
   // Restore persisted demo changes once at startup. Anything invalid, stale,
@@ -1342,20 +1367,93 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setUnreadByTeam((prev) => (prev[teamId] ? { ...prev, [teamId]: 0 } : prev));
   }, []);
 
-  // --- Notification preferences -------------------------------------------------
+  // --- Notification preferences (live Supabase slice ★, with local demo fallback)
+
+  const refreshNotificationPrefs: AppDataContextValue['refreshNotificationPrefs'] =
+    useCallback(async () => {
+      const requestProfileId = supabaseProfileIdRef.current;
+      if (!liveDataEnabledRef.current || !requestProfileId) return;
+      setNotificationPrefsLoading(true);
+      setNotificationPrefsError(null);
+      try {
+        const prefs = await notificationsService.fetchNotificationPreferences(requestProfileId);
+        if (
+          liveDataEnabledRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setLiveNotificationPrefs(prefs);
+        }
+      } catch (error) {
+        if (
+          liveDataEnabledRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setNotificationPrefsError(
+            error instanceof Error
+              ? error.message
+              : "We couldn't load your notification settings right now. Please try again.",
+          );
+        }
+      } finally {
+        if (
+          liveDataEnabledRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setNotificationPrefsLoading(false);
+        }
+      }
+    }, []);
+
+  // Load live notification preferences when a Supabase session appears; clear
+  // them (and any load error) when it goes away, so a different user never
+  // sees stale settings. Local demo data is untouched either way.
+  useEffect(() => {
+    if (notificationPrefsLive) {
+      void refreshNotificationPrefs();
+    } else {
+      setLiveNotificationPrefs(null);
+      setNotificationPrefsError(null);
+      setNotificationPrefsLoading(false);
+    }
+  }, [notificationPrefsLive, refreshNotificationPrefs]);
 
   const getNotificationPreferences = useCallback(
-    (userId: string) => notificationPrefs[userId] ?? defaultNotificationPreferences(userId),
-    [notificationPrefs],
+    (userId: string) => {
+      if (notificationPrefsLive) {
+        return liveNotificationPrefs && liveNotificationPrefs.user_id === userId
+          ? liveNotificationPrefs
+          : defaultNotificationPreferences(userId);
+      }
+      return notificationPrefs[userId] ?? defaultNotificationPreferences(userId);
+    },
+    [notificationPrefsLive, liveNotificationPrefs, notificationPrefs],
   );
 
   const updateNotificationPreferences: AppDataContextValue['updateNotificationPreferences'] =
-    useCallback((userId, patch) => {
-      setNotificationPrefs((prev) => ({
-        ...prev,
-        [userId]: { ...(prev[userId] ?? defaultNotificationPreferences(userId)), ...patch },
-      }));
-    }, []);
+    useCallback(
+      async (userId, patch) => {
+        if (notificationPrefsLive && supabaseProfileId) {
+          // Merge onto the saved row (or the defaults when none exists yet) and
+          // upsert the whole row; the server-returned row becomes the new state.
+          // Nothing changes locally on failure — screens show the message.
+          const current =
+            liveNotificationPrefs && liveNotificationPrefs.user_id === supabaseProfileId
+              ? liveNotificationPrefs
+              : defaultNotificationPreferences(supabaseProfileId);
+          const saved = await notificationsService.saveNotificationPreferences(
+            supabaseProfileId,
+            { ...current, ...patch },
+          );
+          setLiveNotificationPrefs(saved);
+          return;
+        }
+        setNotificationPrefs((prev) => ({
+          ...prev,
+          [userId]: { ...(prev[userId] ?? defaultNotificationPreferences(userId)), ...patch },
+        }));
+      },
+      [notificationPrefsLive, supabaseProfileId, liveNotificationPrefs],
+    );
 
   const value = useMemo<AppDataContextValue>(
     () => ({
@@ -1427,6 +1525,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setSongSelections,
       sendChatMessage,
       markTeamChatRead,
+      // Notification preferences: live row for linked Supabase sessions
+      // (defaults client-side until first save), local demo data otherwise.
+      notificationPrefsLive,
+      notificationPrefsLoading,
+      notificationPrefsError,
+      refreshNotificationPrefs,
       getNotificationPreferences,
       updateNotificationPreferences,
       resetDemoData,
@@ -1490,6 +1594,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setSongSelections,
       sendChatMessage,
       markTeamChatRead,
+      notificationPrefsLive,
+      notificationPrefsLoading,
+      notificationPrefsError,
+      refreshNotificationPrefs,
       getNotificationPreferences,
       updateNotificationPreferences,
       resetDemoData,

@@ -136,9 +136,16 @@ Verify RLS from the app: Daniel (admin) reads/sends in every team chat; Hannah s
 
 Buckets for avatars, announcement images, and chat attachments, with storage policies mirroring the same team/org helpers. The UI already treats images/attachments as placeholders, so this unlocks them.
 
-### 11. Push notifications
+### 11. Push notifications — preferences ✅ (done); tokens & delivery deferred
 
-Expo Notifications: request permission, store the token in `push_tokens`, deliver via a Supabase Edge Function triggered on inserts (announcements, chat, rota changes), filtered through `notification_preferences`. Until then, preferences stay a local-state UI (they can be persisted to the table as a cheap early win during step 2–4).
+The "cheap early win" landed first: **notification preferences persist to `notification_preferences`** (2026-07-09), same pattern as the earlier slices. What shipped:
+
+1. `src/lib/supabase/services/notifications.ts` — `fetchNotificationPreferences()` (the caller's single row, or null when they have never saved) and `saveNotificationPreferences()` (an **upsert** onto the `unique(user_id)` constraint, so the row is only created on first change; the database owns the id). RLS (002) is strictly personal — `user_id = current_profile_id()` for every command.
+2. `AppDataContext` keeps two preference stores (persisted local/demo map + a session-only live row), switching on the same condition as the other slices. A user with no saved row gets the all-on defaults client-side — no row is created just by opening the screen. `updateNotificationPreferences` is async in both modes; a live save applies the server-returned row and rejects with a friendly message on failure (nothing changes locally).
+3. The notification settings screen gained live loading, error+retry, per-toggle saving (the switch holds its new value while the save is in flight and reverts if it fails), a success toast, and a friendly inline save-error bar. Demo mode keeps the original instant local toggles, still covered by Reset Demo Data.
+4. A grants migration (`20260709220528_grant_authenticated_notification_prefs_api_privileges.sql`) gives `authenticated` select/insert/update on `notification_preferences` (no delete — the app never deletes a row; nothing on `push_tokens`; nothing to anon). Verified missing via read-only introspection. **Not pushed yet** — until it is approved and pushed, the live settings screen shows the friendly load-error state with retry; demo mode is unaffected.
+
+**Push token registration is deferred** — this build cannot do it: `expo-notifications` is not installed, there is no EAS project id in app config (`getExpoPushTokenAsync` requires one), and Expo Go cannot receive remote pushes since SDK 53. The settings screen says delivery isn't active yet instead of offering a broken flow. When a development build exists: install `expo-notifications` via `npx expo install`, request permission from a user-initiated flow, upsert the token into `push_tokens` (RLS already covers it; add its grants then), and deliver via a Supabase Edge Function triggered on inserts (announcements, chat, rota changes), filtered through `notification_preferences`.
 
 ---
 
@@ -180,7 +187,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
 - **Unread badges** — demo-only simulation; live mode shows none until a `chat_reads` table exists.
 - **Chat realtime** — live messages refresh on screen open/send/manual refresh only, until `chat_messages` joins the `supabase_realtime` publication.
-- **Notification delivery** — settings UI persists locally (or to the table) but nothing pushes until step 11.
+- **Notification delivery** — preferences persist to the table now (step 11, first half), but no push token is registered and nothing pushes until a development build + Edge Function pass.
 - **Images & attachments** — placeholders until step 10 (Storage).
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
 - **Team management UI** (create teams, assign leaders) — admin does this via the dashboard until a screen exists.
@@ -195,6 +202,7 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 4. ✅ **Done (2026-07-09):** **step 7 — rotas & availability**, including the pushed and verified `20260709154733_grant_authenticated_rota_api_privileges.sql` migration. The teams-SELECT relaxation (Risks: team-name visibility, option b) was deliberately **not** bundled in — rota entries are only visible to team members, so their team names always resolve; it remains a candidate for a later migration pass.
 5. ✅ **Done (2026-07-09):** **step 8 — songs & song selection**, including the pushed and verified `20260709171613_grant_authenticated_songs_api_privileges.sql` migration; choir songs passed manual QA.
 6. ✅ **Done in app code (2026-07-09):** **step 9 — chat** (text-only, no realtime), retiring `demoBridge.ts`. **Blocked on approval:** push `20260709205903_grant_authenticated_chat_api_privileges.sql` (`supabase db push` after normal preflight) — until then live chat screens show the friendly error state.
-7. Next slice candidates: **notification preferences** (persist the settings UI to `notification_preferences` — the cheap early win from step 11), the `handle_new_user` trigger migration if signup is next, or **Realtime on `chat_messages`** to remove the manual-refresh limitation.
+7. ✅ **Done in app code (2026-07-09):** **step 11, first half — notification preferences** persist to `notification_preferences`. **Blocked on approval:** push `20260709220528_grant_authenticated_notification_prefs_api_privileges.sql` (it goes out together with the chat grants on the next approved `supabase db push`) — until then the live settings screen shows the friendly error state. Push token registration/delivery stays deferred (needs a development build with `expo-notifications` + an EAS project id).
+8. Next slice candidates: the `handle_new_user` trigger migration if signup is next, **Realtime on `chat_messages`** to remove the manual-refresh limitation, or **Storage** (step 10) to unlock avatars/images/attachments.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.
