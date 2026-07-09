@@ -82,7 +82,7 @@ export default function MessagesScreen() {
                     </AppText>
                   ) : (
                     <AppText variant="small" tone="muted">
-                      No messages yet
+                      {data.chatLoading ? 'Loading messages…' : 'No messages yet'}
                     </AppText>
                   )}
                 </View>

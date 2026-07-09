@@ -12,8 +12,8 @@
  *
  * ★ Announcements, events, the people/teams directory (organisation,
  * profiles, teams, team memberships), rotas (entries, assignments,
- * availability responses), and choir songs/song selections are the live
- * Supabase slices: when the user is
+ * availability responses), choir songs/song selections, and team chat are the
+ * live Supabase slices: when the user is
  * signed in through Supabase Auth with a linked profile, those collections
  * and their actions run against the live database (RLS enforces permissions)
  * via src/lib/supabase/services/. In demo mode — or whenever Supabase env
@@ -21,11 +21,12 @@
  * session state only: it is never written to the demo AsyncStorage snapshot
  * and Reset Demo Data does not touch it.
  *
- * The still-local chat slice is keyed by mock ids; in live mode it is
- * re-keyed onto live team/profile UUIDs through the temporary demoBridge so
- * it keeps working alongside live teams (see demoBridge.ts).
+ * Chat has no realtime yet: live messages are fetched at sign-in, when a chat
+ * screen opens, after each send, and on manual refresh. The simulated unread
+ * counts are demo-only (real unread tracking needs a chat_reads table), so
+ * live mode simply shows no unread badges.
  *
- * TODO: wire to Supabase — repeat the same pattern for chat and notification
+ * TODO: wire to Supabase — repeat the same pattern for notification
  * preferences (see docs/supabase-integration-plan.md).
  */
 import React, {
@@ -79,17 +80,11 @@ import {
 import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../storage/persistence';
 import { isSupabaseConfigured } from '../supabase/client';
 import * as announcementsService from '../supabase/services/announcements';
+import * as chatService from '../supabase/services/chat';
 import * as eventsService from '../supabase/services/events';
 import * as rotasService from '../supabase/services/rotas';
 import * as songsService from '../supabase/services/songs';
 import * as teamsService from '../supabase/services/teams';
-import {
-  bridgeDemoCollections,
-  buildDemoIdBridge,
-  DemoIdBridge,
-  toLocalTeamId,
-  toLocalUserId,
-} from './demoBridge';
 
 export interface NewRotaAssignmentInput {
   user_id: string;
@@ -273,8 +268,20 @@ interface AppDataContextValue {
     selectedBy: string,
   ) => Promise<void>;
 
-  // Chat
-  sendChatMessage: (teamId: string, senderId: string, body: string) => void;
+  // Chat — the sixth live Supabase slice, switching exactly like the earlier
+  // slices: live Supabase for linked Supabase sessions, local demo data
+  // otherwise. No realtime yet — messages refresh on sign-in, screen open,
+  // send, and manual refresh. Live messages are session-only, never persisted.
+  /** True when chat messages come from live Supabase rather than local demo data. */
+  chatLive: boolean;
+  /** True while live chat messages are being (re)loaded. Always false in demo mode. */
+  chatLoading: boolean;
+  /** Friendly load-failure message, or null. Always null in demo mode. */
+  chatError: string | null;
+  /** Reload live chat messages (no-op in demo mode). */
+  refreshChat: () => Promise<void>;
+  /** Async in both modes; rejects with a friendly message on live failures. */
+  sendChatMessage: (teamId: string, senderId: string, body: string) => Promise<void>;
   markTeamChatRead: (teamId: string) => void;
 
   // Notification preferences
@@ -290,6 +297,10 @@ interface AppDataContextValue {
 
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
+// Live mode has no unread simulation (see markTeamChatRead); stable reference
+// so the context value doesn't churn.
+const NO_UNREAD: Record<string, number> = {};
+
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // Live-vs-local mode for the wired slices:
   // Supabase session + configured client + linked profile ⇒ live; demo mode
@@ -303,6 +314,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const teamsLive = liveDataEnabled;
   const rotasLive = liveDataEnabled;
   const songsLive = liveDataEnabled;
+  const chatLive = liveDataEnabled;
 
   const [localAnnouncements, setLocalAnnouncements] =
     useState<Announcement[]>(mockAnnouncements);
@@ -336,7 +348,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [liveSongsData, setLiveSongsData] = useState<songsService.SongsData | null>(null);
   const [songsLoading, setSongsLoading] = useState(false);
   const [songsError, setSongsError] = useState<string | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(mockChatMessages);
+  const [localChatMessages, setLocalChatMessages] = useState<ChatMessage[]>(mockChatMessages);
+  const [liveChatMessages, setLiveChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [unreadByTeam, setUnreadByTeam] = useState<Record<string, number>>(mockUnreadByTeam);
   const [notificationPrefs, setNotificationPrefs] = useState<
     Record<string, NotificationPreferences>
@@ -360,7 +375,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setLocalAvailabilityResponses(persisted.availabilityResponses);
         setLocalSongs(persisted.songs);
         setLocalSongSelections(persisted.songSelections);
-        setChatMessages(persisted.chatMessages);
+        setLocalChatMessages(persisted.chatMessages);
         setUnreadByTeam(persisted.unreadByTeam);
         setNotificationPrefs(persisted.notificationPrefs);
       }
@@ -384,7 +399,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       availabilityResponses: localAvailabilityResponses,
       songs: localSongs,
       songSelections: localSongSelections,
-      chatMessages,
+      chatMessages: localChatMessages,
       unreadByTeam,
       notificationPrefs,
     };
@@ -403,7 +418,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     localAvailabilityResponses,
     localSongs,
     localSongSelections,
-    chatMessages,
+    localChatMessages,
     unreadByTeam,
     notificationPrefs,
   ]);
@@ -418,7 +433,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setLocalAvailabilityResponses(mockAvailabilityResponses);
     setLocalSongs(mockSongs);
     setLocalSongSelections(mockSongSelections);
-    setChatMessages(mockChatMessages);
+    setLocalChatMessages(mockChatMessages);
     setUnreadByTeam(mockUnreadByTeam);
     setNotificationPrefs({});
   }, []);
@@ -708,28 +723,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setTeamsLoading(false);
     }
   }, [teamsLive, refreshTeams]);
-
-  // TEMPORARY (see demoBridge.ts): chat is still demo/local, so re-key it
-  // onto live team/profile UUIDs in live mode and map ids back on local writes
-  // so the persisted demo snapshot stays keyed by mock ids.
-  const demoBridge = useMemo<DemoIdBridge | null>(
-    () =>
-      teamsLive && liveDirectory
-        ? buildDemoIdBridge(liveDirectory.users, liveDirectory.teams)
-        : null,
-    [teamsLive, liveDirectory],
-  );
-  // Lets mutation callbacks translate ids without re-creating on every load.
-  const demoBridgeRef = useRef<DemoIdBridge | null>(null);
-  demoBridgeRef.current = demoBridge;
-
-  const demoView = useMemo(() => {
-    const collections = {
-      chatMessages,
-      unreadByTeam,
-    };
-    return demoBridge ? bridgeDemoCollections(collections, demoBridge) : collections;
-  }, [demoBridge, chatMessages, unreadByTeam]);
 
   // --- Rotas (live Supabase slice ★, with local demo fallback) -----------------
 
@@ -1142,14 +1135,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return created;
       }
 
-      const bridge = demoBridgeRef.current;
       const id = makeId('song');
       const record: Song = {
         ...input,
         id,
         organisation_id: ORG_ID,
-        team_id: toLocalTeamId(bridge, input.team_id),
-        added_by: toLocalUserId(bridge, input.added_by),
         links: input.links.map((link) => ({ ...link, song_id: id })),
         created_at: now(),
         updated_at: now(),
@@ -1180,10 +1170,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const bridge = demoBridgeRef.current;
       const localPatch = { ...patch };
-      if (localPatch.team_id) localPatch.team_id = toLocalTeamId(bridge, localPatch.team_id);
-      if (localPatch.added_by) localPatch.added_by = toLocalUserId(bridge, localPatch.added_by);
       if (localPatch.links) {
         localPatch.links = localPatch.links.map((link) => ({ ...link, song_id: id }));
       }
@@ -1243,7 +1230,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const localSelectedBy = toLocalUserId(demoBridgeRef.current, selectedBy);
       setLocalSongSelections((prev) => [
         ...prev.filter((s) => s.rota_entry_id !== rotaEntryId || s.section !== section),
         ...songIds.map((songId, i) => ({
@@ -1251,7 +1237,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           rota_entry_id: rotaEntryId,
           song_id: songId,
           section,
-          selected_by: localSelectedBy,
+          selected_by: selectedBy,
           order_index: i,
           notes: null,
         })),
@@ -1260,30 +1246,100 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [songsLive, supabaseProfileId, resyncLiveSongs],
   );
 
-  // --- Chat ------------------------------------------------------------------
+  // --- Chat (live Supabase slice ★, with local demo fallback) ------------------
+
+  const refreshChat: AppDataContextValue['refreshChat'] = useCallback(async () => {
+    const requestProfileId = supabaseProfileIdRef.current;
+    if (!liveDataEnabledRef.current || !requestProfileId) return;
+    setChatLoading(true);
+    setChatError(null);
+    try {
+      const list = await chatService.listChatMessages();
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setLiveChatMessages(list);
+      }
+    } catch (error) {
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setChatError(
+          error instanceof Error
+            ? error.message
+            : "We couldn't load messages right now. Please try again.",
+        );
+      }
+    } finally {
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setChatLoading(false);
+      }
+    }
+  }, []);
+
+  // Load live chat when a Supabase session appears; clear it (and any load
+  // error) when it goes away. Local demo data is untouched either way.
+  useEffect(() => {
+    if (chatLive) {
+      void refreshChat();
+    } else {
+      setLiveChatMessages([]);
+      setChatError(null);
+      setChatLoading(false);
+    }
+  }, [chatLive, refreshChat]);
+
+  // After a live send succeeds, quietly re-sync in the background so messages
+  // other people sent since the last load appear too (no realtime yet).
+  const resyncLiveChat = useCallback(() => {
+    const requestProfileId = supabaseProfileIdRef.current;
+    if (!requestProfileId) return;
+    chatService
+      .listChatMessages()
+      .then((list) => {
+        if (
+          liveDataEnabledRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setLiveChatMessages(list);
+        }
+      })
+      .catch((error) => console.warn('[appData] chat re-sync failed', error));
+  }, []);
 
   const sendChatMessage: AppDataContextValue['sendChatMessage'] = useCallback(
-    (teamId, senderId, body) => {
-      // Chat is still demo/local: store mock ids, not live UUIDs.
-      const bridge = demoBridgeRef.current;
-      setChatMessages((prev) => [
+    async (teamId, senderId, body) => {
+      if (chatLive && supabaseProfileId) {
+        // RLS only accepts the caller's own profile as sender.
+        const sent = await chatService.sendChatMessage(teamId, body, supabaseProfileId);
+        setLiveChatMessages((prev) => [...prev, sent]);
+        resyncLiveChat();
+        return;
+      }
+      setLocalChatMessages((prev) => [
         ...prev,
         {
           id: makeId('msg'),
           organisation_id: ORG_ID,
-          team_id: toLocalTeamId(bridge, teamId),
-          sender_id: toLocalUserId(bridge, senderId),
+          team_id: teamId,
+          sender_id: senderId,
           body,
           created_at: now(),
         },
       ]);
     },
-    [],
+    [chatLive, supabaseProfileId, resyncLiveChat],
   );
 
   const markTeamChatRead = useCallback((teamId: string) => {
-    const localTeamId = toLocalTeamId(demoBridgeRef.current, teamId);
-    setUnreadByTeam((prev) => (prev[localTeamId] ? { ...prev, [localTeamId]: 0 } : prev));
+    // Unread counts are a demo-only simulation (live unread tracking needs a
+    // chat_reads table); in live mode there is nothing to clear.
+    setUnreadByTeam((prev) => (prev[teamId] ? { ...prev, [teamId]: 0 } : prev));
   }, []);
 
   // --- Notification preferences -------------------------------------------------
@@ -1344,9 +1400,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       songsLoading,
       songsError,
       refreshSongs,
-      // Chat is still local, re-keyed onto live ids in live mode (demoBridge).
-      chatMessages: demoView.chatMessages,
-      unreadByTeam: demoView.unreadByTeam,
+      // Chat: live rows for linked Supabase sessions (empty while they load —
+      // screens show the chatLoading state), local demo data otherwise. The
+      // simulated unread badges are demo-only.
+      chatMessages: chatLive ? liveChatMessages : localChatMessages,
+      unreadByTeam: chatLive ? NO_UNREAD : unreadByTeam,
+      chatLive,
+      chatLoading,
+      chatError,
+      refreshChat,
       addAnnouncement,
       updateAnnouncement,
       deleteAnnouncement,
@@ -1403,7 +1465,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       songsLoading,
       songsError,
       refreshSongs,
-      demoView,
+      chatLive,
+      liveChatMessages,
+      localChatMessages,
+      unreadByTeam,
+      chatLoading,
+      chatError,
+      refreshChat,
       addAnnouncement,
       updateAnnouncement,
       deleteAnnouncement,

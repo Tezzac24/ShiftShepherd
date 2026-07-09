@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Platform,
@@ -13,6 +14,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing, touchTarget, type } from '../../../constants/theme';
+import { AppText } from '../../components/AppText';
+import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
 import { MessageBubble } from '../../components/MessageBubble';
 import { Screen } from '../../components/Screen';
@@ -21,7 +24,12 @@ import { messagesForTeam, userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canViewTeamChat } from '../../lib/permissions';
 
-/** Simple WhatsApp-style team chat, backed by local state. */
+/**
+ * Simple WhatsApp-style team chat. Live Supabase messages for linked Supabase
+ * sessions, local demo data otherwise. There is no realtime yet, so live mode
+ * refreshes when the screen opens, after each send, and via the visible
+ * "Check for new messages" bar.
+ */
 export default function TeamChatScreen() {
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
   const user = useRequiredUser();
@@ -29,14 +37,21 @@ export default function TeamChatScreen() {
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList>(null);
   const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const team = data.teams.find((t) => t.id === teamId);
+  const teamKey = team?.id;
+  const chatLive = data.chatLive;
 
-  // Opening the chat clears the simulated unread badge.
+  // Opening the chat clears the simulated unread badge (demo mode) and, in
+  // live mode, fetches the latest messages (no realtime yet).
   useEffect(() => {
-    if (team) data.markTeamChatRead(team.id);
+    if (!teamKey) return;
+    data.markTeamChatRead(teamKey);
+    if (chatLive) void data.refreshChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [team?.id]);
+  }, [teamKey, chatLive]);
 
   if (!team || !canViewTeamChat(user, team.id)) {
     return (
@@ -52,13 +67,28 @@ export default function TeamChatScreen() {
   }
 
   const messages = messagesForTeam(team.id, data.chatMessages);
+  const showLoading = chatLive && data.chatLoading && messages.length === 0;
+  const showLoadError = chatLive && !!data.chatError && messages.length === 0 && !data.chatLoading;
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const body = draft.trim();
-    if (!body) return;
-    data.sendChatMessage(team.id, user.profile.id, body);
-    setDraft('');
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    if (!body || sending) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      await data.sendChatMessage(team.id, user.profile.id, body);
+      setDraft('');
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    } catch (error) {
+      // The draft stays in the box so nothing is lost — fix and try again.
+      setSendError(
+        error instanceof Error
+          ? error.message
+          : "We couldn't send that. Check your connection and try again.",
+      );
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleAttachment = () => {
@@ -75,7 +105,46 @@ export default function TeamChatScreen() {
     <Screen scroll={false} keyboard>
       <Stack.Screen options={{ title: `${team.name} Chat` }} />
 
-      {messages.length > 0 ? (
+      {chatLive && !showLoading && !showLoadError ? (
+        // No realtime yet — give people an obvious, labelled way to update.
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Check for new messages"
+          onPress={() => void data.refreshChat()}
+          disabled={data.chatLoading}
+          style={styles.refreshBar}
+        >
+          {data.chatLoading ? (
+            <ActivityIndicator size="small" color={colors.accent} />
+          ) : (
+            <Ionicons name="refresh-outline" size={18} color={colors.accent} />
+          )}
+          <AppText variant="label" style={{ color: colors.accent }}>
+            {data.chatLoading ? 'Checking…' : 'Check for new messages'}
+          </AppText>
+        </Pressable>
+      ) : null}
+
+      {showLoading ? (
+        <View style={styles.centerWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading messages…</AppText>
+        </View>
+      ) : showLoadError ? (
+        <View style={styles.centerWrap}>
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Couldn’t load messages"
+            message={data.chatError ?? ''}
+          />
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshChat()}
+          />
+        </View>
+      ) : messages.length > 0 ? (
         <FlatList
           ref={listRef}
           data={messages}
@@ -96,10 +165,19 @@ export default function TeamChatScreen() {
           <EmptyState
             icon="chatbubbles-outline"
             title="No messages yet"
-            message="No messages yet. Start the conversation with your team."
+            message="Send the first message to your team."
           />
         </View>
       )}
+
+      {sendError ? (
+        <View style={styles.sendErrorBar}>
+          <Ionicons name="alert-circle" size={20} color={colors.danger} />
+          <AppText variant="small" style={styles.sendErrorText}>
+            {sendError}
+          </AppText>
+        </View>
+      ) : null}
 
       <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
         <Pressable
@@ -115,18 +193,25 @@ export default function TeamChatScreen() {
           placeholder="Type a message…"
           placeholderTextColor={colors.textMuted}
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={(text) => {
+            setDraft(text);
+            if (sendError) setSendError(null);
+          }}
           multiline
           style={styles.input}
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Send message"
-          onPress={handleSend}
-          disabled={!draft.trim()}
-          style={[styles.sendButton, !draft.trim() && { opacity: 0.4 }]}
+          accessibilityLabel={sending ? 'Sending message' : 'Send message'}
+          onPress={() => void handleSend()}
+          disabled={!draft.trim() || sending}
+          style={[styles.sendButton, (!draft.trim() || sending) && { opacity: 0.4 }]}
         >
-          <Ionicons name="send" size={22} color={colors.white} />
+          {sending ? (
+            <ActivityIndicator size="small" color={colors.white} />
+          ) : (
+            <Ionicons name="send" size={22} color={colors.white} />
+          )}
         </Pressable>
       </View>
     </Screen>
@@ -136,6 +221,26 @@ export default function TeamChatScreen() {
 const styles = StyleSheet.create({
   list: { padding: spacing.lg, paddingBottom: spacing.xl },
   emptyWrap: { flex: 1, justifyContent: 'center' },
+  centerWrap: { flex: 1, justifyContent: 'center', gap: spacing.md, padding: spacing.lg },
+  refreshBar: {
+    minHeight: touchTarget - 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  sendErrorBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.dangerSoft,
+  },
+  sendErrorText: { color: colors.danger, flex: 1 },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',

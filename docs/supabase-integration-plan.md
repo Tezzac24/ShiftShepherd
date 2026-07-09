@@ -83,7 +83,7 @@ Fetch-only, as planned (the app has no team-management screens; admins manage te
 2. `AuthContext` now builds Supabase sessions entirely from live rows (profile + org role + own memberships) — the email→mock-identity bridge is gone. All ids in a live session are real UUIDs.
 3. `AppDataContext` gained a third live slice (`teamsLive`/`teamsLoading`/`teamsError`/`refreshTeams`): `organisation`, `users`, `teams`, and `memberships` come from the live directory for linked Supabase sessions and stay mock in demo mode. Live directory data is session-only (never persisted; cleared on sign-out).
 4. The announcements/events services dropped their profile/team id bridges — live rows keep real UUIDs end-to-end and screens resolve names against the live directory. Only the **event-category name bridge** remains (categories are still mock in the app).
-5. **Temporary demo bridge** (`src/lib/appData/demoBridge.ts`): after steps 7 and 8, only chat is still demo/local data keyed by mock ids, so in live mode chat is re-keyed onto live team/profile UUIDs for display (teams by name, people by email), and local chat writes map ids back to mock ids so the persisted demo snapshot stays clean. Nothing in it touches Supabase; delete it when step 9 goes live.
+5. ~~**Temporary demo bridge** (`src/lib/appData/demoBridge.ts`)~~ ✅ deleted in step 9: it existed to re-key still-local chat onto live team/profile UUIDs, and chat going live made it dead code. Demo mode runs on pure mock ids; live mode is real UUIDs end-to-end.
 6. Teams tab, team space, Messages tab, and the Home team sections show calm loading/error+retry states while the directory loads.
 
 Note the **team-name edge case** under Risks below — still open, and now user-visible: a non-member viewing a church-wide event linked to a team cannot resolve that team's name (RLS hides the team row), so the detail screen simply omits it.
@@ -107,7 +107,7 @@ Choir specifics that ride on this slice (unchanged product behaviour):
 
 Verify RLS from the app: Daniel (admin) full rota CRUD on every team; Sarah (choir leader) CRUD incl. cancel/restore on the choir rota only; Hannah/Michael respond to their own assignments (and cannot edit entries); Ruth sees no team rotas.
 
-### 8. Songs & song selection ✅ (app code done — grants migration pending push)
+### 8. Songs & song selection ✅ (done)
 
 1. `src/lib/supabase/services/songs.ts` fetches `songs`, `song_links`, and `choir_rota_song_selections` into the existing `Song` and `ChoirSongSelection` types. DB fields stay isolated in the service, live ids are real UUIDs, songs sort by title, and selections sort by entry/section/order.
 2. Song CRUD writes `songs` and replaces `song_links` when links are edited. Delete cascades through links and selections in the database. The service refuses mock ids and returns friendly load/save/delete/permission messages.
@@ -115,13 +115,22 @@ Verify RLS from the app: Daniel (admin) full rota CRUD on every team; Sarah (cho
 4. `AppDataContext` keeps songs/selections in the persisted local store for demo mode and in session-only live state for Supabase Auth with a linked profile. Live song data is cleared on logout/user switch and never saved to AsyncStorage.
 5. Song database, song detail/form, rota detail, rota list, select-songs, and team-space screens gained live loading/error/retry/saving states. Demo/local behaviour remains unchanged.
 6. RLS (migration 004, `can_manage_song_section()`) enforces the section rule server-side: the Praise Leader may only write `section = 'praise'` rows, the Worship Leader only `'worship'`, a legacy Song Leader / choir team leader / admin both. The DB still rejects songs that do not belong to the rota entry's team.
-7. Read-only introspection showed the policies already exist but authenticated Data API grants were missing. A local grants migration (`20260709171613_grant_authenticated_songs_api_privileges.sql`) grants `authenticated` select/insert/update/delete on `songs`, `song_links`, and `choir_rota_song_selections`. It has **not** been pushed. Until it is approved and pushed (`supabase db push`), live song screens show the friendly "couldn't load songs" state with retry; demo mode is unaffected.
+7. Read-only introspection showed the policies already exist but authenticated Data API grants were missing. A grants migration (`20260709171613_grant_authenticated_songs_api_privileges.sql`) grants `authenticated` select/insert/update/delete on `songs`, `song_links`, and `choir_rota_song_selections`. It has since been **pushed and verified remotely** (2026-07-09; confirmed via read-only introspection), and choir songs passed manual QA.
 
 Test deliberately as Hannah (worship leader on her date: praise writes should fail), Michael (praise leader on his date: worship writes should fail), Sarah (team leader override: both succeed), a plain member (all writes fail), and a cross-team song id (fails).
 
-### 9. Chat
+### 9. Chat ✅ (app code done — grants migration pending push)
 
-Fetch history per team + `INSERT` on send, then enable **Realtime** on `chat_messages` (add it to the `supabase_realtime` publication) and subscribe per open chat. Keep the mock unread counts client-side — real read-receipts are a schema addition (`chat_reads` table) for later.
+Text-only V1, same pattern as the earlier slices. What shipped:
+
+1. `src/lib/supabase/services/chat.ts` — `listChatMessages()` (one RLS-scoped fetch of every message the caller can see, oldest first) and `sendChatMessage(teamId, body, liveProfileId)` (trims the text, rejects empty/whitespace-only messages, refuses mock ids, always sends as the caller's live profile — RLS enforces that server-side too). DB fields stay isolated in the service; `created_at` is DB-owned.
+2. `AppDataContext` keeps two chat stores (persisted local/demo + session-only live), switching on the same condition as the other slices. `sendChatMessage` is async in both modes; a live send appends the server row then quietly re-syncs (which also picks up other people's new messages). Live chat is never persisted to AsyncStorage and clears on sign-out/user switch.
+3. **No realtime yet** (deliberately deferred): live messages refresh at sign-in, when a chat screen opens, after each send, and via a visible "Check for new messages" bar on the chat screen. The team chat screen gained loading, error+retry, sending, and inline failed-send states (the draft is kept so nothing is lost).
+4. **Unread badges are demo-only now**: the simulated counts made no sense against live data, so live mode shows none — real unread tracking is a `chat_reads` schema addition for later. Attachments stay a "coming soon" placeholder in both modes until the Storage slice (step 10); there is no edit/delete (no RLS policies for either, matching the UI).
+5. The temporary demo bridge (`src/lib/appData/demoBridge.ts`) existed only to re-key still-local chat onto live ids — chat going live made it dead code, so it is **deleted**. Demo mode runs on pure mock ids; live mode is real UUIDs end-to-end (only event categories remain name-bridged).
+6. Read-only introspection confirmed the RLS policies exist but authenticated Data API grants were missing. A local grants migration (`20260709205903_grant_authenticated_chat_api_privileges.sql`) grants `authenticated` **select, insert** on `chat_messages` only (no update/delete, nothing on `chat_attachments`, nothing to anon). It has **not** been pushed. Until it is approved and pushed (`supabase db push`), live chat screens show the friendly "couldn't load messages" state with retry; demo mode is unaffected.
+
+Verify RLS from the app: Daniel (admin) reads/sends in every team chat; Hannah sends in Choir; Ruth (no teams) sees no team chats, and a hand-crafted insert (or a send with a forged sender) fails server-side. Later: enable **Realtime** on `chat_messages` (add it to the `supabase_realtime` publication) and subscribe per open chat.
 
 ### 10. Storage & uploads
 
@@ -168,9 +177,9 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## What stays mocked until later
 
-- **Chat** — demo/local data until step 9; in live mode it is re-keyed onto live team/profile ids by the temporary demo bridge (`src/lib/appData/demoBridge.ts`) so it keeps working next to live teams.
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
-- **Unread badges** — client-side simulation until a `chat_reads` table exists.
+- **Unread badges** — demo-only simulation; live mode shows none until a `chat_reads` table exists.
+- **Chat realtime** — live messages refresh on screen open/send/manual refresh only, until `chat_messages` joins the `supabase_realtime` publication.
 - **Notification delivery** — settings UI persists locally (or to the table) but nothing pushes until step 11.
 - **Images & attachments** — placeholders until step 10 (Storage).
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
@@ -178,13 +187,14 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## Recommended immediate next task
 
-Steps 1–8 are done in app code (auth + live sessions + organisations/roles + announcements + events + the read-only teams/people directory + rotas/availability + choir songs/song selections). Chat remains mocked but persisted locally and re-keyed onto live ids in live mode via the temporary demo bridge. Next, in order of value:
+Steps 1–9 are done in app code (auth + live sessions + organisations/roles + announcements + events + the read-only teams/people directory + rotas/availability + choir songs/song selections + team chat). The temporary demo bridge is gone. Next, in order of value:
 
 1. ✅ **Done (2026-07-09):** migrations `003`–`006` applied remotely with aligned history; the events grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` is pushed and verified.
 2. ✅ **Done (2026-07-09):** **step 5 — events**, including live `linked_event_id` on announcements.
 3. ✅ **Done (2026-07-09):** **step 6 — teams & memberships** (fetch-only), retiring the email/name id bridges in auth, announcements, and events.
 4. ✅ **Done (2026-07-09):** **step 7 — rotas & availability**, including the pushed and verified `20260709154733_grant_authenticated_rota_api_privileges.sql` migration. The teams-SELECT relaxation (Risks: team-name visibility, option b) was deliberately **not** bundled in — rota entries are only visible to team members, so their team names always resolve; it remains a candidate for a later migration pass.
-5. ✅ **Done in app code (2026-07-09):** **step 8 — songs & song selection**. **Blocked on approval:** push `20260709171613_grant_authenticated_songs_api_privileges.sql` (`supabase db push` after normal preflight) — until then live song screens show the friendly error state.
-6. Start **step 9 — chat**, or add the `handle_new_user` trigger migration if signup is next.
+5. ✅ **Done (2026-07-09):** **step 8 — songs & song selection**, including the pushed and verified `20260709171613_grant_authenticated_songs_api_privileges.sql` migration; choir songs passed manual QA.
+6. ✅ **Done in app code (2026-07-09):** **step 9 — chat** (text-only, no realtime), retiring `demoBridge.ts`. **Blocked on approval:** push `20260709205903_grant_authenticated_chat_api_privileges.sql` (`supabase db push` after normal preflight) — until then live chat screens show the friendly error state.
+7. Next slice candidates: **notification preferences** (persist the settings UI to `notification_preferences` — the cheap early win from step 11), the `handle_new_user` trigger migration if signup is next, or **Realtime on `chat_messages`** to remove the manual-refresh limitation.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

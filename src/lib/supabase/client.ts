@@ -8,8 +8,8 @@
  *
  * Live Supabase currently handles auth/session operations, the signed-in
  * user's profile lookup, announcements, events, the read-only people/teams
- * directory, rotas/availability, and choir songs/song selections. Chat and
- * notification preferences stay mocked/local — see
+ * directory, rotas/availability, choir songs/song selections, and team chat.
+ * Notification preferences stay mocked/local — see
  * docs/supabase-integration-plan.md for the order.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
