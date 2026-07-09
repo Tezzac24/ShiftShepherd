@@ -218,7 +218,7 @@ Supabase integration code belongs in `src/lib/supabase/`. The client (`client.ts
 
 Live Supabase currently serves: auth/session, the signed-in profile lookup, and **announcements** (`src/lib/supabase/services/announcements.ts` — the pattern for future slices; DB↔app mapping stays centralized there, and the live table uses `body` and `pinned`). Do not wire further feature data (events, teams, rotas, songs, chat, notification preferences) to Supabase unless explicitly asked.
 
-The Supabase MCP server is configured against the dev project — use it to inspect the live schema/data. Migration history is not tracked there (early migrations were run manually; `003`–`005` are not applied remotely yet; `006` records manual authenticated API grants already effectively present), so introspect the schema rather than trusting migration history, don't run `supabase db push` blindly, and don't apply migrations unless explicitly asked.
+The Supabase MCP server is configured against the dev project — use it to inspect the live schema/data. Migration history is now aligned and tracked: remote `supabase_migrations.schema_migrations` records `001`–`006`, and `supabase migration list` shows `001`–`006` on both local and remote (see `docs/supabase-migration-alignment-checkpoint.md`). Do not rename `001`–`006` (remote history tracks those exact version strings); create future migrations with `supabase migration new <descriptive_name>` and keep the generated timestamped filename. `supabase db push` is the normal workflow now, but don't run it — or any remote database write — casually; only after normal preflight checks and explicit approval.
 
 Never use or request service role keys; `.env.example` stays placeholder-only.
 
