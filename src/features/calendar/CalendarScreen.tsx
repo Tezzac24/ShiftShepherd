@@ -1,8 +1,8 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { spacing } from '../../../constants/theme';
+import { colors, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
@@ -19,6 +19,9 @@ export default function CalendarScreen() {
   const data = useAppData();
 
   const events = upcomingEvents(data.events);
+  // Live mode only: a first load shows a spinner instead of pretending the
+  // list is empty; a failed load offers a retry instead of stale content.
+  const loadingFirstTime = data.eventsLoading && events.length === 0;
 
   return (
     <Screen safeTop>
@@ -36,7 +39,26 @@ export default function CalendarScreen() {
         />
       ) : null}
 
-      {events.length > 0 ? (
+      {data.eventsError ? (
+        <View style={styles.errorBox}>
+          <AppText tone="danger" style={styles.errorText}>
+            {data.eventsError}
+          </AppText>
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshEvents()}
+          />
+        </View>
+      ) : null}
+
+      {loadingFirstTime ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading events…</AppText>
+        </View>
+      ) : events.length > 0 ? (
         events.map((event) => (
           <EventCard
             key={event.occurrence_id}
@@ -50,7 +72,7 @@ export default function CalendarScreen() {
             }
           />
         ))
-      ) : (
+      ) : data.eventsError ? null : (
         <EmptyState
           icon="calendar-outline"
           title="No upcoming events"
@@ -68,4 +90,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: -spacing.xs,
   },
+  loadingBox: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
+  errorBox: { gap: spacing.sm },
+  errorText: { textAlign: 'center' },
 });

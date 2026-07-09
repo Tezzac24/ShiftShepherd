@@ -59,15 +59,21 @@ What shipped (the pattern to repeat for every feature):
 2. `AppDataContext` keeps **two announcement stores**: the persisted local/demo list (unchanged, still reset by Reset Demo Data) and a session-only live list used when `authMode === 'supabase'` and the session carries a linked profile id (`SessionUser.supabaseProfileId`). `add/update/deleteAnnouncement` are now async in both modes; in live mode they apply the server-returned row, then quietly re-sync the list. Errors reject with friendly messages and never mutate state.
 3. Screens gained loading/saving/error states but kept the same selectors and data shapes.
 4. **Id bridging (temporary):** because people/teams are still mocked, the service maps live profile UUIDs ↔ mock user ids by email and live team UUIDs ↔ mock team ids by name (same philosophy as the auth email bridge). Remove when step 6 (teams) goes live.
-5. **Deferred:** `linked_event_id` writes (events are still local — the picker is hidden in live mode) and optimistic-update-with-rollback (simple await + friendly error was safer for a first slice; revisit when a slice needs snappier UX).
+5. **Deferred:** ~~`linked_event_id` writes~~ (done in step 5 — the live picker offers live events and the service refuses mock ids) and optimistic-update-with-rollback (simple await + friendly error was safer for a first slice; revisit when a slice needs snappier UX).
 
 Verify RLS from the app: log in as Ruth (can read, no create button, and a hand-crafted insert fails server-side), Miriam (church-wide CRUD), Sarah (choir announcements only).
 
-### 5. Events
+### 5. Events ✅ (done)
 
-Same pattern as announcements (`events` + read-only `event_categories`). Watch the field mapping: `start_time`/`end_time` come back as ISO strings — same as mocks.
+Same pattern as announcements (`events` + read-only `event_categories`). What shipped:
 
-Recurring events stay as base `events` rows with `is_recurring`, `recurrence_rule`, `recurrence_label`, and optional `recurrence_end_date`. The app expands upcoming occurrences through pure utilities before rendering Home and Calendar lists.
+1. `src/lib/supabase/services/events.ts` — `listEvents / createEvent / updateEvent / deleteEvent` returning the existing `Event` type. The id bridge extends the announcements one with **categories matched by name** (the live seed uses the same twelve names); `created_by` is always the caller's live profile id on insert and never patched.
+2. `AppDataContext` keeps two event stores (persisted local/demo + session-only live), switching on the same condition as announcements. `add/update/deleteEvent` are async in both modes; live mutations apply the server row then quietly re-sync.
+3. Calendar/Home/detail/form screens gained loading, error+retry, and saving/deleting states; recurring events still travel as base rows and are expanded client-side (`utils/recurrence`), which works unchanged for live rows.
+4. **Live `linked_event_id` unlocked:** the announcement form's linked-event picker now shows in live mode too (it lists live events, so the id is a real UUID); the announcements service refuses mock `event-…` ids defensively.
+5. A grants migration (`20260709093129_grant_authenticated_events_api_privileges.sql`) gives `authenticated` select on `event_categories` and select/insert/update/delete on `events` — migration 006 only covered announcements, so live events 42501'd without it. RLS (from 002) stays the authority.
+
+Verify RLS from the app: Joseph (event manager) full CRUD; Daniel (admin) full CRUD; Ruth/Sarah read-only (no New Event button, and a hand-crafted insert fails server-side).
 
 ### 6. Teams & memberships
 
@@ -145,10 +151,11 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## Recommended immediate next task
 
-Steps 1–2 and 4 are done (auth + profile lookup + announcements are live; everything else is mocked but persisted locally). Next, in order of value:
+Steps 1–2, 4, and 5 are done (auth + profile lookup + announcements + events are live; everything else is mocked but persisted locally). Next, in order of value:
 
 1. ✅ **Done (2026-07-09):** migrations `003`–`006` are applied to the remote dev DB and migration history is aligned (records `001`–`006`). Future schema changes use `supabase migration new` → `supabase db push`. See `docs/supabase-migration-alignment-checkpoint.md`.
-2. Add the `handle_new_user` trigger migration.
-3. Start **step 5 — events**, repeating the announcements service pattern (which also unblocks live `linked_event_id`).
+2. ✅ **Done (2026-07-09):** **step 5 — events** is implemented, including live `linked_event_id` on announcements. The grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` still needs `supabase db push` (with approval) before live events work against the dev project.
+3. Add the `handle_new_user` trigger migration.
+4. Start **step 6 — teams & memberships** (fetch-only), which also retires the email/name id bridges.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

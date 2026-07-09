@@ -7,9 +7,9 @@
  * `getSupabase()` returns null and callers fall back to mock behaviour.
  *
  * Live Supabase currently handles auth/session operations, the signed-in
- * user's profile lookup, and the announcements feature slice. Everything
- * else (events, teams, rotas, songs, chat, notification preferences) stays
- * mocked/local — see docs/supabase-integration-plan.md for the wiring order.
+ * user's profile lookup, and the announcements and events feature slices.
+ * Everything else (teams, rotas, songs, chat, notification preferences)
+ * stays mocked/local — see docs/supabase-integration-plan.md for the order.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';

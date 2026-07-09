@@ -2,7 +2,7 @@
 
 A mobile-first church coordination app for **Grace Community Church** — events, announcements, team rotas, choir song management, and team chat, all in one calm place. Built to reduce reliance on WhatsApp.
 
-**Status:** functional scaffold / demo MVP with optional Supabase Auth and local persistence. **Announcements are the first live Supabase data slice**: when you sign in with Supabase Auth (and your auth user is linked to a profile), announcements load from and save to the live database, protected by RLS. Everything else (events, teams, rotas, songs, chat, notification preferences) is still mocked/local, and the whole app — announcements included — still works fully offline in demo mode.
+**Status:** functional scaffold / demo MVP with optional Supabase Auth and local persistence. **Announcements and events are the live Supabase data slices**: when you sign in with Supabase Auth (and your auth user is linked to a profile), announcements and calendar events load from and save to the live database, protected by RLS. Everything else (teams, rotas, songs, chat, notification preferences) is still mocked/local, and the whole app — announcements and events included — still works fully offline in demo mode.
 
 ## Current Scaffold Highlights
 
@@ -13,7 +13,7 @@ A mobile-first church coordination app for **Grace Community Church** — events
 - **Plan the Month** lets choir leaders create a whole month of Sunday services and weekly rehearsals at once, with default leaders and per-date overrides.
 - Choir rehearsals include every choir member so each can confirm availability; rota detail shows an Available / Maybe / Unavailable / Not responded tracker.
 - Rehearsals (or services) can be **cancelled** instead of deleted: they stay visible with a Cancelled badge, drop out of responsibilities, and offer a prefilled team announcement (never auto-sent).
-- Supabase planning includes migrations `003`–`006` (recurrence, song sections + section RLS, rota cancellation, authenticated API grants); **auth + profile lookup + announcements** are wired to live Supabase — all other feature data stays mocked. (The remote dev database currently has `001`–`002` plus manual grants effectively present, all run manually via the dashboard, so migration history isn't tracked; `003`–`005` should be applied there before wiring events/songs/rota cancellation.)
+- Supabase migrations `001`–`006` are applied to the dev project with tracked history (see `docs/supabase-migration-alignment-checkpoint.md`); **auth + profile lookup + announcements + events** are wired to live Supabase — all other feature data stays mocked. A timestamped grants migration for the events slice (`20260709093129_grant_authenticated_events_api_privileges.sql`) exists locally and needs `supabase db push` before live events work.
 - Demo changes (announcements, rotas, songs, messages, notification settings...) persist locally via AsyncStorage and can be reset from **Profile -> Reset Demo Data**.
 
 ## Tech Stack
@@ -61,24 +61,26 @@ Notes:
 - Signed-in Supabase users whose profile email matches a demo person get that person's teams/permissions (feature data is still mocked, so demo identities are bridged inside the auth layer).
 - The demo account selector stays available even when Supabase is configured.
 
-### Live announcements (first Supabase data slice)
+### Live announcements & events (Supabase data slices)
 
-When you are signed in through **Supabase Auth with a linked profile**, the announcements screens read and write the live `announcements` table (`src/lib/supabase/services/announcements.ts`); in demo mode they keep using local data. Worth knowing:
+When you are signed in through **Supabase Auth with a linked profile**, the announcements and calendar/events screens read and write the live `announcements` and `events` tables (`src/lib/supabase/services/`); in demo mode they keep using local data. Worth knowing:
 
-- **RLS is the authority.** Client-side role checks only hide buttons; the server enforces that church-wide announcements need a church admin or announcement manager, team announcements need that team's leader (or an admin), and reads are limited to your organisation and accessible teams. Live announcements are **authenticated-only** — anonymous users can read nothing.
-- The database columns are `body` (not "content") and `pinned` (not "priority").
-- Linking an announcement to an event is demo-mode-only for now — events are still local, so the linked-event picker is hidden in live mode until events go live.
-- Live announcements are session data: they are not saved into the demo AsyncStorage snapshot, and **Reset Demo Data** does not touch the live database.
+- **RLS is the authority.** Client-side role checks only hide buttons; the server enforces that church-wide announcements need a church admin or announcement manager, team announcements need that team's leader (or an admin), events can only be created/edited/deleted by a church admin or event manager, and reads are limited to your organisation and accessible teams. Live data is **authenticated-only** — anonymous users can read nothing.
+- The announcements columns are `body` (not "content") and `pinned` (not "priority").
+- Linking an announcement to an event works in both modes: the picker lists live events in live mode (real UUIDs) and local events in demo mode.
+- Recurring events are stored as single base rows (rule + label + optional end date) and expanded into upcoming occurrences on-device — same as demo mode.
+- Live announcements and events are session data: they are not saved into the demo AsyncStorage snapshot, and **Reset Demo Data** does not touch the live database.
 
 To try it end to end (after the setup steps above):
 
 1. Sign in as **Daniel** (church admin) or **Miriam** (announcement manager) — create, edit, pin, and delete a church-wide announcement; changes land in the dev database.
-2. Sign in as **Sarah** (choir leader) — she can post to the Choir team but not church-wide.
-3. Sign in as **Ruth** (general member) — she can read church announcements but sees no manage buttons, and the database would reject a write anyway.
+2. Sign in as **Sarah** (choir leader) — she can post to the Choir team but not church-wide, and she gets no New Event button.
+3. Sign in as **Joseph** (event manager) — create, edit, and delete calendar events, including recurring ones.
+4. Sign in as **Ruth** (general member) — she can read church announcements and events but sees no manage buttons, and the database would reject a write anyway.
 
 ### Local persistence & reset
 
-Changes you make in the app (announcements, events, rotas, songs, messages, notification settings) are saved on-device with a versioned envelope. Corrupt or outdated saved data is discarded safely; the app falls back to the original mock examples. **Profile -> Reset Demo Data** restores everything to the original seed state. (In live mode, announcements come from Supabase instead and are unaffected by local persistence or the demo reset.)
+Changes you make in the app (announcements, events, rotas, songs, messages, notification settings) are saved on-device with a versioned envelope. Corrupt or outdated saved data is discarded safely; the app falls back to the original mock examples. **Profile -> Reset Demo Data** restores everything to the original seed state. (In live mode, announcements and events come from Supabase instead and are unaffected by local persistence or the demo reset.)
 
 ## Demo Login
 
@@ -110,7 +112,7 @@ src/
     mockData/         # Realistic seed data matching the Supabase schema
     permissions/      # All role/permission checks live here
     storage/          # Versioned AsyncStorage persistence helpers
-    supabase/         # Env-guarded Supabase client (auth + profile lookup only)
+    supabase/         # Env-guarded Supabase client + live services (announcements, events)
     notifications/    # Stub (TODO: Expo Notifications)
   types/              # Entity types mirroring the intended Supabase schema
   utils/              # Dates, ids

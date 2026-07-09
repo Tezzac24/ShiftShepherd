@@ -67,6 +67,7 @@ export default function EventFormScreen() {
     ),
   );
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const recurrencePreviewLabel = repeats
     ? recurrenceLabelForRule(
         recurrenceRuleFromForm(recurrence),
@@ -104,7 +105,8 @@ export default function EventFormScreen() {
     }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saving) return; // no duplicate submissions
     if (!title.trim() || !categoryId || !dateKey || !startTime || !endTime || !location.trim()) {
       setError('Please fill in the title, category, date, times, and location.');
       return;
@@ -128,12 +130,23 @@ export default function EventFormScreen() {
       recurrence_end_date: repeats ? (existing?.recurrence_end_date ?? null) : null,
       created_by: existing?.created_by ?? user.profile.id,
     };
-    if (existing) {
-      data.updateEvent(existing.id, record);
-    } else {
-      data.addEvent(record);
+    setError(null);
+    setSaving(true);
+    try {
+      if (existing) {
+        await data.updateEvent(existing.id, record);
+      } else {
+        await data.addEvent(record);
+      }
+      router.back();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Your changes could not be saved. Please try again.',
+      );
+      setSaving(false);
     }
-    router.back();
   };
 
   return (
@@ -247,9 +260,15 @@ export default function EventFormScreen() {
         <Button
           title={editing ? 'Save Changes' : 'Create Event'}
           icon="checkmark-outline"
-          onPress={handleSave}
+          loading={saving}
+          onPress={() => void handleSave()}
         />
-        <Button title="Cancel" variant="secondary" onPress={() => router.back()} />
+        <Button
+          title="Cancel"
+          variant="secondary"
+          disabled={saving}
+          onPress={() => router.back()}
+        />
       </View>
     </Screen>
   );

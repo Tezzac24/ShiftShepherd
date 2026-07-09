@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { categoryColors, colors, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
@@ -24,6 +24,8 @@ export default function EventDetailScreen() {
   const user = useRequiredUser();
   const data = useAppData();
   const confirm = useConfirm();
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const event = data.events.find((e) => e.id === id);
 
@@ -31,11 +33,19 @@ export default function EventDetailScreen() {
     return (
       <Screen>
         <Stack.Screen options={{ title: 'Event' }} />
-        <EmptyState
-          icon="calendar-outline"
-          title="Event not found"
-          message="This event may have been removed."
-        />
+        {data.eventsLoading ? (
+          // Live mode: the events list may still be on its way from the server.
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <AppText tone="secondary">Loading event…</AppText>
+          </View>
+        ) : (
+          <EmptyState
+            icon="calendar-outline"
+            title="Event not found"
+            message="This event may have been removed."
+          />
+        )}
       </Screen>
     );
   }
@@ -51,13 +61,24 @@ export default function EventDetailScreen() {
   const recurrenceLabel = recurrenceLabelForEvent(event);
 
   const handleDelete = async () => {
+    if (deleting) return;
     const ok = await confirm({
       title: 'Delete event',
       message: 'Are you sure you want to delete this event?',
     });
-    if (ok) {
-      data.deleteEvent(event.id);
+    if (!ok) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await data.deleteEvent(event.id);
       router.back();
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error
+          ? error.message
+          : 'This event could not be deleted. Please try again.',
+      );
+      setDeleting(false);
     }
   };
 
@@ -111,17 +132,24 @@ export default function EventDetailScreen() {
 
       {canManageEvents(user) ? (
         <View style={styles.actions}>
+          {deleteError ? (
+            <AppText tone="danger" style={styles.deleteError}>
+              {deleteError}
+            </AppText>
+          ) : null}
           <Button
             title="Edit Event"
             variant="secondary"
             icon="create-outline"
+            disabled={deleting}
             onPress={() => router.push({ pathname: '/events/edit', params: { id: event.id } })}
           />
           <Button
             title="Delete Event"
             variant="destructive"
             icon="trash-outline"
-            onPress={handleDelete}
+            loading={deleting}
+            onPress={() => void handleDelete()}
           />
         </View>
       ) : null}
@@ -132,4 +160,6 @@ export default function EventDetailScreen() {
 const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   actions: { gap: spacing.sm, marginTop: spacing.sm },
+  loadingBox: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
+  deleteError: { textAlign: 'center' },
 });

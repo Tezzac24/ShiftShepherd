@@ -1,6 +1,6 @@
 # Supabase Backend Foundation
 
-This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + profile lookup and the **announcements** feature slice run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured); everything else still runs on mock data (`src/lib/mockData/` + `src/lib/appData/`). See `docs/supabase-integration-plan.md` for the wiring order.
+This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + profile lookup and the **announcements** and **events** feature slices run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured); everything else still runs on mock data (`src/lib/mockData/` + `src/lib/appData/`). See `docs/supabase-integration-plan.md` for the wiring order.
 
 > **Current dev-project state (aligned 2026-07-09):** migration history is now **tracked** — remote `supabase_migrations.schema_migrations` records versions `001`–`006`, and migrations `003`–`006` are applied remotely (verified). Migrations `001`–`002` were originally applied by hand via the dashboard and back-filled into history with `supabase migration repair`. Future schema changes use the normal `supabase migration new` → `supabase db push` workflow. **Do not rename `001`–`006`** — remote history tracks those exact version strings. See `docs/supabase-migration-alignment-checkpoint.md`.
 
@@ -14,14 +14,15 @@ supabase/
 │   ├── 003_add_event_recurrence.sql # event recurrence metadata
 │   ├── 004_add_choir_song_selection_section.sql # praise/worship sections + section-level RLS
 │   ├── 005_add_rota_entry_cancellation.sql # rota entry status + cancellation fields
-│   └── 006_grant_authenticated_api_privileges.sql # authenticated Data API grants
+│   ├── 006_grant_authenticated_api_privileges.sql # authenticated Data API grants
+│   └── 20260709093129_grant_authenticated_events_api_privileges.sql # events/categories grants for the live events slice
 ├── seed/
 │   ├── dev_seed.sql             # mock data ported to SQL (relative dates)
 │   └── README.md                # how to seed + link Supabase Auth users
 └── README.md
 ```
 
-Migrations apply in numeric order (`001` → `006`).
+Migrations apply in version order: `001` → `006`, then the timestamped ones (the CLI sorts them the same way).
 
 Choir-specific rules worth knowing:
 

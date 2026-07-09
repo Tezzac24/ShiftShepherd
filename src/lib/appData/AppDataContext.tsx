@@ -10,17 +10,16 @@
  * Actions mirror the calls a Supabase service layer would expose, so wiring
  * the real backend later means swapping implementations, not screens.
  *
- * ★ Announcements are the first live Supabase slice: when the user is signed
- * in through Supabase Auth with a linked profile, the announcements collection
- * and its actions run against the live database (RLS enforces permissions)
- * via src/lib/supabase/services/announcements.ts. In demo mode — or whenever
- * Supabase env vars are missing — announcements stay local/mock exactly as
- * before. Live announcements are session state only: they are never written
- * to the demo AsyncStorage snapshot and Reset Demo Data does not touch them.
+ * ★ Announcements and events are the live Supabase slices: when the user is
+ * signed in through Supabase Auth with a linked profile, those collections
+ * and their actions run against the live database (RLS enforces permissions)
+ * via src/lib/supabase/services/. In demo mode — or whenever Supabase env
+ * vars are missing — they stay local/mock exactly as before. Live data is
+ * session state only: it is never written to the demo AsyncStorage snapshot
+ * and Reset Demo Data does not touch it.
  *
- * TODO: wire to Supabase — repeat the announcements pattern for events,
- * teams, rotas, songs, chat, and notification preferences (see
- * docs/supabase-integration-plan.md).
+ * TODO: wire to Supabase — repeat the same pattern for teams, rotas, songs,
+ * chat, and notification preferences (see docs/supabase-integration-plan.md).
  */
 import React, {
   createContext,
@@ -73,6 +72,7 @@ import {
 import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../storage/persistence';
 import { isSupabaseConfigured } from '../supabase/client';
 import * as announcementsService from '../supabase/services/announcements';
+import * as eventsService from '../supabase/services/events';
 
 export interface NewRotaAssignmentInput {
   user_id: string;
@@ -169,10 +169,23 @@ interface AppDataContextValue {
   updateAnnouncement: (id: string, patch: Partial<Announcement>) => Promise<void>;
   deleteAnnouncement: (id: string) => Promise<void>;
 
-  // Events
-  addEvent: (input: Omit<Event, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>) => Event;
-  updateEvent: (id: string, patch: Partial<Event>) => void;
-  deleteEvent: (id: string) => void;
+  // Events — the second live Supabase slice, switching exactly like
+  // announcements: live Supabase for linked Supabase sessions, local demo
+  // data otherwise. Actions are async in both modes and reject with a
+  // friendly message on live failures (nothing changes locally on failure).
+  /** True when events come from live Supabase rather than local demo data. */
+  eventsLive: boolean;
+  /** True while live events are being (re)loaded. Always false in demo mode. */
+  eventsLoading: boolean;
+  /** Friendly load-failure message, or null. Always null in demo mode. */
+  eventsError: string | null;
+  /** Reload live events (no-op in demo mode). */
+  refreshEvents: () => Promise<void>;
+  addEvent: (
+    input: Omit<Event, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>,
+  ) => Promise<Event>;
+  updateEvent: (id: string, patch: Partial<Event>) => Promise<void>;
+  deleteEvent: (id: string) => Promise<void>;
 
   // Rotas
   addRotaEntry: (
@@ -230,12 +243,15 @@ interface AppDataContextValue {
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
-  // Live-vs-local announcements mode: Supabase session + configured client +
-  // linked profile ⇒ live; demo mode or missing env vars ⇒ local/mock.
+  // Live-vs-local mode for the wired slices (announcements, events):
+  // Supabase session + configured client + linked profile ⇒ live; demo mode
+  // or missing env vars ⇒ local/mock.
   const { user, authMode } = useAuth();
   const supabaseProfileId =
     authMode === 'supabase' ? (user?.supabaseProfileId ?? null) : null;
-  const announcementsLive = isSupabaseConfigured && supabaseProfileId !== null;
+  const liveDataEnabled = isSupabaseConfigured && supabaseProfileId !== null;
+  const announcementsLive = liveDataEnabled;
+  const eventsLive = liveDataEnabled;
 
   const [localAnnouncements, setLocalAnnouncements] =
     useState<Announcement[]>(mockAnnouncements);
@@ -243,11 +259,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
   const [announcementsError, setAnnouncementsError] = useState<string | null>(null);
   // Lets in-flight fetches notice the mode flipped (e.g. sign-out mid-load).
-  const announcementsLiveRef = useRef(false);
-  announcementsLiveRef.current = announcementsLive;
+  const liveDataEnabledRef = useRef(false);
+  liveDataEnabledRef.current = liveDataEnabled;
   const supabaseProfileIdRef = useRef<string | null>(null);
   supabaseProfileIdRef.current = supabaseProfileId;
-  const [events, setEvents] = useState<Event[]>(mockEvents);
+  const [localEvents, setLocalEvents] = useState<Event[]>(mockEvents);
+  const [liveEvents, setLiveEvents] = useState<Event[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState<string | null>(null);
   const [rotaEntries, setRotaEntries] = useState<RotaEntry[]>(mockRotaEntries);
   const [rotaAssignments, setRotaAssignments] = useState<RotaAssignment[]>(mockRotaAssignments);
   const [availabilityResponses, setAvailabilityResponses] = useState<AvailabilityResponse[]>(
@@ -274,7 +293,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       );
       if (persisted && !cancelled) {
         setLocalAnnouncements(persisted.announcements);
-        setEvents(persisted.events);
+        setLocalEvents(persisted.events);
         setRotaEntries(persisted.rotaEntries);
         setRotaAssignments(persisted.rotaAssignments);
         setAvailabilityResponses(persisted.availabilityResponses);
@@ -298,7 +317,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const snapshot: PersistedAppData = {
       announcements: localAnnouncements,
-      events,
+      events: localEvents,
       rotaEntries,
       rotaAssignments,
       availabilityResponses,
@@ -317,7 +336,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [
     isHydrated,
     localAnnouncements,
-    events,
+    localEvents,
     rotaEntries,
     rotaAssignments,
     availabilityResponses,
@@ -332,7 +351,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     await clearPersisted(STORAGE_KEYS.appData);
     setLocalAnnouncements(mockAnnouncements);
-    setEvents(mockEvents);
+    setLocalEvents(mockEvents);
     setRotaEntries(mockRotaEntries);
     setRotaAssignments(mockRotaAssignments);
     setAvailabilityResponses(mockAvailabilityResponses);
@@ -350,20 +369,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const refreshAnnouncements: AppDataContextValue['refreshAnnouncements'] =
     useCallback(async () => {
       const requestProfileId = supabaseProfileIdRef.current;
-      if (!announcementsLiveRef.current || !requestProfileId) return;
+      if (!liveDataEnabledRef.current || !requestProfileId) return;
       setAnnouncementsLoading(true);
       setAnnouncementsError(null);
       try {
         const list = await announcementsService.listAnnouncements();
         if (
-          announcementsLiveRef.current &&
+          liveDataEnabledRef.current &&
           supabaseProfileIdRef.current === requestProfileId
         ) {
           setLiveAnnouncements(list);
         }
       } catch (error) {
         if (
-          announcementsLiveRef.current &&
+          liveDataEnabledRef.current &&
           supabaseProfileIdRef.current === requestProfileId
         ) {
           setAnnouncementsError(
@@ -374,7 +393,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         }
       } finally {
         if (
-          announcementsLiveRef.current &&
+          liveDataEnabledRef.current &&
           supabaseProfileIdRef.current === requestProfileId
         ) {
           setAnnouncementsLoading(false);
@@ -404,7 +423,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       .listAnnouncements()
       .then((list) => {
         if (
-          announcementsLiveRef.current &&
+          liveDataEnabledRef.current &&
           supabaseProfileIdRef.current === requestProfileId
         ) {
           setLiveAnnouncements(list);
@@ -465,29 +484,121 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [announcementsLive, resyncLiveAnnouncements],
   );
 
-  // --- Events ----------------------------------------------------------------
+  // --- Events (live Supabase slice ★, with local demo fallback) ---------------
 
-  const addEvent: AppDataContextValue['addEvent'] = useCallback((input) => {
-    const record: Event = {
-      ...input,
-      id: makeId('event'),
-      organisation_id: ORG_ID,
-      created_at: now(),
-      updated_at: now(),
-    };
-    setEvents((prev) => [...prev, record]);
-    return record;
+  const refreshEvents: AppDataContextValue['refreshEvents'] = useCallback(async () => {
+    const requestProfileId = supabaseProfileIdRef.current;
+    if (!liveDataEnabledRef.current || !requestProfileId) return;
+    setEventsLoading(true);
+    setEventsError(null);
+    try {
+      const list = await eventsService.listEvents();
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setLiveEvents(list);
+      }
+    } catch (error) {
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setEventsError(
+          error instanceof Error
+            ? error.message
+            : 'We couldn’t load events right now. Please try again.',
+        );
+      }
+    } finally {
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setEventsLoading(false);
+      }
+    }
   }, []);
 
-  const updateEvent: AppDataContextValue['updateEvent'] = useCallback((id, patch) => {
-    setEvents((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, ...patch, updated_at: now() } : e)),
-    );
+  // Load live events when a Supabase session appears; clear them (and any
+  // load error) when it goes away. Local demo data is untouched either way.
+  useEffect(() => {
+    if (eventsLive) {
+      void refreshEvents();
+    } else {
+      setLiveEvents([]);
+      setEventsError(null);
+      setEventsLoading(false);
+    }
+  }, [eventsLive, refreshEvents]);
+
+  // After a live mutation succeeds, quietly re-sync the list in the background
+  // (no loading flicker; a failed re-sync keeps the optimistically-applied
+  // server row, so nothing is lost).
+  const resyncLiveEvents = useCallback(() => {
+    const requestProfileId = supabaseProfileIdRef.current;
+    if (!requestProfileId) return;
+    eventsService
+      .listEvents()
+      .then((list) => {
+        if (
+          liveDataEnabledRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setLiveEvents(list);
+        }
+      })
+      .catch((error) => console.warn('[appData] events re-sync failed', error));
   }, []);
 
-  const deleteEvent = useCallback((id: string) => {
-    setEvents((prev) => prev.filter((e) => e.id !== id));
-  }, []);
+  const addEvent: AppDataContextValue['addEvent'] = useCallback(
+    async (input) => {
+      if (eventsLive && supabaseProfileId) {
+        const created = await eventsService.createEvent(input, supabaseProfileId);
+        setLiveEvents((prev) => [...prev, created]);
+        resyncLiveEvents();
+        return created;
+      }
+      const record: Event = {
+        ...input,
+        id: makeId('event'),
+        organisation_id: ORG_ID,
+        created_at: now(),
+        updated_at: now(),
+      };
+      setLocalEvents((prev) => [...prev, record]);
+      return record;
+    },
+    [eventsLive, supabaseProfileId, resyncLiveEvents],
+  );
+
+  const updateEvent: AppDataContextValue['updateEvent'] = useCallback(
+    async (id, patch) => {
+      if (eventsLive) {
+        const updated = await eventsService.updateEvent(id, patch);
+        setLiveEvents((prev) => prev.map((e) => (e.id === id ? updated : e)));
+        resyncLiveEvents();
+        return;
+      }
+      setLocalEvents((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, ...patch, updated_at: now() } : e)),
+      );
+    },
+    [eventsLive, resyncLiveEvents],
+  );
+
+  const deleteEvent: AppDataContextValue['deleteEvent'] = useCallback(
+    async (id) => {
+      if (eventsLive) {
+        await eventsService.deleteEvent(id);
+        setLiveEvents((prev) => prev.filter((e) => e.id !== id));
+        resyncLiveEvents();
+        return;
+      }
+      setLocalEvents((prev) => prev.filter((e) => e.id !== id));
+    },
+    [eventsLive, resyncLiveEvents],
+  );
 
   // --- Rotas -----------------------------------------------------------------
 
@@ -736,7 +847,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       announcementsLoading,
       announcementsError,
       refreshAnnouncements,
-      events,
+      events: eventsLive ? liveEvents : localEvents,
+      eventsLive,
+      eventsLoading,
+      eventsError,
+      refreshEvents,
       rotaEntries,
       rotaAssignments,
       availabilityResponses,
@@ -774,7 +889,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       announcementsLoading,
       announcementsError,
       refreshAnnouncements,
-      events,
+      eventsLive,
+      liveEvents,
+      localEvents,
+      eventsLoading,
+      eventsError,
+      refreshEvents,
       rotaEntries,
       rotaAssignments,
       availabilityResponses,

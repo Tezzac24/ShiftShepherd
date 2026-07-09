@@ -22,10 +22,10 @@
  * AuthContext. TODO: wire to Supabase — remove the bridge once profiles and
  * teams go live (docs/supabase-integration-plan.md, step 6).
  *
- * Linked events stay local-only for now: mock event ids don't exist in the
- * live database, so writes never send `linked_event_id` and reads keep the
- * raw value (a live event UUID simply doesn't resolve against mock events,
- * so the "linked event" card stays hidden). Wired properly in step 5 (events).
+ * Linked events are live now that events are the second live slice (step 5):
+ * in live mode the picker offers live events, so `linked_event_id` is written
+ * as-is — it is already a real event UUID. Mock event ids ('event-…') are
+ * refused defensively so demo ids can never leak into the live table.
  */
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -158,8 +158,7 @@ function toAppAnnouncement(row: AnnouncementRow, bridge: IdBridge): Announcement
     audience: row.audience,
     pinned: row.pinned,
     image_url: row.image_url,
-    // Live event UUIDs don't resolve against the still-mocked events — the
-    // linked-event card simply stays hidden until events go live.
+    // Events are live too, so this UUID resolves against the live events list.
     linked_event_id: row.linked_event_id,
     created_by: bridge.profileLiveToApp.get(row.created_by) ?? row.created_by,
     created_at: row.created_at,
@@ -183,7 +182,8 @@ function toLiveTeamId(appTeamId: string | null, bridge: IdBridge): string | null
  * The mutable columns the client may write. `audience` is always derived
  * from `team_id` so the DB check constraint (church ⇔ team_id null) holds;
  * `created_at`/`updated_at` belong to the database (trigger-owned);
- * `linked_event_id` is deferred until events go live.
+ * `linked_event_id` must already be a live event UUID (the live picker only
+ * offers live events) — mock ids are refused rather than written.
  */
 function toDbFields(input: Partial<NewAnnouncementInput>, bridge: IdBridge) {
   const fields: Record<string, unknown> = {};
@@ -191,6 +191,14 @@ function toDbFields(input: Partial<NewAnnouncementInput>, bridge: IdBridge) {
   if (input.body !== undefined) fields.body = input.body;
   if (input.pinned !== undefined) fields.pinned = input.pinned;
   if (input.image_url !== undefined) fields.image_url = input.image_url;
+  if (input.linked_event_id !== undefined) {
+    if (input.linked_event_id?.startsWith('event-')) {
+      // A demo/mock event id must never reach the live foreign key.
+      console.warn(`[announcements] refusing mock event id "${input.linked_event_id}"`);
+      throw new Error(SAVE_ERROR);
+    }
+    fields.linked_event_id = input.linked_event_id;
+  }
   if (input.team_id !== undefined) {
     const liveTeamId = toLiveTeamId(input.team_id, bridge);
     fields.team_id = liveTeamId;

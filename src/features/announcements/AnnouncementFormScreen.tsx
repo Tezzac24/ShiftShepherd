@@ -95,12 +95,9 @@ export default function AnnouncementFormScreen() {
       audience: (audience === CHURCH_WIDE ? 'church' : 'team') as 'church' | 'team',
       pinned,
       image_url: includeImage ? 'placeholder' : null,
-      // Event linking stays a demo-mode feature until events go live too.
-      linked_event_id: data.announcementsLive
-        ? null
-        : linkedEventId === 'none'
-          ? null
-          : linkedEventId,
+      // In live mode the picker lists live events, so this is already a real
+      // event UUID (or null); in demo mode it is a local mock event id.
+      linked_event_id: linkedEventId,
       created_by: existing?.created_by ?? user.profile.id,
     };
     setError(null);
@@ -144,20 +141,18 @@ export default function AnnouncementFormScreen() {
         options={audienceOptions}
         onChange={setAudience}
       />
-      {/* Events are still demo/local data, so live announcements can't link
-          to them yet — the picker only appears in demo mode. */}
-      {!data.announcementsLive ? (
-        <SelectField
-          label="Linked event (optional)"
-          placeholder="No linked event"
-          value={linkedEventId ?? 'none'}
-          options={[
-            { label: 'No linked event', value: 'none' },
-            ...data.events.map((e) => ({ label: e.title, value: e.id })),
-          ]}
-          onChange={(v) => setLinkedEventId(v === 'none' ? null : v)}
-        />
-      ) : null}
+      {/* Events are live alongside announcements now, so the picker works in
+          both modes: live event UUIDs in live mode, mock ids in demo mode. */}
+      <SelectField
+        label="Linked event (optional)"
+        placeholder="No linked event"
+        value={linkedEventId ?? 'none'}
+        options={[
+          { label: 'No linked event', value: 'none' },
+          ...data.events.map((e) => ({ label: e.title, value: e.id })),
+        ]}
+        onChange={(v) => setLinkedEventId(v === 'none' ? null : v)}
+      />
 
       <Card style={styles.toggleCard}>
         <View style={styles.toggleRow}>

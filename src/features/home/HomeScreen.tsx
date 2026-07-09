@@ -124,6 +124,20 @@ export default function HomeScreen() {
             })
           }
         />
+      ) : data.eventsLoading ? (
+        // Live mode: events are still on their way from the server.
+        <Card>
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={colors.primary} />
+            <AppText tone="secondary">Loading events…</AppText>
+          </View>
+        </Card>
+      ) : data.eventsError ? (
+        <EmptyState
+          icon="cloud-offline-outline"
+          title="Couldn’t load events"
+          message={data.eventsError}
+        />
       ) : (
         <EmptyState
           icon="calendar-outline"
@@ -238,6 +252,13 @@ export default function HomeScreen() {
             </View>
           </Card>
         ))
+      ) : data.eventsLoading ? (
+        <Card>
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={colors.primary} />
+            <AppText tone="secondary">Loading events…</AppText>
+          </View>
+        </Card>
       ) : (
         <EmptyState
           icon="sunny-outline"
