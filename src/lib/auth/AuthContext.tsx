@@ -60,7 +60,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const GENERIC_LOGIN_ERROR =
   'We couldn’t log you in. Please check your email and password and try again.';
 const NO_PROFILE_ERROR =
-  'Your account isn’t linked to a church profile yet. Please ask your church admin to set this up, then try again.';
+  'You’re signed in, but this email is not linked to a church profile yet. Please ask a church admin to finish setting up your account.';
 const OFFLINE_ERROR =
   'We couldn’t reach the server. Please check your connection and try again.';
 

@@ -14,7 +14,7 @@ The chat and notification-preferences grants migrations have both been pushed an
 - **Plan the Month** lets choir leaders create a whole month of Sunday services and weekly rehearsals at once, with default leaders and per-date overrides.
 - Choir rehearsals include every choir member so each can confirm availability; rota detail shows an Available / Maybe / Unavailable / Not responded tracker.
 - Rehearsals (or services) can be **cancelled** instead of deleted: they stay visible with a Cancelled badge, drop out of responsibilities, and offer a prefilled team announcement (never auto-sent).
-- Supabase migrations `001`–`006` plus the events, rota, songs, chat, and notification-preferences grants migrations (`20260709093129`, `20260709154733`, `20260709171613`, `20260709205903`, `20260709220528`) are applied to the dev project with tracked history (see `docs/supabase-migration-alignment-checkpoint.md`); **auth + live sessions + announcements + events + the read-only people/teams directory + rotas/availability + choir songs/song selections + team chat + notification preferences** are wired to live Supabase. Push token registration and real push delivery stay deferred (they need a development build with `expo-notifications` and an EAS project id).
+- Supabase migrations `001`–`006` plus the events, rota, songs, chat, and notification-preferences grants migrations (`20260709093129`, `20260709154733`, `20260709171613`, `20260709205903`, `20260709220528`) are applied to the dev project with tracked history (see `docs/supabase-migration-alignment-checkpoint.md`). The new Auth/profile auto-link migration (`20260709233705`) is intentionally local-only pending an explicitly approved push. **Auth + live sessions + announcements + events + the read-only people/teams directory + rotas/availability + choir songs/song selections + team chat + notification preferences** are wired to live Supabase. Push token registration and real push delivery stay deferred (they need a development build with `expo-notifications` and an EAS project id).
 - Demo changes (announcements, rotas, songs, messages, notification settings...) persist locally via AsyncStorage and can be reset from **Profile -> Reset Demo Data**.
 
 ## Tech Stack
@@ -54,11 +54,11 @@ With no `.env` file the app runs fully offline on mock data. Pick a test account
    ```
    These are public, RLS-protected values. **Never** put a service_role key in the app.
 2. Make sure the migrations and `supabase/seed/dev_seed.sql` have been run.
-3. Create Supabase Auth users (Dashboard -> Authentication -> Users) for the demo people you want to log in as, and link each one to its seeded profile via `profiles.auth_user_id` - the exact steps are in `supabase/seed/README.md`.
+3. Once migration `20260709233705_link_auth_users_to_existing_profiles.sql` has been explicitly pushed, create Supabase Auth users (Dashboard -> Authentication -> Users) with emails matching the seeded profiles. The trigger links each new Auth user automatically. Auth users created before that migration still need the one-time manual link documented in `supabase/seed/README.md`.
 4. Restart Expo (`npm start`) so the env vars are picked up, then log in with the real email/password. The session is restored on cold start; sign out from the Profile tab.
 
 Notes:
-- A Supabase auth user with **no linked profile** gets a friendly "account not linked yet" message - no profile is auto-created in this phase.
+- A Supabase Auth user with **no matching profile** remains unlinked and gets a friendly setup message. The trigger never creates profiles, roles, memberships, organisations, or invitations.
 - A Supabase session is built entirely from live rows: your profile, organisation role, and team memberships come from the database (real UUIDs — no demo-identity bridging in the auth layer any more).
 - The demo account selector stays available even when Supabase is configured.
 

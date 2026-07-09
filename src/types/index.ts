@@ -295,10 +295,8 @@ export interface SessionUser {
   memberships: TeamMembership[];
   /**
    * The live `profiles.id` when signed in through Supabase Auth with a linked
-   * profile; absent in demo mode. Live data services need it because seeded
-   * demo people are bridged onto mock ids (see AuthContext), while the
-   * database (and its RLS `created_by = current_profile_id()` checks) only
-   * knows the real UUID.
+   * profile; absent in demo mode. Live data services use the real profile UUID
+   * for foreign keys and RLS checks such as `created_by = current_profile_id()`.
    */
   supabaseProfileId?: string;
 }

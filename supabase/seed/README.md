@@ -29,11 +29,11 @@ sql_paths = ["./seed/dev_seed.sql"]
 
 Re-running against an already-seeded database will fail on duplicate primary keys (fixed UUIDs — intentional). To reset, uncomment the `delete from public.organisations …` line near the top; the cascade wipes every dependent row.
 
-## Linking Supabase Auth users (do not fake this)
+## Creating and linking Supabase Auth users (do not fake this)
 
-`auth.users` rows are **not** seeded. Inserting into `auth.users` by hand is unsupported and breaks in subtle ways (password hashing, identities table, GoTrue expectations), so profiles are seeded with `auth_user_id = NULL` and linked afterwards.
+`auth.users` rows are **not** seeded. Inserting into `auth.users` by hand is unsupported and breaks in subtle ways (password hashing, identities table, GoTrue expectations), so profiles are seeded with `auth_user_id = NULL`.
 
-The correct process for each demo user you actually want to log in as:
+Once `20260709233705_link_auth_users_to_existing_profiles.sql` has been explicitly pushed, the correct process for each demo user you want to log in as is:
 
 1. **Create the auth user** properly, either:
    - Dashboard → Authentication → Users → *Add user* (email + password, e.g. `sarah@gracecommunity.church`), or
@@ -45,16 +45,34 @@ The correct process for each demo user you actually want to log in as:
        email_confirm: true,
      });
      ```
-2. **Link it to the seeded profile** (SQL editor, as service role):
+2. **Let the trigger link it.** On Auth-user creation, the trigger case-insensitively matches the email to one existing profile and sets `profiles.auth_user_id` only if it is currently null.
+3. **Verify the link** in the SQL editor:
    ```sql
-   update public.profiles
-   set auth_user_id = (select id from auth.users where email = 'sarah@gracecommunity.church')
-   where email = 'sarah@gracecommunity.church' and auth_user_id is null;
+   select email, auth_user_id
+   from public.profiles
+   where lower(email) = lower('sarah@gracecommunity.church');
    ```
 
-You only need to link the users you'll log in as while testing (Daniel, Sarah, Michael, Hannah, and Ruth cover every permission path). Unlinked profiles still appear correctly as authors, assignees, and chat senders.
+The trigger never creates a profile, organisation role, team membership, organisation, or invitation. If there is no matching profile, the Auth user stays unlinked and the app shows its friendly setup message. Unlinked profiles still appear correctly as authors, assignees, and chat senders.
 
-For **production**, the flow inverts: a `handle_new_user` trigger on `auth.users` creates the profile at signup (see `docs/supabase-integration-plan.md`, step 2) — this seed-then-link dance is for development convenience only.
+### Auth users created before the trigger
+
+The migration deliberately does not backfill existing Auth users. For a user created before the trigger was applied, use this one-time, no-overwrite link in the SQL editor (replace the email):
+
+```sql
+update public.profiles
+set auth_user_id = (
+  select id
+  from auth.users
+  where lower(email) = lower('hannah@gracecommunity.church')
+)
+where lower(email) = lower('hannah@gracecommunity.church')
+  and auth_user_id is null;
+```
+
+Do not run a broad backfill without reviewing matches first. After the trigger is applied, creating new Auth users for currently unlinked seeded emails such as Hannah, Michael, or Joseph should auto-link them; only Auth users that already existed before the trigger need this manual path. You only need to link users you will log in as while testing (Daniel, Sarah, Michael, Hannah, and Ruth cover every permission path).
+
+This is still an admin-provisioned flow, not public signup or self-service onboarding: create or seed the church profile, role, and memberships first, then create the Auth user with the same email.
 
 ## Demo users reference
 

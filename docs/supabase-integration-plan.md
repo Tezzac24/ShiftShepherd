@@ -13,37 +13,29 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history now tracks `001`–`006` plus the pushed events and rota grants migrations.
-- Run `supabase/seed/dev_seed.sql` and link 4–5 auth users (see `supabase/seed/README.md`).
+- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is aligned through the pushed notification-preferences grants migration; the Auth/profile auto-link migration is currently local-only pending approval.
+- Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project) — aligned 2026-07-09:** remote `supabase_migrations.schema_migrations` now records versions `001`–`006` plus the pushed events and rota grants migrations, and migrations `003`–`006` are applied remotely (verified via `supabase migration list` and MCP introspection). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; `003`–`006` and later pushed grant migrations were applied with `supabase db push`. Future schema changes use the normal `supabase migration new` → `supabase db push` workflow. **Do not rename `001`–`006`** — the remote history tracks those exact version strings. See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006` and the pushed events, rota, songs, chat, and notification-preferences grants migrations. The new `20260709233705_link_auth_users_to_existing_profiles.sql` migration is intentionally local-only pending an explicitly approved `supabase db push`. Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
-### 2. Auth + profiles ✅ (mostly done)
+### 2. Auth + profiles ✅ (app done; auto-link migration pending push)
 
 The single riskiest step — done in its own pass. What shipped:
 
 - `src/lib/supabase/client.ts` creates an env-guarded client (AsyncStorage-backed session persistence on native; demo mode when env vars are missing).
 - `AuthContext` supports **two modes** behind an unchanged screen-facing API: demo (mock selector, remembered locally) and Supabase email/password with session restore + auth-state listener.
-- After login the `profiles` row is fetched by `auth_user_id = auth.uid()`. In the first auth pass, while feature data was still mocked, profiles whose email matched a demo person were bridged onto the mock identity (id, teams, permissions); unrecognised profiles got their real org role and no mock memberships. Auth users with no linked profile got a friendly message and were signed out — no auto-created profiles yet.
+- After login the `profiles` row is fetched by `auth_user_id = auth.uid()`. In the first auth pass, while feature data was still mocked, profiles whose email matched a demo person were bridged onto the mock identity (id, teams, permissions); unrecognised profiles got their real org role and no mock memberships. Auth users with no linked profile are signed out cleanly and shown a friendly setup message.
 
-Still to do in this step:
+This infrastructure pass adds safe linking without adding signup or onboarding:
 
 - ~~Replace the email→mock-identity bridge in `buildSupabaseSession`~~ ✅ done in step 6: Supabase sessions are now built entirely from `profiles` + `organisation_roles` + `team_memberships` queries — all ids in a live session are real UUIDs.
-- Add a `handle_new_user` trigger (new migration) that inserts a `profiles` row on signup. For V1 single-church, it can hard-code the Grace Community organisation id and a `general_member` org role:
-  ```sql
-  create function public.handle_new_user() returns trigger
-  language plpgsql security definer set search_path = public as $$
-  begin
-    insert into public.profiles (auth_user_id, organisation_id, full_name, email)
-    values (new.id, '<org-uuid>', coalesce(new.raw_user_meta_data->>'full_name', new.email), new.email);
-    return new;
-  end $$;
-  create trigger on_auth_user_created after insert on auth.users
-    for each row execute function public.handle_new_user();
-  ```
-  Multi-church later replaces the hard-coded org with invite codes.
+- `20260709233705_link_auth_users_to_existing_profiles.sql` adds an `after insert on auth.users` trigger. It case-insensitively matches `auth.users.email` to exactly one existing `profiles.email` and sets `auth_user_id` only when it is null.
+- A unique expression index on `lower(profiles.email)` prevents ambiguous matches. The existing unique constraint on `profiles.auth_user_id` already prevents one Auth user being linked to multiple profiles, so no redundant auth-link index is added.
+- No profile, organisation role, team membership, organisation, or invitation is created. A missing match or a profile already linked to a different Auth user is left unchanged.
+- There is no email-update trigger and no automatic backfill. Auth users created before this migration may need the one-time manual link in `supabase/seed/README.md`.
+- The migration is local-only until an explicit `supabase db push` approval. Before that push, the remote project keeps the previous manual-link behaviour.
 
 ### 3. Organisations & roles ✅ (done with step 6)
 
@@ -178,7 +170,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 - **Authored-content deletes**: `created_by`/`added_by`/`sender_id`/`selected_by` are `ON DELETE RESTRICT` — deleting a profile that authored content will fail. That's intentional for V1; GDPR-style removal should anonymise the profile (rename, null contact fields) rather than hard-delete. Revisit before public launch.
 - **Time formats**: Postgres returns `time` as `HH:MM:SS`; the app renders `HH:MM`. Normalise in the rota service (`time.slice(0, 5)`).
 - **Optimistic-update rollback**: every mutating service call needs a rollback path; the scaffold's plain-English error strings already exist for this.
-- **Profiles without auth users** (seed data): fine as authors/assignees, but they can't respond to availability until linked. Link everyone you demo with.
+- **Profiles without auth users** (seed data): fine as authors/assignees, but they cannot sign in or respond as themselves until linked. After the auto-link migration is applied, create a new Auth user with the same email; users created before the trigger still need a one-time manual link.
 - **Clock/timezone**: seed dates are computed in the DB server's timezone (UTC on Supabase); a service starting at "10:00" UTC may render as 11:00 local in the app. Acceptable for dev; production event creation happens through the app with proper timestamptz values.
 - **Two sources of truth during migration**: while some slices are mock and some are live, cross-feature joins (e.g. announcement linked to a live event) can dangle. The integration order above minimises this — announcements→events are adjacent for exactly this reason.
 
@@ -203,6 +195,7 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 5. ✅ **Done (2026-07-09):** **step 8 — songs & song selection**, including the pushed and verified `20260709171613_grant_authenticated_songs_api_privileges.sql` migration; choir songs passed manual QA.
 6. ✅ **Done (2026-07-09):** **step 9 — chat** (text-only, no realtime), retiring `demoBridge.ts`, including the pushed and verified `20260709205903_grant_authenticated_chat_api_privileges.sql` migration.
 7. ✅ **Done (2026-07-09):** **step 11, first half — notification preferences** persist to `notification_preferences`, including the pushed and verified `20260709220528_grant_authenticated_notification_prefs_api_privileges.sql` migration. Push token registration/delivery stays deferred (needs a development build with `expo-notifications` + an EAS project id).
-8. Next slice candidates: the `handle_new_user` trigger migration if signup is next, **Realtime on `chat_messages`** to remove the manual-refresh limitation, or **Storage** (step 10) to unlock avatars/images/attachments.
+8. **Current local-only migration:** `20260709233705_link_auth_users_to_existing_profiles.sql` safely links newly created Auth users to existing matching profiles. Push and QA it only after explicit approval; it does not implement signup or create profile/role/membership rows.
+9. Later slice candidates remain **Realtime on `chat_messages`** or **Storage** (step 10); neither is part of the Auth-linking pass.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

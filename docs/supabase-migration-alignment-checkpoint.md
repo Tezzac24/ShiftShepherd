@@ -1,8 +1,10 @@
 # Supabase Migration Alignment — COMPLETE
 
 **Status: aligned on 2026-07-09** against the repo-configured Supabase MCP/CLI dev project.
-Migration history is now tracked and matches the repo. This document records the final
-state and the rules that keep it aligned.
+This document records that completed checkpoint and the rules that keep history aligned.
+On 2026-07-10, migration `20260709233705_link_auth_users_to_existing_profiles.sql`
+was added locally and intentionally left unpushed pending explicit approval, so it is now
+the single expected local-only migration.
 
 ## Outcome (TL;DR)
 
