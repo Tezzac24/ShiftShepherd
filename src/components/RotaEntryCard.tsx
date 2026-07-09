@@ -6,7 +6,7 @@ import { colors, spacing } from '../../constants/theme';
 import { AvailabilityStatus, RotaEntry } from '../types';
 import { formatClockTime, formatUpcoming, parseDateKey } from '../utils/dates';
 import { AppText } from './AppText';
-import { AvailabilityBadge } from './Badge';
+import { AvailabilityBadge, Badge } from './Badge';
 import { Card } from './Card';
 
 interface RotaEntryCardProps {
@@ -27,21 +27,34 @@ export function RotaEntryCard({
   onPress,
 }: RotaEntryCardProps) {
   const date = parseDateKey(entry.date);
+  const cancelled = entry.status === 'cancelled';
   return (
     <Card
       onPress={onPress}
-      accessibilityLabel={`${entry.title} on ${formatUpcoming(date)}`}
+      accessibilityLabel={`${entry.title} on ${formatUpcoming(date)}${cancelled ? ', cancelled' : ''}`}
       accessibilityHint="Opens the rota details"
+      style={cancelled ? styles.cancelledCard : undefined}
     >
       <View style={styles.topRow}>
-        <AppText variant="label" tone="primary">
+        <AppText variant="label" tone={cancelled ? 'muted' : 'primary'}>
           {formatUpcoming(date)}
           {entry.time ? ` · ${formatClockTime(entry.time)}` : ''}
         </AppText>
-        {myStatus ? <AvailabilityBadge status={myStatus} /> : null}
+        {cancelled ? (
+          <Badge label="Cancelled" tone="danger" />
+        ) : myStatus ? (
+          <AvailabilityBadge status={myStatus} />
+        ) : null}
       </View>
-      <AppText variant="subheading">{entry.title}</AppText>
-      {assignmentSummary ? (
+      <AppText variant="subheading" tone={cancelled ? 'secondary' : 'default'}>
+        {entry.title}
+      </AppText>
+      {cancelled ? (
+        <AppText variant="small" tone="muted">
+          This date is not going ahead.
+        </AppText>
+      ) : null}
+      {!cancelled && assignmentSummary ? (
         <View style={styles.metaRow}>
           <Ionicons name="people-outline" size={18} color={colors.textSecondary} />
           <AppText variant="small" tone="secondary">
@@ -49,7 +62,7 @@ export function RotaEntryCard({
           </AppText>
         </View>
       ) : null}
-      {songCount !== undefined ? (
+      {!cancelled && songCount !== undefined ? (
         <View style={styles.metaRow}>
           <Ionicons name="musical-notes-outline" size={18} color={colors.textSecondary} />
           <AppText variant="small" tone="secondary">
@@ -69,4 +82,5 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  cancelledCard: { opacity: 0.85 },
 });

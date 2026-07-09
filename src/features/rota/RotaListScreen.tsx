@@ -49,13 +49,29 @@ export default function RotaListScreen() {
       </AppText>
 
       {canManageTeamRota(user, team.id) ? (
-        <Button
-          title="Add Rota Entry"
-          icon="add-circle-outline"
-          onPress={() =>
-            router.push({ pathname: '/teams/[teamId]/rota/edit', params: { teamId: team.id } })
-          }
-        />
+        <>
+          <Button
+            title="Add Rota Entry"
+            icon="add-circle-outline"
+            onPress={() =>
+              router.push({ pathname: '/teams/[teamId]/rota/edit', params: { teamId: team.id } })
+            }
+          />
+          {isChoir ? (
+            <Button
+              title="Plan the Month Ahead"
+              variant="secondary"
+              icon="calendar-number-outline"
+              accessibilityHint="Creates rota entries for all the Sundays and rehearsals in a month at once"
+              onPress={() =>
+                router.push({
+                  pathname: '/teams/[teamId]/rota/plan-month',
+                  params: { teamId: team.id },
+                })
+              }
+            />
+          ) : null}
+        </>
       ) : null}
 
       {entries.length > 0 ? (

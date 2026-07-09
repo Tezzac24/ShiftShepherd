@@ -148,6 +148,11 @@ Create typed models/interfaces for:
 - NotificationPreferences
 - PushToken
 
+Implemented refinements to these models (see `src/types/index.ts`, the source of truth):
+
+- `ChoirSongSelection.section: 'praise' | 'worship'` — each selected song belongs to one section, ordered independently (`order_index` restarts per section).
+- `RotaEntry.status: 'active' | 'cancelled'` plus `cancelled_at`, `cancelled_by`, `cancellation_reason` — cancelled dates are marked, not deleted.
+
 # 5. Intended Production Backend
 
 The production backend should eventually be Supabase.
@@ -769,9 +774,13 @@ The form should support assigning multiple people to one rota entry.
 
 Examples:
 For Choir:
-- Song Leader
-- Backup Vocal
+- Praise Leader (one per date; manages the praise songs)
+- Worship Leader (one per date; manages the worship songs — may be the same person as the Praise Leader)
 - Choir Member
+- Backup Vocal
+
+For choir rehearsals, an "Add All Choir Members" shortcut assigns everyone as
+Choir Member so the whole choir can confirm availability.
 
 For Media:
 - Sound
@@ -795,16 +804,17 @@ Include:
 ## 11.15 Choir Rota Screen
 
 Include:
-- Choir rota entries
-- Song leader for each rota date
-- Selected songs if available
-- Availability status
+- Choir rota entries (cancelled dates stay visible with a "Cancelled" badge)
+- Praise Leader and Worship Leader for each rota date
+- Selected songs split into Praise Songs and Worship Songs panels
+- Availability status, with response counts (available/maybe/unavailable/not responded)
+- A "Plan the Month Ahead" action for leaders (batch-create Sunday services and weekly rehearsals)
 
-If the logged-in user is assigned as song leader for a rota date, show a clear “Select Songs” action for that date.
+If the logged-in user is assigned as Praise Leader or Worship Leader for a rota date, show a clear "Choose/Change … Songs" action for their section only. The legacy single "Song Leader" role manages both sections.
 
-If the logged-in user is not the assigned song leader, they can view selected songs but cannot edit them.
+Other users can view selected songs but cannot edit them.
 
-Choir team leaders can override song selections.
+Choir team leaders and church admins can override both sections.
 
 ## 11.16 Song Database Screen
 

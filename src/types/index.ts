@@ -144,6 +144,8 @@ export interface EventOccurrence extends Event {
 // Rotas
 // ---------------------------------------------------------------------------
 
+export type RotaEntryStatus = 'active' | 'cancelled';
+
 export interface RotaEntry {
   id: ID;
   organisation_id: ID;
@@ -154,6 +156,14 @@ export interface RotaEntry {
   /** e.g. "10:00" — optional */
   time: string | null;
   notes: string | null;
+  /**
+   * Cancelled entries stay visible (with a clear "Cancelled" badge) until
+   * their date passes, instead of being deleted.
+   */
+  status: RotaEntryStatus;
+  cancelled_at: string | null;
+  cancelled_by: ID | null;
+  cancellation_reason: string | null;
   created_by: ID;
   created_at: string;
   updated_at: string;
@@ -211,11 +221,19 @@ export interface Song {
   updated_at: string;
 }
 
+/**
+ * Choir services split their set list into two sections, each usually led by
+ * a different person: Praise (upbeat, opening) and Worship (slower, reflective).
+ */
+export type SongSection = 'praise' | 'worship';
+
 export interface ChoirSongSelection {
   id: ID;
   rota_entry_id: ID;
   song_id: ID;
+  section: SongSection;
   selected_by: ID;
+  /** Position within the section (praise and worship are ordered separately). */
   order_index: number;
   notes: string | null;
 }

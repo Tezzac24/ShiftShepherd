@@ -27,7 +27,14 @@ const CHURCH_WIDE = 'church';
  */
 export default function AnnouncementFormScreen() {
   const router = useRouter();
-  const { id, teamId: presetTeamId } = useLocalSearchParams<{ id?: string; teamId?: string }>();
+  // presetTitle/presetBody prefill the form (e.g. a rehearsal cancellation
+  // notice) — nothing is posted until the user taps Post Announcement.
+  const { id, teamId: presetTeamId, presetTitle, presetBody } = useLocalSearchParams<{
+    id?: string;
+    teamId?: string;
+    presetTitle?: string;
+    presetBody?: string;
+  }>();
   const user = useRequiredUser();
   const data = useAppData();
 
@@ -48,8 +55,8 @@ export default function AnnouncementFormScreen() {
       })),
   ];
 
-  const [title, setTitle] = useState(existing?.title ?? '');
-  const [body, setBody] = useState(existing?.body ?? '');
+  const [title, setTitle] = useState(existing?.title ?? presetTitle ?? '');
+  const [body, setBody] = useState(existing?.body ?? presetBody ?? '');
   const [audience, setAudience] = useState<string | null>(
     existing ? (existing.team_id ?? CHURCH_WIDE) : (presetTeamId ?? audienceOptions[0]?.value ?? null),
   );

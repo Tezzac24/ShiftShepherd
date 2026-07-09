@@ -16,23 +16,26 @@ import { SectionHeader } from '../../components/SectionHeader';
 import { TextField } from '../../components/TextField';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import {
-  assignmentsForEntry,
-  availabilityForAssignment,
-  selectionsForEntry,
+  availabilitySummaryForEntry,
+  peopleForEntry,
+  selectionsForEntrySection,
   songById,
   userName,
 } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import {
+  canCancelRotaEntry,
+  canManageSongSectionForRotaEntry,
   canManageTeamRota,
-  canSelectSongsForRota,
   canViewTeam,
-  SONG_LEADER_ROLE,
+  sectionLeaderAssignment,
+  songSectionLabels,
 } from '../../lib/permissions';
-import { AvailabilityStatus } from '../../types';
+import { AvailabilityStatus, SongSection } from '../../types';
 import { formatClockTime, formatFullDate, parseDateKey } from '../../utils/dates';
 
 const RESPONSE_OPTIONS: AvailabilityStatus[] = ['available', 'maybe', 'unavailable'];
+const SONG_SECTIONS: SongSection[] = ['praise', 'worship'];
 
 export default function RotaDetailScreen() {
   const router = useRouter();
@@ -44,14 +47,10 @@ export default function RotaDetailScreen() {
   const team = data.teams.find((t) => t.id === teamId);
   const entry = data.rotaEntries.find((e) => e.id === entryId);
 
-  const myAssignment = entry
-    ? assignmentsForEntry(entry.id, data.rotaAssignments).find(
-        (a) => a.user_id === user.profile.id,
-      )
-    : undefined;
-  const myResponse = myAssignment
-    ? availabilityForAssignment(myAssignment.id, data.availabilityResponses)
-    : undefined;
+  const people = entry
+    ? peopleForEntry(entry.id, data.rotaAssignments, data.availabilityResponses)
+    : [];
+  const me = people.find((p) => p.userId === user.profile.id);
 
   const [responding, setResponding] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<AvailabilityStatus | null>(null);
@@ -72,27 +71,70 @@ export default function RotaDetailScreen() {
 
   const isChoir = team.type === 'choir';
   const isLeader = canManageTeamRota(user, team.id);
-  const assignments = assignmentsForEntry(entry.id, data.rotaAssignments);
-  const selections = selectionsForEntry(entry.id, data.songSelections);
-  const canPickSongs = isChoir && canSelectSongsForRota(user, entry, data.rotaAssignments);
-  const songLeader = assignments.find((a) => a.role_name === SONG_LEADER_ROLE);
+  const cancelled = entry.status === 'cancelled';
+  const entryAssignments = people.flatMap((p) => p.assignments);
+  const summary = availabilitySummaryForEntry(
+    entry.id,
+    data.rotaAssignments,
+    data.availabilityResponses,
+  );
 
   const startResponding = () => {
-    setPendingStatus(myResponse?.status === 'not_responded' ? null : (myResponse?.status ?? null));
-    setNote(myResponse?.note ?? '');
+    setPendingStatus(me && me.status !== 'not_responded' ? me.status : null);
+    setNote(me?.note ?? '');
     setResponding(true);
   };
 
   const saveResponse = () => {
-    if (!myAssignment || !pendingStatus) return;
-    data.setAvailability(myAssignment.id, user.profile.id, pendingStatus, note.trim() || null);
+    if (!me || !pendingStatus) return;
+    // One human answer covers all of this person's roles on the date
+    // (e.g. someone who is both Praise Leader and Worship Leader).
+    for (const a of me.assignments) {
+      data.setAvailability(a.id, user.profile.id, pendingStatus, note.trim() || null);
+    }
     setResponding(false);
+  };
+
+  const handleCancelEntry = async () => {
+    const ok = await confirm({
+      title: 'Cancel this date?',
+      message: `“${entry.title}” will stay on the rota marked as Cancelled, so everyone can see it is not going ahead. You can restore it later if plans change.`,
+      confirmLabel: 'Cancel This Date',
+    });
+    if (!ok) return;
+    data.cancelRotaEntry(entry.id, user.profile.id, null);
+    const announce = await confirm({
+      title: 'Tell the team?',
+      message: 'Would you like to write a team announcement so everyone hears about the cancellation? Nothing is sent without you.',
+      confirmLabel: 'Write Announcement',
+      destructive: false,
+    });
+    if (announce) {
+      router.push({
+        pathname: '/announcements/edit',
+        params: {
+          teamId: team.id,
+          presetTitle: `Cancelled: ${entry.title}`,
+          presetBody: `${entry.title} on ${formatFullDate(parseDateKey(entry.date))} has been cancelled. Sorry for any inconvenience — see you at the next one!`,
+        },
+      });
+    }
+  };
+
+  const handleRestoreEntry = async () => {
+    const ok = await confirm({
+      title: 'Restore this date?',
+      message: 'This will put the date back on the rota as normal.',
+      confirmLabel: 'Restore',
+      destructive: false,
+    });
+    if (ok) data.restoreRotaEntry(entry.id);
   };
 
   const handleDelete = async () => {
     const ok = await confirm({
       title: 'Delete rota entry',
-      message: 'Are you sure you want to delete this rota entry?',
+      message: 'Are you sure you want to delete this rota entry? This cannot be undone.',
     });
     if (ok) {
       data.deleteRotaEntry(entry.id);
@@ -104,8 +146,33 @@ export default function RotaDetailScreen() {
     <Screen keyboard>
       <Stack.Screen options={{ title: entry.title }} />
 
+      {cancelled ? (
+        <View style={styles.cancelledBanner}>
+          <Ionicons name="close-circle" size={24} color={colors.danger} />
+          <View style={{ flex: 1 }}>
+            <AppText variant="bodyBold" style={{ color: colors.danger }}>
+              This {entry.title.toLowerCase().includes('rehearsal') ? 'rehearsal' : 'date'} has
+              been cancelled
+            </AppText>
+            {entry.cancellation_reason ? (
+              <AppText variant="small" tone="secondary">
+                {entry.cancellation_reason}
+              </AppText>
+            ) : null}
+            {entry.cancelled_by ? (
+              <AppText variant="small" tone="muted">
+                Cancelled by {userName(data.users, entry.cancelled_by)}
+              </AppText>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
       <Card>
-        <Badge label={team.name} tone="primary" />
+        <View style={styles.metaRow}>
+          <Badge label={team.name} tone="primary" />
+          {cancelled ? <Badge label="Cancelled" tone="danger" /> : null}
+        </View>
         <AppText variant="heading">{entry.title}</AppText>
         <View style={styles.metaRow}>
           <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
@@ -128,163 +195,186 @@ export default function RotaDetailScreen() {
       </Card>
 
       {/* My availability */}
-      {myAssignment ? (
+      {me ? (
         <Card>
           <AppText variant="subheading">Your Assignment</AppText>
           <View style={styles.metaRow}>
-            <Badge label={myAssignment.role_name} tone="accent" />
-            <AvailabilityBadge status={myResponse?.status ?? 'not_responded'} />
+            <Badge label={me.roleSummary} tone="accent" />
+            {!cancelled ? <AvailabilityBadge status={me.status} /> : null}
           </View>
-          {myResponse?.note ? (
+          {cancelled ? (
             <AppText variant="small" tone="secondary">
-              Your note: “{myResponse.note}”
+              This date has been cancelled — no need to respond.
             </AppText>
-          ) : null}
-
-          {!responding ? (
-            <Button
-              title={
-                myResponse && myResponse.status !== 'not_responded'
-                  ? 'Change Your Availability'
-                  : 'Confirm Availability'
-              }
-              icon="hand-left-outline"
-              onPress={startResponding}
-            />
           ) : (
-            <View style={styles.respondBox}>
-              <AppText variant="label">Can you make it?</AppText>
-              <View style={styles.optionsRow}>
-                {RESPONSE_OPTIONS.map((status) => {
-                  const selected = pendingStatus === status;
-                  return (
-                    <Pressable
-                      key={status}
-                      accessibilityRole="button"
-                      accessibilityLabel={availabilityLabels[status]}
-                      accessibilityState={{ selected }}
-                      onPress={() => setPendingStatus(status)}
-                      style={[styles.option, selected && styles.optionSelected]}
-                    >
-                      <AppText
-                        variant="label"
-                        style={{ color: selected ? colors.white : colors.text }}
-                      >
-                        {availabilityLabels[status]}
-                      </AppText>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <TextField
-                label="Add a note (optional)"
-                placeholder="e.g. I may be 10 minutes late."
-                value={note}
-                onChangeText={setNote}
-              />
-              <Button title="Save Response" onPress={saveResponse} disabled={!pendingStatus} />
-              <Button title="Cancel" variant="secondary" onPress={() => setResponding(false)} />
-            </View>
+            <>
+              {me.note ? (
+                <AppText variant="small" tone="secondary">
+                  Your note: “{me.note}”
+                </AppText>
+              ) : null}
+
+              {!responding ? (
+                <Button
+                  title={
+                    me.status !== 'not_responded'
+                      ? 'Change Your Availability'
+                      : 'Confirm Availability'
+                  }
+                  icon="hand-left-outline"
+                  onPress={startResponding}
+                />
+              ) : (
+                <View style={styles.respondBox}>
+                  <AppText variant="label">Can you make it?</AppText>
+                  <View style={styles.optionsRow}>
+                    {RESPONSE_OPTIONS.map((status) => {
+                      const selected = pendingStatus === status;
+                      return (
+                        <Pressable
+                          key={status}
+                          accessibilityRole="button"
+                          accessibilityLabel={availabilityLabels[status]}
+                          accessibilityState={{ selected }}
+                          onPress={() => setPendingStatus(status)}
+                          style={[styles.option, selected && styles.optionSelected]}
+                        >
+                          <AppText
+                            variant="label"
+                            style={{ color: selected ? colors.white : colors.text }}
+                          >
+                            {availabilityLabels[status]}
+                          </AppText>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <TextField
+                    label="Add a note (optional)"
+                    placeholder="e.g. I may be 10 minutes late."
+                    value={note}
+                    onChangeText={setNote}
+                  />
+                  <Button title="Save Response" onPress={saveResponse} disabled={!pendingStatus} />
+                  <Button title="Cancel" variant="secondary" onPress={() => setResponding(false)} />
+                </View>
+              )}
+            </>
           )}
         </Card>
       ) : null}
 
-      {/* Selected songs (choir) */}
+      {/* Selected songs (choir), split into Praise and Worship */}
       {isChoir ? (
         <>
           <SectionHeader title="Selected Songs" />
-          {songLeader ? (
-            <AppText variant="small" tone="secondary">
-              Song leader for this date: {userName(data.users, songLeader.user_id)}
-            </AppText>
-          ) : null}
-          {selections.length > 0 ? (
-            <Card>
-              {selections.map((sel, i) => {
-                const song = songById(data.songs, sel.song_id);
-                if (!song) return null;
-                return (
-                  <Pressable
-                    key={sel.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open ${song.title}`}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/teams/[teamId]/songs/[songId]',
-                        params: { teamId: team.id, songId: song.id },
-                      })
-                    }
-                    style={({ pressed }) => [styles.songRow, pressed && { opacity: 0.7 }]}
-                  >
-                    <View style={styles.songIndex}>
-                      <AppText variant="label" tone="primary">
-                        {i + 1}
-                      </AppText>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <AppText variant="bodyBold">{song.title}</AppText>
-                      {song.artist ? (
-                        <AppText variant="small" tone="secondary">
-                          {song.artist}
-                        </AppText>
-                      ) : null}
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                  </Pressable>
-                );
-              })}
-            </Card>
-          ) : (
-            <EmptyState
-              icon="musical-notes-outline"
-              title="No songs selected yet"
-              message={
-                canPickSongs
-                  ? 'You are leading songs for this date. Tap Select Songs to choose from the song database.'
-                  : 'The song leader has not selected songs for this date yet.'
-              }
-            />
-          )}
-          {canPickSongs ? (
-            <Button
-              title={selections.length > 0 ? 'Change Selected Songs' : 'Select Songs'}
-              icon="musical-notes-outline"
-              onPress={() =>
-                router.push({
-                  pathname: '/teams/[teamId]/rota/[entryId]/select-songs',
-                  params: { teamId: team.id, entryId: entry.id },
-                })
-              }
-            />
-          ) : null}
-        </>
-      ) : null}
-
-      {/* Everyone assigned */}
-      <SectionHeader title="Who Is Serving" />
-      <Card style={{ gap: spacing.md }}>
-        {assignments.length > 0 ? (
-          assignments.map((a) => {
-            const response = availabilityForAssignment(a.id, data.availabilityResponses);
-            const status = response?.status ?? 'not_responded';
+          {SONG_SECTIONS.map((section) => {
+            const label = songSectionLabels[section];
+            const leader = sectionLeaderAssignment(entryAssignments, section);
+            const selections = selectionsForEntrySection(entry.id, section, data.songSelections);
+            const canManage =
+              !cancelled &&
+              canManageSongSectionForRotaEntry(user, entry, data.rotaAssignments, section);
             return (
-              <View key={a.id} style={styles.assignmentRow}>
-                <Avatar name={userName(data.users, a.user_id)} size={40} />
-                <View style={{ flex: 1 }}>
-                  <AppText variant="bodyBold">{userName(data.users, a.user_id)}</AppText>
-                  <AppText variant="small" tone="secondary">
-                    {a.role_name}
-                  </AppText>
-                  {isLeader && response?.note ? (
-                    <AppText variant="small" tone="muted">
-                      “{response.note}”
+              <Card key={section} style={{ gap: spacing.sm }}>
+                <View style={styles.sectionHeaderRow}>
+                  <AppText variant="subheading">{label} Songs</AppText>
+                  {leader ? (
+                    <AppText variant="small" tone="secondary">
+                      Led by {userName(data.users, leader.user_id)}
                     </AppText>
                   ) : null}
                 </View>
-                <AvailabilityBadge status={status} />
-              </View>
+                {selections.length > 0 ? (
+                  selections.map((sel, i) => {
+                    const song = songById(data.songs, sel.song_id);
+                    if (!song) return null;
+                    return (
+                      <Pressable
+                        key={sel.id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${song.title}`}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/teams/[teamId]/songs/[songId]',
+                            params: { teamId: team.id, songId: song.id },
+                          })
+                        }
+                        style={({ pressed }) => [styles.songRow, pressed && { opacity: 0.7 }]}
+                      >
+                        <View style={styles.songIndex}>
+                          <AppText variant="label" tone="primary">
+                            {i + 1}
+                          </AppText>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <AppText variant="bodyBold">{song.title}</AppText>
+                          {song.artist ? (
+                            <AppText variant="small" tone="secondary">
+                              {song.artist}
+                            </AppText>
+                          ) : null}
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                      </Pressable>
+                    );
+                  })
+                ) : (
+                  <AppText tone="secondary">
+                    No {label.toLowerCase()} songs selected yet.
+                    {canManage ? ` Tap Choose ${label} Songs to pick from the song database.` : ''}
+                  </AppText>
+                )}
+                {canManage ? (
+                  <Button
+                    title={
+                      selections.length > 0 ? `Change ${label} Songs` : `Choose ${label} Songs`
+                    }
+                    variant={selections.length > 0 ? 'secondary' : 'primary'}
+                    icon="musical-notes-outline"
+                    onPress={() =>
+                      router.push({
+                        pathname: '/teams/[teamId]/rota/[entryId]/select-songs',
+                        params: { teamId: team.id, entryId: entry.id, section },
+                      })
+                    }
+                  />
+                ) : null}
+              </Card>
             );
-          })
+          })}
+        </>
+      ) : null}
+
+      {/* Everyone assigned + availability tracker */}
+      <SectionHeader title={cancelled ? 'Who Was Expected' : 'Who Is Serving'} />
+      {!cancelled && people.length > 0 ? (
+        <View style={styles.summaryRow}>
+          <Badge label={`${summary.available} available`} tone="success" />
+          <Badge label={`${summary.maybe} maybe`} tone="warning" />
+          <Badge label={`${summary.unavailable} unavailable`} tone="danger" />
+          <Badge label={`${summary.not_responded} not responded`} tone="neutral" />
+        </View>
+      ) : null}
+      <Card style={{ gap: spacing.md }}>
+        {people.length > 0 ? (
+          people.map((person) => (
+            <View key={person.userId} style={styles.assignmentRow}>
+              <Avatar name={userName(data.users, person.userId)} size={40} />
+              <View style={{ flex: 1 }}>
+                <AppText variant="bodyBold">{userName(data.users, person.userId)}</AppText>
+                <AppText variant="small" tone="secondary">
+                  {person.roleSummary}
+                </AppText>
+                {isLeader && person.note ? (
+                  <AppText variant="small" tone="muted">
+                    “{person.note}”
+                  </AppText>
+                ) : null}
+              </View>
+              {!cancelled ? <AvailabilityBadge status={person.status} /> : null}
+            </View>
+          ))
         ) : (
           <AppText tone="secondary">No one has been assigned yet.</AppText>
         )}
@@ -293,23 +383,50 @@ export default function RotaDetailScreen() {
       {/* Leader actions */}
       {isLeader ? (
         <View style={styles.actions}>
-          <Button
-            title="Edit Rota Entry"
-            variant="secondary"
-            icon="create-outline"
-            onPress={() =>
-              router.push({
-                pathname: '/teams/[teamId]/rota/edit',
-                params: { teamId: team.id, entryId: entry.id },
-              })
-            }
-          />
-          <Button
-            title="Delete Rota Entry"
-            variant="destructive"
-            icon="trash-outline"
-            onPress={handleDelete}
-          />
+          {!cancelled ? (
+            <>
+              <Button
+                title="Edit Rota Entry"
+                variant="secondary"
+                icon="create-outline"
+                onPress={() =>
+                  router.push({
+                    pathname: '/teams/[teamId]/rota/edit',
+                    params: { teamId: team.id, entryId: entry.id },
+                  })
+                }
+              />
+              {canCancelRotaEntry(user, entry) ? (
+                <Button
+                  title="Cancel This Date"
+                  variant="destructive"
+                  icon="close-circle-outline"
+                  onPress={handleCancelEntry}
+                />
+              ) : null}
+              <Button
+                title="Delete Rota Entry"
+                variant="ghost"
+                icon="trash-outline"
+                onPress={handleDelete}
+              />
+            </>
+          ) : (
+            <>
+              <Button
+                title="Restore This Date"
+                variant="secondary"
+                icon="refresh-outline"
+                onPress={handleRestoreEntry}
+              />
+              <Button
+                title="Delete Rota Entry"
+                variant="destructive"
+                icon="trash-outline"
+                onPress={handleDelete}
+              />
+            </>
+          )}
         </View>
       ) : null}
     </Screen>
@@ -318,6 +435,22 @@ export default function RotaDetailScreen() {
 
 const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  cancelledBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.dangerSoft,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   respondBox: { gap: spacing.sm, marginTop: spacing.xs },
   optionsRow: { flexDirection: 'row', gap: spacing.sm },
   option: {

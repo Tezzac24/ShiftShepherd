@@ -5,7 +5,14 @@
  * TODO: wire to Supabase — these rules become Row Level Security policies;
  * the helpers stay as the client-side mirror for showing/hiding UI.
  */
-import { Announcement, RotaAssignment, RotaEntry, SessionUser, Team } from '../../types';
+import {
+  Announcement,
+  RotaAssignment,
+  RotaEntry,
+  SessionUser,
+  SongSection,
+  Team,
+} from '../../types';
 
 export function isChurchAdmin(user: SessionUser): boolean {
   return user.orgRole === 'church_admin';
@@ -77,6 +84,11 @@ export function canRespondToAssignment(user: SessionUser, assignment: RotaAssign
   return assignment.user_id === user.profile.id;
 }
 
+/** Cancelling a rota entry (marking it "Cancelled", not deleting) is a leader action. */
+export function canCancelRotaEntry(user: SessionUser, entry: RotaEntry): boolean {
+  return canManageTeamRota(user, entry.team_id);
+}
+
 // ---------------------------------------------------------------------------
 // Choir songs
 // ---------------------------------------------------------------------------
@@ -86,8 +98,42 @@ export function canManageSongs(user: SessionUser, choirTeam: Team): boolean {
   return isChurchAdmin(user) || isMemberOfTeam(user, choirTeam.id);
 }
 
-/** Role name that marks the assigned song leader on a choir rota entry. */
+// Centralised choir rota role names. Assignments store role names as free
+// text, but these specific names carry meaning for song-selection permissions.
+
+/** Leads the praise (upbeat) section and manages its song list. */
+export const PRAISE_LEADER_ROLE = 'Praise Leader';
+/** Leads the worship (reflective) section and manages its song list. */
+export const WORSHIP_LEADER_ROLE = 'Worship Leader';
+/**
+ * Legacy single-leader role: one person leading the whole service. Still
+ * supported — a Song Leader can manage both praise and worship songs.
+ */
 export const SONG_LEADER_ROLE = 'Song Leader';
+/** Default role for choir members expected at a service or rehearsal. */
+export const CHOIR_MEMBER_ROLE = 'Choir Member';
+
+const sectionLeaderRoles: Record<SongSection, string> = {
+  praise: PRAISE_LEADER_ROLE,
+  worship: WORSHIP_LEADER_ROLE,
+};
+
+/** Plain-English labels for song sections. */
+export const songSectionLabels: Record<SongSection, string> = {
+  praise: 'Praise',
+  worship: 'Worship',
+};
+
+/** The assignment (if any) for a section's leader on a rota entry. */
+export function sectionLeaderAssignment(
+  assignments: RotaAssignment[],
+  section: SongSection,
+): RotaAssignment | undefined {
+  return (
+    assignments.find((a) => a.role_name === sectionLeaderRoles[section]) ??
+    assignments.find((a) => a.role_name === SONG_LEADER_ROLE)
+  );
+}
 
 export function songLeaderAssignment(
   assignments: RotaAssignment[],
@@ -96,18 +142,51 @@ export function songLeaderAssignment(
 }
 
 /**
- * Songs for a choir rota date can be selected by the assigned song leader
- * for that date, the choir team leader (override), or a church admin.
+ * A section's songs can be changed by the leader assigned to that section
+ * (Praise Leader for praise, Worship Leader for worship), a legacy Song
+ * Leader (both sections), the choir team leader (override), or a church
+ * admin. The same person may hold both leader roles.
  */
+export function canManageSongSectionForRotaEntry(
+  user: SessionUser,
+  entry: RotaEntry,
+  assignments: RotaAssignment[],
+  section: SongSection,
+): boolean {
+  if (isChurchAdmin(user)) return true;
+  if (isTeamLeader(user, entry.team_id)) return true;
+  const entryAssignments = assignments.filter((a) => a.rota_entry_id === entry.id);
+  return entryAssignments.some(
+    (a) =>
+      a.user_id === user.profile.id &&
+      (a.role_name === sectionLeaderRoles[section] || a.role_name === SONG_LEADER_ROLE),
+  );
+}
+
+export function canManagePraiseSongsForRotaEntry(
+  user: SessionUser,
+  entry: RotaEntry,
+  assignments: RotaAssignment[],
+): boolean {
+  return canManageSongSectionForRotaEntry(user, entry, assignments, 'praise');
+}
+
+export function canManageWorshipSongsForRotaEntry(
+  user: SessionUser,
+  entry: RotaEntry,
+  assignments: RotaAssignment[],
+): boolean {
+  return canManageSongSectionForRotaEntry(user, entry, assignments, 'worship');
+}
+
+/** Whether the user can change songs for at least one section of this date. */
 export function canSelectSongsForRota(
   user: SessionUser,
   entry: RotaEntry,
   assignments: RotaAssignment[],
 ): boolean {
-  if (isChurchAdmin(user)) return true;
-  if (isTeamLeader(user, entry.team_id)) return true;
-  const leader = songLeaderAssignment(
-    assignments.filter((a) => a.rota_entry_id === entry.id),
+  return (
+    canManagePraiseSongsForRotaEntry(user, entry, assignments) ||
+    canManageWorshipSongsForRotaEntry(user, entry, assignments)
   );
-  return leader?.user_id === user.profile.id;
 }

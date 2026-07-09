@@ -63,8 +63,8 @@ For **production**, the flow inverts: a `handle_new_user` trigger on `auth.users
 | daniel@gracecommunity.church | Church Admin | Ushers |
 | miriam@gracecommunity.church | Announcement Manager | Ushers (leader) |
 | joseph@gracecommunity.church | Event Manager | Media, Ushers, Youth (leader) |
-| sarah@gracecommunity.church | General member | Choir (leader) |
-| hannah@gracecommunity.church | General member | Choir, Youth |
-| michael@gracecommunity.church | General member | Choir, Media — assigned Song Leader on an upcoming date |
+| sarah@gracecommunity.church | General member | Choir (leader) — manages both song sections |
+| hannah@gracecommunity.church | General member | Choir, Youth — assigned Worship Leader on an upcoming date |
+| michael@gracecommunity.church | General member | Choir, Media — assigned Praise Leader on an upcoming date |
 | david@gracecommunity.church | General member | Media (leader), Youth |
 | ruth@gracecommunity.church | General member | none (tests empty states) |

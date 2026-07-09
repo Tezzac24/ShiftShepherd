@@ -12,42 +12,68 @@ import { Screen } from '../../components/Screen';
 import { SectionHeader } from '../../components/SectionHeader';
 import { TextField } from '../../components/TextField';
 import { useAppData } from '../../lib/appData/AppDataContext';
-import { searchSongs, selectionsForEntry, songById } from '../../lib/appData/selectors';
+import {
+  searchSongs,
+  selectionsForEntrySection,
+  songById,
+} from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
-import { canSelectSongsForRota } from '../../lib/permissions';
+import { canManageSongSectionForRotaEntry, songSectionLabels } from '../../lib/permissions';
+import { SongSection } from '../../types';
 import { formatFullDate, parseDateKey } from '../../utils/dates';
 
 /**
- * Select songs for a choir rota date. Only the assigned song leader for the
- * date (or the choir team leader / church admin as an override) can save.
- * Songs can be reordered with simple up/down buttons — no hidden gestures.
+ * Select songs for ONE section (praise or worship) of a choir rota date.
+ * Only the leader assigned to that section (or the choir team leader /
+ * church admin as an override) can save. Songs can be reordered with simple
+ * up/down buttons — no hidden gestures.
  */
 export default function SelectSongsScreen() {
   const router = useRouter();
-  const { teamId, entryId } = useLocalSearchParams<{ teamId: string; entryId: string }>();
+  const { teamId, entryId, section: sectionParam } = useLocalSearchParams<{
+    teamId: string;
+    entryId: string;
+    section?: string;
+  }>();
   const user = useRequiredUser();
   const data = useAppData();
+
+  const section: SongSection = sectionParam === 'worship' ? 'worship' : 'praise';
+  const sectionLabel = songSectionLabels[section];
+  const otherSection: SongSection = section === 'praise' ? 'worship' : 'praise';
 
   const team = data.teams.find((t) => t.id === teamId);
   const entry = data.rotaEntries.find((e) => e.id === entryId);
 
   const [selectedIds, setSelectedIds] = useState<string[]>(() =>
-    entry ? selectionsForEntry(entry.id, data.songSelections).map((s) => s.song_id) : [],
+    entry
+      ? selectionsForEntrySection(entry.id, section, data.songSelections).map((s) => s.song_id)
+      : [],
   );
   const [query, setQuery] = useState('');
 
-  if (!team || !entry || !canSelectSongsForRota(user, entry, data.rotaAssignments)) {
+  if (
+    !team ||
+    !entry ||
+    entry.status === 'cancelled' ||
+    !canManageSongSectionForRotaEntry(user, entry, data.rotaAssignments, section)
+  ) {
     return (
       <Screen>
         <Stack.Screen options={{ title: 'Select Songs' }} />
         <EmptyState
           icon="lock-closed-outline"
           title="No permission"
-          message="Only the assigned song leader for this date (or the choir team leader) can select songs."
+          message={`Only the assigned ${sectionLabel} Leader for this date (or the choir team leader) can change the ${sectionLabel.toLowerCase()} songs.`}
         />
       </Screen>
     );
   }
+
+  // Songs already in the other section can't be added here too.
+  const otherSectionIds = new Set(
+    selectionsForEntrySection(entry.id, otherSection, data.songSelections).map((s) => s.song_id),
+  );
 
   const results = searchSongs(data.songs, query);
 
@@ -68,13 +94,13 @@ export default function SelectSongsScreen() {
   };
 
   const handleSave = () => {
-    data.setSongSelections(entry.id, selectedIds, user.profile.id);
+    data.setSongSelections(entry.id, section, selectedIds, user.profile.id);
     router.back();
   };
 
   return (
     <Screen>
-      <Stack.Screen options={{ title: 'Select Songs' }} />
+      <Stack.Screen options={{ title: `${sectionLabel} Songs` }} />
 
       <Card>
         <AppText variant="label" tone="primary">
@@ -82,12 +108,14 @@ export default function SelectSongsScreen() {
         </AppText>
         <AppText variant="subheading">{entry.title}</AppText>
         <AppText variant="small" tone="secondary">
-          Choose the songs for this date. Use the arrows to put them in order.
+          Choose the {sectionLabel.toLowerCase()} songs for this date. Use the arrows to put them
+          in order. The {songSectionLabels[otherSection].toLowerCase()} songs are managed
+          separately.
         </AppText>
       </Card>
 
       {/* Selected songs, in order */}
-      <SectionHeader title={`Selected Songs (${selectedIds.length})`} />
+      <SectionHeader title={`${sectionLabel} Songs (${selectedIds.length})`} />
       {selectedIds.length > 0 ? (
         <Card style={{ gap: spacing.md }}>
           {selectedIds.map((songId, i) => {
@@ -131,10 +159,16 @@ export default function SelectSongsScreen() {
           })}
         </Card>
       ) : (
-        <AppText tone="secondary">No songs selected yet — pick from the list below.</AppText>
+        <AppText tone="secondary">
+          No {sectionLabel.toLowerCase()} songs selected yet — pick from the list below.
+        </AppText>
       )}
 
-      <Button title="Save Selected Songs" icon="checkmark-outline" onPress={handleSave} />
+      <Button
+        title={`Save ${sectionLabel} Songs`}
+        icon="checkmark-outline"
+        onPress={handleSave}
+      />
 
       {/* Song database */}
       <SectionHeader title="Song Database" />
@@ -148,18 +182,25 @@ export default function SelectSongsScreen() {
       {results.length > 0 ? (
         results.map((song) => {
           const selected = selectedIds.includes(song.id);
+          const inOtherSection = otherSectionIds.has(song.id);
           return (
             <Pressable
               key={song.id}
               accessibilityRole="button"
               accessibilityLabel={
-                selected ? `Remove ${song.title} from selection` : `Add ${song.title} to selection`
+                inOtherSection
+                  ? `${song.title} is already in the ${songSectionLabels[otherSection].toLowerCase()} songs`
+                  : selected
+                    ? `Remove ${song.title} from selection`
+                    : `Add ${song.title} to selection`
               }
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected, disabled: inOtherSection }}
+              disabled={inOtherSection}
               onPress={() => toggle(song.id)}
               style={({ pressed }) => [
                 styles.resultRow,
                 selected && styles.resultSelected,
+                inOtherSection && { opacity: 0.5 },
                 pressed && { opacity: 0.8 },
               ]}
             >
@@ -173,6 +214,11 @@ export default function SelectSongsScreen() {
                 {song.artist ? (
                   <AppText variant="small" tone="secondary">
                     {song.artist}
+                  </AppText>
+                ) : null}
+                {inOtherSection ? (
+                  <AppText variant="small" tone="muted">
+                    Already in the {songSectionLabels[otherSection].toLowerCase()} songs
                   </AppText>
                 ) : null}
               </View>

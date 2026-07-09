@@ -10,10 +10,12 @@ import {
   ChoirSongSelection,
   Event,
   EventOccurrence,
+  AvailabilityStatus,
   RotaAssignment,
   RotaEntry,
   SessionUser,
   Song,
+  SongSection,
   Team,
   TeamMembership,
   UserProfile,
@@ -117,6 +119,14 @@ export function upcomingRotaEntriesForTeam(teamId: string, entries: RotaEntry[])
   return rotaEntriesForTeam(teamId, entries).filter((e) => parseDateKey(e.date) >= today);
 }
 
+/** The team's next upcoming date that is still going ahead (not cancelled). */
+export function nextActiveRotaEntryForTeam(
+  teamId: string,
+  entries: RotaEntry[],
+): RotaEntry | undefined {
+  return upcomingRotaEntriesForTeam(teamId, entries).find((e) => e.status !== 'cancelled');
+}
+
 export function assignmentsForEntry(
   entryId: string,
   assignments: RotaAssignment[],
@@ -129,6 +139,70 @@ export function availabilityForAssignment(
   responses: AvailabilityResponse[],
 ): AvailabilityResponse | undefined {
   return responses.find((r) => r.rota_assignment_id === assignmentId);
+}
+
+/** One row per person for a rota entry, with their role names and status. */
+export interface EntryPersonStatus {
+  userId: string;
+  /** All of this person's assignments on the entry (usually one). */
+  assignments: RotaAssignment[];
+  /** e.g. "Praise Leader & Worship Leader" */
+  roleSummary: string;
+  status: AvailabilityStatus;
+  note: string | null;
+}
+
+/**
+ * Groups an entry's assignments by person (someone can hold two roles, e.g.
+ * Praise Leader and Worship Leader). Status/note come from the person's
+ * first responded assignment.
+ */
+export function peopleForEntry(
+  entryId: string,
+  assignments: RotaAssignment[],
+  responses: AvailabilityResponse[],
+): EntryPersonStatus[] {
+  const grouped = new Map<string, RotaAssignment[]>();
+  for (const a of assignmentsForEntry(entryId, assignments)) {
+    grouped.set(a.user_id, [...(grouped.get(a.user_id) ?? []), a]);
+  }
+  return [...grouped.entries()].map(([userId, personAssignments]) => {
+    const response = personAssignments
+      .map((a) => availabilityForAssignment(a.id, responses))
+      .find((r) => r && r.status !== 'not_responded');
+    return {
+      userId,
+      assignments: personAssignments,
+      roleSummary: personAssignments.map((a) => a.role_name).join(' & '),
+      status: response?.status ?? 'not_responded',
+      note: response?.note ?? null,
+    };
+  });
+}
+
+export interface AvailabilitySummary {
+  available: number;
+  maybe: number;
+  unavailable: number;
+  not_responded: number;
+}
+
+/** Per-person availability counts for an entry (the "who's coming" tracker). */
+export function availabilitySummaryForEntry(
+  entryId: string,
+  assignments: RotaAssignment[],
+  responses: AvailabilityResponse[],
+): AvailabilitySummary {
+  const summary: AvailabilitySummary = {
+    available: 0,
+    maybe: 0,
+    unavailable: 0,
+    not_responded: 0,
+  };
+  for (const person of peopleForEntry(entryId, assignments, responses)) {
+    summary[person.status] += 1;
+  }
+  return summary;
 }
 
 export interface Responsibility {
@@ -146,12 +220,20 @@ export function upcomingResponsibilities(
 ): Responsibility[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const seenEntryIds = new Set<string>();
   return assignments
     .filter((a) => a.user_id === user.profile.id)
     .map((assignment) => {
       const entry = entries.find((e) => e.id === assignment.rota_entry_id);
       const team = entry && teams.find((t) => t.id === entry.team_id);
-      return entry && team && parseDateKey(entry.date) >= today
+      // Cancelled dates are not responsibilities; one entry counts once even
+      // if the user holds two roles on it (e.g. Praise + Worship Leader).
+      return entry &&
+        team &&
+        entry.status !== 'cancelled' &&
+        parseDateKey(entry.date) >= today &&
+        !seenEntryIds.has(entry.id) &&
+        seenEntryIds.add(entry.id)
         ? { entry, assignment, team }
         : null;
     })
@@ -179,6 +261,15 @@ export function selectionsForEntry(
   return selections
     .filter((s) => s.rota_entry_id === entryId)
     .sort((a, b) => a.order_index - b.order_index);
+}
+
+/** A section's selections for a rota date, in section order. */
+export function selectionsForEntrySection(
+  entryId: string,
+  section: SongSection,
+  selections: ChoirSongSelection[],
+): ChoirSongSelection[] {
+  return selectionsForEntry(entryId, selections).filter((s) => s.section === section);
 }
 
 export function songById(songs: Song[], id: string): Song | undefined {

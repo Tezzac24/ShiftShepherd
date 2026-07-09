@@ -70,12 +70,18 @@ Read-only in the current UI (no team-management screens yet), so this is fetch-o
 
 ### 7. Rotas & availability
 
-The most relational slice. Service functions: `listEntriesWithAssignments(teamId)`, `saveEntry(entry, assignments)` (create/update + replace assignments), `deleteEntry`, `respondToAssignment(assignmentId, status, note)` — the last one is an **upsert** onto the `unique(rota_assignment_id)` constraint, with `user_id` set from the current profile and matching the assignment. Replace-assignments should be a single RPC (Postgres function) so it is transactional.
+The most relational slice. Service functions: `listEntriesWithAssignments(teamId)`, `saveEntry(entry, assignments)` (create/update + replace assignments), `deleteEntry`, `cancelEntry(entryId, reason)` / `restoreEntry(entryId)` (updates `status` + `cancelled_*` from migration 005 — allowed by the existing leaders-manage-rota policy), and `respondToAssignment(assignmentId, status, note)` — the last one is an **upsert** onto the `unique(rota_assignment_id)` constraint, with `user_id` set from the current profile and matching the assignment. Replace-assignments should be a single RPC (Postgres function) so it is transactional.
+
+Choir specifics that ride on this slice:
+
+- **Praise/Worship leaders** are plain assignments with role names `'Praise Leader'` / `'Worship Leader'` (legacy `'Song Leader'` still means "leads both"). No schema change needed.
+- **Rehearsal availability**: a rehearsal is a rota entry where every choir member has a `'Choir Member'` assignment; the availability upsert above is the whole tracker. The app's "Plan the Month" flow creates a month of service + rehearsal entries client-side with the same `saveEntry` call in a loop (or one RPC later if it needs to be atomic).
+- **Cancellations** are soft: cancelled entries stay queryable and visible until the date passes. Nothing auto-deletes them.
 
 ### 8. Songs & song selection
 
 - `songs` + `song_links`: fetch with a join (`select *, links:song_links(*)`) — the nested `links` array then matches the `Song` type as-is. Saving a song writes both tables (RPC or two calls; links are small enough to delete-and-reinsert).
-- `choir_rota_song_selections`: `setSongSelections(entryId, songIds)` = delete existing + insert with `order_index` — wrap in an RPC for atomicity. RLS enforces the song-leader/override rule server-side, and the DB rejects songs that do not belong to the rota entry's team; test it deliberately as Hannah (member, should fail), Michael (assigned leader for his date, should succeed), Sarah (team leader override), and a cross-team song id (should fail).
+- `choir_rota_song_selections`: `setSongSelections(entryId, section, songIds)` = delete that **section's** existing rows + insert with per-section `order_index` — wrap in an RPC for atomicity, leaving the other section untouched. RLS (migration 004, `can_manage_song_section()`) enforces the section rule server-side: the Praise Leader may only write `section = 'praise'` rows, the Worship Leader only `'worship'`, a legacy Song Leader / choir team leader / admin both. The DB still rejects songs that do not belong to the rota entry's team. Test deliberately as Hannah (worship leader on her date: praise writes should fail), Michael (praise leader on his date: worship writes should fail), Sarah (team leader override: both succeed), a plain member (all writes fail), and a cross-team song id (fails).
 
 ### 9. Chat
 
@@ -106,9 +112,9 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 | Daniel (admin) | see all 4 teams, all chats, edit anything | — |
 | Miriam (announcement mgr) | church-wide announcement CRUD | create events; see Choir team/chat |
 | Joseph (event mgr) | event CRUD | church-wide announcements |
-| Sarah (choir leader) | rota CRUD, choir announcements, song-selection override | media rota edits, church-wide announcements |
-| Michael (assigned song leader) | select songs **for his date**; song CRUD | select songs for Sarah's date; edit rota entries |
-| Hannah (choir member) | availability on own assignment, song CRUD, choir chat | others' availability; song selections; rota edits |
+| Sarah (choir leader) | rota CRUD incl. cancel/restore, choir announcements, both song sections (override) | media rota edits, church-wide announcements |
+| Michael (praise leader on his date) | praise songs **for his date**; song CRUD | worship songs for his date; songs for Sarah's date; edit/cancel rota entries |
+| Hannah (worship leader on Michael's date; member elsewhere) | worship songs for that date; availability on own assignments; song CRUD; choir chat | praise songs; others' availability; rota edits |
 | Ruth (no teams) | home, calendar, church announcements | any team, any chat, any songs |
 
 ---

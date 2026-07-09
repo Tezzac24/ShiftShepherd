@@ -36,6 +36,7 @@ import {
   RotaAssignment,
   RotaEntry,
   Song,
+  SongSection,
   Team,
   TeamMembership,
   UserProfile,
@@ -65,6 +66,19 @@ export interface NewRotaAssignmentInput {
   user_id: string;
   role_name: string;
 }
+
+/** Fields callers provide when creating a rota entry; status starts 'active'. */
+export type NewRotaEntryInput = Omit<
+  RotaEntry,
+  | 'id'
+  | 'organisation_id'
+  | 'status'
+  | 'cancelled_at'
+  | 'cancelled_by'
+  | 'cancellation_reason'
+  | 'created_at'
+  | 'updated_at'
+>;
 
 /** Everything mutable that is persisted between app launches. */
 interface PersistedAppData {
@@ -139,7 +153,7 @@ interface AppDataContextValue {
 
   // Rotas
   addRotaEntry: (
-    input: Omit<RotaEntry, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>,
+    input: NewRotaEntryInput,
     assignments: NewRotaAssignmentInput[],
   ) => RotaEntry;
   updateRotaEntry: (
@@ -148,6 +162,10 @@ interface AppDataContextValue {
     assignments?: NewRotaAssignmentInput[],
   ) => void;
   deleteRotaEntry: (id: string) => void;
+  /** Marks an entry as cancelled (kept visible) rather than deleting it. */
+  cancelRotaEntry: (id: string, cancelledBy: string, reason: string | null) => void;
+  /** Undoes a cancellation (e.g. after a mis-tap). */
+  restoreRotaEntry: (id: string) => void;
   setAvailability: (
     assignmentId: string,
     userId: string,
@@ -162,8 +180,14 @@ interface AppDataContextValue {
   updateSong: (id: string, patch: Partial<Song>) => void;
   deleteSong: (id: string) => void;
 
-  // Choir song selection (replaces the whole selection for a rota date)
-  setSongSelections: (rotaEntryId: string, songIds: string[], selectedBy: string) => void;
+  // Choir song selection (replaces one section's selection for a rota date;
+  // the other section's songs are left untouched)
+  setSongSelections: (
+    rotaEntryId: string,
+    section: SongSection,
+    songIds: string[],
+    selectedBy: string,
+  ) => void;
 
   // Chat
   sendChatMessage: (teamId: string, senderId: string, body: string) => void;
@@ -341,6 +365,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         ...input,
         id: makeId('rota'),
         organisation_id: ORG_ID,
+        status: 'active',
+        cancelled_at: null,
+        cancelled_by: null,
+        cancellation_reason: null,
         created_at: now(),
         updated_at: now(),
       };
@@ -414,6 +442,43 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setSongSelectionsState((prev) => prev.filter((s) => s.rota_entry_id !== id));
   }, []);
 
+  const cancelRotaEntry: AppDataContextValue['cancelRotaEntry'] = useCallback(
+    (id, cancelledBy, reason) => {
+      setRotaEntries((prev) =>
+        prev.map((e) =>
+          e.id === id
+            ? {
+                ...e,
+                status: 'cancelled',
+                cancelled_at: now(),
+                cancelled_by: cancelledBy,
+                cancellation_reason: reason,
+                updated_at: now(),
+              }
+            : e,
+        ),
+      );
+    },
+    [],
+  );
+
+  const restoreRotaEntry = useCallback((id: string) => {
+    setRotaEntries((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              status: 'active',
+              cancelled_at: null,
+              cancelled_by: null,
+              cancellation_reason: null,
+              updated_at: now(),
+            }
+          : e,
+      ),
+    );
+  }, []);
+
   const setAvailability: AppDataContextValue['setAvailability'] = useCallback(
     (assignmentId, userId, status, note) => {
       setAvailabilityResponses((prev) => {
@@ -471,13 +536,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // --- Choir song selection ----------------------------------------------------
 
   const setSongSelections: AppDataContextValue['setSongSelections'] = useCallback(
-    (rotaEntryId, songIds, selectedBy) => {
+    (rotaEntryId, section, songIds, selectedBy) => {
       setSongSelectionsState((prev) => [
-        ...prev.filter((s) => s.rota_entry_id !== rotaEntryId),
+        ...prev.filter((s) => s.rota_entry_id !== rotaEntryId || s.section !== section),
         ...songIds.map((songId, i) => ({
           id: makeId('sel'),
           rota_entry_id: rotaEntryId,
           song_id: songId,
+          section,
           selected_by: selectedBy,
           order_index: i,
           notes: null,
@@ -551,6 +617,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       addRotaEntry,
       updateRotaEntry,
       deleteRotaEntry,
+      cancelRotaEntry,
+      restoreRotaEntry,
       setAvailability,
       addSong,
       updateSong,
@@ -582,6 +650,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       addRotaEntry,
       updateRotaEntry,
       deleteRotaEntry,
+      cancelRotaEntry,
+      restoreRotaEntry,
       setAvailability,
       addSong,
       updateSong,

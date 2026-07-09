@@ -98,17 +98,29 @@ Choir members need to:
 - Open song details, including lyrics and external music links.
 - Communicate in the choir team chat.
 
-### 4.4 Assigned Choir Song Leaders
+### 4.4 Assigned Choir Song Leaders (Praise Leader and Worship Leader)
 
-The choir member assigned as song leader for a specific rota date needs to:
+A choir service normally has two song leaders, each responsible for one section of the set list:
+
+- **Praise Leader** — manages the Praise Songs (upbeat, opening) for that date.
+- **Worship Leader** — manages the Worship Songs (slower, reflective) for that date.
+
+Sometimes one person leads both sections; they can be assigned both roles (or the legacy single "Song Leader" role, which covers both).
+
+The leader assigned to a section for a specific rota date needs to:
 
 - View the rota date they are leading.
-- Select songs for that rota date.
-- Reorder selected songs, if supported.
-- Add optional notes to selected songs, if supported.
-- Update selected songs before the service or rehearsal.
+- Select the songs for their section on that date.
+- Reorder their section's songs with simple controls.
+- Update their section's songs before the service or rehearsal.
 
-Only the assigned choir song leader for that rota date should be able to select songs, unless a choir team leader overrides the selection.
+Only the assigned leader for a section can change that section's songs — the Praise Leader cannot change Worship Songs and vice versa — unless a choir team leader or church admin overrides.
+
+#### Choir rota workflow notes (implemented)
+
+- **Monthly planning**: choir team leaders/admins use "Plan the Month" to generate all Sunday services (with default Praise/Worship leaders, overridable per date) and an optional weekly rehearsal in one confirmed step. Single-entry creation remains available.
+- **Rehearsal availability**: rehearsal rota entries include every choir member (as "Choir Member" assignments) so each person confirms Available / Maybe / Unavailable; the rota detail shows response counts and who has not responded.
+- **Cancelled rehearsals**: a leader cancels (with confirmation) rather than deletes. The date stays visible marked "Cancelled" until it passes, stops counting as a responsibility, and the leader is offered — never auto-sent — a prefilled team announcement.
 
 ### 4.5 Team Leaders
 

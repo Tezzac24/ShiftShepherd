@@ -15,11 +15,16 @@ import { TextField } from '../../components/TextField';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { assignmentsForEntry, teamMembers } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
-import { canManageTeamRota, SONG_LEADER_ROLE } from '../../lib/permissions';
+import {
+  canManageTeamRota,
+  CHOIR_MEMBER_ROLE,
+  PRAISE_LEADER_ROLE,
+  WORSHIP_LEADER_ROLE,
+} from '../../lib/permissions';
 
 /** Suggested roles per team type. Leaders can also type a custom role. */
 const roleSuggestions: Record<string, string[]> = {
-  choir: [SONG_LEADER_ROLE, 'Backup Vocal', 'Choir Member'],
+  choir: [PRAISE_LEADER_ROLE, WORSHIP_LEADER_ROLE, CHOIR_MEMBER_ROLE, 'Backup Vocal'],
   media: ['Sound', 'Camera', 'Slides', 'Livestream'],
   generic: ['Team Member', 'Front Door', 'Welcome Desk', 'Setup', 'Offering'],
 };
@@ -90,6 +95,24 @@ export default function RotaFormScreen() {
       setError('Each assignment needs both a person and a role.');
       return;
     }
+    // Choir entries have at most one Praise Leader and one Worship Leader
+    // (the same person may hold both roles).
+    for (const leaderRole of [PRAISE_LEADER_ROLE, WORSHIP_LEADER_ROLE]) {
+      if (complete.filter((a) => a.role_name === leaderRole).length > 1) {
+        setError(`Only one person can be the ${leaderRole} for a date.`);
+        return;
+      }
+    }
+    if (
+      complete.some((a, i) =>
+        complete.some(
+          (b, j) => j < i && a.user_id === b.user_id && a.role_name === b.role_name,
+        ),
+      )
+    ) {
+      setError('Someone has been given the same role twice.');
+      return;
+    }
     const record = {
       team_id: team.id,
       title: title.trim(),
@@ -130,7 +153,9 @@ export default function RotaFormScreen() {
         Assignments
       </AppText>
       <AppText variant="small" tone="secondary">
-        Assign people from your team to roles for this date.
+        {team.type === 'choir'
+          ? 'Assign the Praise Leader and Worship Leader for this date (one person can hold both roles). For a rehearsal, add all choir members so everyone can confirm availability.'
+          : 'Assign people from your team to roles for this date.'}
       </AppText>
 
       {assignments.map((a, i) => (
@@ -174,6 +199,28 @@ export default function RotaFormScreen() {
         icon="person-add-outline"
         onPress={() => setAssignments((prev) => [...prev, { user_id: null, role_name: null }])}
       />
+      {team.type === 'choir' ? (
+        <Button
+          title="Add All Choir Members"
+          variant="secondary"
+          icon="people-outline"
+          accessibilityHint="Adds everyone in the choir so they can confirm availability, e.g. for a rehearsal"
+          onPress={() =>
+            setAssignments((prev) => {
+              const assignedIds = new Set(prev.map((a) => a.user_id).filter(Boolean));
+              const missing = members
+                .filter(({ profile }) => !assignedIds.has(profile.id))
+                .map(({ profile }) => ({
+                  user_id: profile.id,
+                  role_name: CHOIR_MEMBER_ROLE,
+                }));
+              // Drop empty placeholder rows once real people are added.
+              const kept = prev.filter((a) => a.user_id || a.role_name);
+              return missing.length > 0 ? [...kept, ...missing] : prev;
+            })
+          }
+        />
+      ) : null}
 
       {error ? (
         <AppText tone="danger" style={styles.error}>

@@ -3,8 +3,14 @@
  * selections. Dates are relative to "today" so rotas are always upcoming.
  *
  * Test setup highlights:
- *  - rota-choir-2 is led by Michael Thompson and has NO selected songs, so
- *    the "assigned song leader selects songs" flow can be tested end-to-end.
+ *  - Choir services have separate Praise and Worship leaders. rota-choir-2 is
+ *    Michael (Praise) + Hannah (Worship) with NO songs selected, so the
+ *    section-level "leader selects their own songs" flow can be tested
+ *    end-to-end from both accounts.
+ *  - rota-choir-1 has Sarah leading BOTH sections (one person, two roles).
+ *  - rota-choir-r1 is a choir rehearsal with every choir member expected
+ *    ('Choir Member' assignments) — the rehearsal availability tracker.
+ *  - rota-choir-r2 is a CANCELLED rehearsal, testing the cancelled UX.
  *  - Availability responses are mixed (available / unavailable / maybe /
  *    not responded) with optional notes on some.
  *
@@ -17,6 +23,7 @@ import {
   ChoirSongSelection,
   RotaAssignment,
   RotaEntry,
+  SongSection,
 } from '../../types';
 import { daysAgo, iso, nextWeekday, toDateKey } from '../../utils/dates';
 import { ORG_ID } from './people';
@@ -37,6 +44,10 @@ const entry = (
   date: toDateKey(date),
   time,
   notes,
+  status: 'active',
+  cancelled_at: null,
+  cancelled_by: null,
+  cancellation_reason: null,
   created_by,
   created_at: iso(daysAgo(10)),
   updated_at: iso(daysAgo(10)),
@@ -74,16 +85,39 @@ const sunday1 = nextWeekday(0);
 const sunday2 = nextWeekday(0, 1);
 const sunday3 = nextWeekday(0, 2); // Thanksgiving service
 const sunday4 = nextWeekday(0, 3);
+const saturday1 = nextWeekday(6); // choir rehearsal
+const saturday2 = nextWeekday(6, 1); // cancelled choir rehearsal
 
 // ---------------------------------------------------------------------------
 // Choir rota
 // ---------------------------------------------------------------------------
+
+const cancelledRehearsal: RotaEntry = {
+  ...entry(
+    'rota-choir-r2',
+    'team-choir',
+    'Choir Rehearsal',
+    saturday2,
+    '17:00',
+    null,
+    'user-sarah',
+  ),
+  status: 'cancelled',
+  cancelled_at: iso(daysAgo(1)),
+  cancelled_by: 'user-sarah',
+  cancellation_reason: 'The main hall is being used for the community fair that evening.',
+};
 
 export const mockRotaEntries: RotaEntry[] = [
   entry('rota-choir-1', 'team-choir', 'Sunday Morning Service', sunday1, '09:15', 'Please arrive by 9:15 for warm-up.', 'user-sarah'),
   entry('rota-choir-2', 'team-choir', 'Sunday Morning Service', sunday2, '09:15', null, 'user-sarah'),
   entry('rota-choir-3', 'team-choir', 'Special Thanksgiving Service', sunday3, '09:00', 'Extra warm-up — two new songs this week.', 'user-sarah'),
   entry('rota-choir-4', 'team-choir', 'Sunday Morning Service', sunday4, '09:15', null, 'user-sarah'),
+
+  // Choir rehearsals — every choir member is expected, so everyone confirms
+  // their availability for the practice session.
+  entry('rota-choir-r1', 'team-choir', 'Choir Rehearsal', saturday1, '17:00', 'Working on the new songs for Thanksgiving.', 'user-sarah'),
+  cancelledRehearsal,
 
   // Media rota
   entry('rota-media-1', 'team-media', 'Sunday Morning Service', sunday1, '09:00', 'Sound check at 9:00 sharp.', 'user-david'),
@@ -97,25 +131,37 @@ export const mockRotaEntries: RotaEntry[] = [
 ];
 
 export const mockRotaAssignments: RotaAssignment[] = [
-  // Choir — Sunday 1 (led by Sarah, songs already selected)
-  assignment('ra-c1-1', 'rota-choir-1', 'user-sarah', 'Song Leader'),
+  // Choir — Sunday 1 (Sarah leads BOTH praise and worship; songs selected)
+  assignment('ra-c1-1', 'rota-choir-1', 'user-sarah', 'Praise Leader'),
+  assignment('ra-c1-1b', 'rota-choir-1', 'user-sarah', 'Worship Leader'),
   assignment('ra-c1-2', 'rota-choir-1', 'user-michael', 'Backup Vocal'),
   assignment('ra-c1-3', 'rota-choir-1', 'user-hannah', 'Choir Member'),
 
-  // Choir — Sunday 2 (led by Michael, NO songs selected — test the flow here)
-  assignment('ra-c2-1', 'rota-choir-2', 'user-michael', 'Song Leader'),
-  assignment('ra-c2-2', 'rota-choir-2', 'user-hannah', 'Backup Vocal'),
+  // Choir — Sunday 2 (Michael: Praise, Hannah: Worship, NO songs selected —
+  // test the section-level selection flow here)
+  assignment('ra-c2-1', 'rota-choir-2', 'user-michael', 'Praise Leader'),
+  assignment('ra-c2-2', 'rota-choir-2', 'user-hannah', 'Worship Leader'),
   assignment('ra-c2-3', 'rota-choir-2', 'user-sarah', 'Choir Member'),
 
-  // Choir — Thanksgiving (led by Sarah)
-  assignment('ra-c3-1', 'rota-choir-3', 'user-sarah', 'Song Leader'),
-  assignment('ra-c3-2', 'rota-choir-3', 'user-hannah', 'Backup Vocal'),
-  assignment('ra-c3-3', 'rota-choir-3', 'user-michael', 'Choir Member'),
+  // Choir — Thanksgiving (Sarah: Praise, Michael: Worship)
+  assignment('ra-c3-1', 'rota-choir-3', 'user-sarah', 'Praise Leader'),
+  assignment('ra-c3-2', 'rota-choir-3', 'user-michael', 'Worship Leader'),
+  assignment('ra-c3-3', 'rota-choir-3', 'user-hannah', 'Backup Vocal'),
 
-  // Choir — Sunday 4 (led by Hannah)
-  assignment('ra-c4-1', 'rota-choir-4', 'user-hannah', 'Song Leader'),
-  assignment('ra-c4-2', 'rota-choir-4', 'user-michael', 'Backup Vocal'),
-  assignment('ra-c4-3', 'rota-choir-4', 'user-sarah', 'Choir Member'),
+  // Choir — Sunday 4 (Hannah: Praise, Sarah: Worship)
+  assignment('ra-c4-1', 'rota-choir-4', 'user-hannah', 'Praise Leader'),
+  assignment('ra-c4-2', 'rota-choir-4', 'user-sarah', 'Worship Leader'),
+  assignment('ra-c4-3', 'rota-choir-4', 'user-michael', 'Choir Member'),
+
+  // Choir rehearsal — everyone expected
+  assignment('ra-cr1-1', 'rota-choir-r1', 'user-sarah', 'Choir Member'),
+  assignment('ra-cr1-2', 'rota-choir-r1', 'user-hannah', 'Choir Member'),
+  assignment('ra-cr1-3', 'rota-choir-r1', 'user-michael', 'Choir Member'),
+
+  // Cancelled rehearsal — assignments kept for history
+  assignment('ra-cr2-1', 'rota-choir-r2', 'user-sarah', 'Choir Member'),
+  assignment('ra-cr2-2', 'rota-choir-r2', 'user-hannah', 'Choir Member'),
+  assignment('ra-cr2-3', 'rota-choir-r2', 'user-michael', 'Choir Member'),
 
   // Media
   assignment('ra-m1-1', 'rota-media-1', 'user-david', 'Sound'),
@@ -148,7 +194,10 @@ export const mockAvailabilityResponses: AvailabilityResponse[] = [
   response('av-4', 'ra-c2-1', 'user-michael', 'available'),
   // ra-c2-2 (Hannah) and ra-c2-3 (Sarah) — not responded yet
   response('av-5', 'ra-c3-1', 'user-sarah', 'available'),
-  response('av-6', 'ra-c4-3', 'user-sarah', 'unavailable', 'Away that weekend.'),
+  response('av-6', 'ra-c4-2', 'user-sarah', 'unavailable', 'Away that weekend.'),
+  // Rehearsal tracker: mixed responses, Michael not responded yet
+  response('av-r1', 'ra-cr1-1', 'user-sarah', 'available'),
+  response('av-r2', 'ra-cr1-2', 'user-hannah', 'maybe', 'Depends on my shift ending on time.'),
   response('av-7', 'ra-m1-1', 'user-david', 'available'),
   response('av-8', 'ra-m1-2', 'user-joseph', 'maybe', 'Can serve but need to leave early.'),
   // ra-m1-3 (Michael) — not responded
@@ -157,22 +206,34 @@ export const mockAvailabilityResponses: AvailabilityResponse[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Choir song selections (rota-choir-2 deliberately has none)
+// Choir song selections, split into praise and worship sections
+// (rota-choir-2 deliberately has none)
 // ---------------------------------------------------------------------------
 
 const selection = (
   id: string,
   rota_entry_id: string,
   song_id: string,
+  section: SongSection,
   selected_by: string,
   order_index: number,
-): ChoirSongSelection => ({ id, rota_entry_id, song_id, selected_by, order_index, notes: null });
+): ChoirSongSelection => ({
+  id,
+  rota_entry_id,
+  song_id,
+  section,
+  selected_by,
+  order_index,
+  notes: null,
+});
 
 export const mockSongSelections: ChoirSongSelection[] = [
-  selection('sel-1', 'rota-choir-1', 'song-this-is-amazing-grace', 'user-sarah', 0),
-  selection('sel-2', 'rota-choir-1', 'song-way-maker', 'user-sarah', 1),
-  selection('sel-3', 'rota-choir-1', 'song-it-is-well', 'user-sarah', 2),
-  selection('sel-4', 'rota-choir-3', 'song-give-thanks', 'user-sarah', 0),
-  selection('sel-5', 'rota-choir-3', 'song-great-is-thy-faithfulness', 'user-sarah', 1),
-  selection('sel-6', 'rota-choir-3', 'song-total-praise', 'user-sarah', 2),
+  // Sunday 1 — praise opens upbeat, worship slows down
+  selection('sel-1', 'rota-choir-1', 'song-this-is-amazing-grace', 'praise', 'user-sarah', 0),
+  selection('sel-2', 'rota-choir-1', 'song-way-maker', 'worship', 'user-sarah', 0),
+  selection('sel-3', 'rota-choir-1', 'song-it-is-well', 'worship', 'user-sarah', 1),
+  // Thanksgiving — Sarah picked praise, Michael picked worship
+  selection('sel-4', 'rota-choir-3', 'song-give-thanks', 'praise', 'user-sarah', 0),
+  selection('sel-5', 'rota-choir-3', 'song-total-praise', 'praise', 'user-sarah', 1),
+  selection('sel-6', 'rota-choir-3', 'song-great-is-thy-faithfulness', 'worship', 'user-michael', 0),
 ];

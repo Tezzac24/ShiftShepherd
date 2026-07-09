@@ -3,8 +3,9 @@
 --
 -- A faithful port of src/lib/mockData/ into SQL: Grace Community Church,
 -- 8 users, 4 teams, 12 categories, 6 base events (3 recurring), 5 announcements, 10 songs,
--- 10 rota entries with assignments + mixed availability, song selections
--- (rota-choir-2 deliberately has none), chat messages, and default
+-- 12 rota entries (incl. two choir rehearsals, one of them cancelled) with
+-- Praise/Worship leader assignments + mixed availability, sectioned song
+-- selections (rota-choir-2 deliberately has none), chat messages, and default
 -- notification preferences.
 --
 -- Dates are computed relative to seed time (like the mock data generator),
@@ -42,7 +43,7 @@ $$;
 -- Fixed UUID scheme (readable, stable across re-seeds):
 --   a0…01  organisation          10…01-08  profiles       30…01-04  teams
 --   50…01-12  event categories   60…01-06  events         70…01-05  announcements
---   80…01-10  songs              90…01-10  rota entries   91…01-28  assignments
+--   80…01-10  songs              90…01-12  rota entries   91…01-35  assignments
 -- Everything else uses gen_random_uuid().
 -- ----------------------------------------------------------------------------
 
@@ -370,7 +371,8 @@ insert into public.song_links (song_id, platform, url) values
   ('80000000-0000-4000-a000-000000000010', 'Spotify',     'https://open.spotify.com/search/give%20thanks%20don%20moen');
 
 -- Rota entries ----------------------------------------------------------------------------
--- Choir 01-04, Media 05-08, Ushers 09-10.
+-- Choir services 01-04, Media 05-08, Ushers 09-10, Choir rehearsals 11-12
+-- (12 is cancelled — kept visible instead of deleted).
 
 insert into public.rota_entries
   (id, organisation_id, team_id, title, date, time, notes, created_by)
@@ -398,26 +400,52 @@ values
   ('90000000-0000-4000-a000-000000000010', 'a0000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000003',
    'Special Thanksgiving Service', pg_temp.next_weekday(0, 2), '09:00', 'Expecting extra visitors — warm welcome please!', '10000000-0000-4000-a000-000000000002');
 
+-- Choir rehearsals: 11 is active, 12 is cancelled (marked, not deleted).
+insert into public.rota_entries
+  (id, organisation_id, team_id, title, date, time, notes, created_by)
+values
+  ('90000000-0000-4000-a000-000000000011', 'a0000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000001',
+   'Choir Rehearsal', pg_temp.next_weekday(6), '17:00', 'Working on the new songs for Thanksgiving.', '10000000-0000-4000-a000-000000000004');
+
+insert into public.rota_entries
+  (id, organisation_id, team_id, title, date, time, notes, created_by,
+   status, cancelled_at, cancelled_by, cancellation_reason)
+values
+  ('90000000-0000-4000-a000-000000000012', 'a0000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000001',
+   'Choir Rehearsal', pg_temp.next_weekday(6, 1), '17:00', null, '10000000-0000-4000-a000-000000000004',
+   'cancelled', now() - interval '1 day', '10000000-0000-4000-a000-000000000004',
+   'The main hall is being used for the community fair that evening.');
+
 -- Rota assignments ---------------------------------------------------------------------------
--- 'Song Leader' is the role name the app and RLS treat as significant.
+-- 'Praise Leader' / 'Worship Leader' (and legacy 'Song Leader') are the role
+-- names the app and RLS treat as significant for song selection.
 
 insert into public.rota_assignments (id, rota_entry_id, user_id, role_name) values
-  -- Choir Sunday 1 — led by Sarah, songs selected
-  ('91000000-0000-4000-a000-000000000001', '90000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000004', 'Song Leader'),
+  -- Choir Sunday 1 — Sarah leads BOTH sections; songs selected
+  ('91000000-0000-4000-a000-000000000001', '90000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000004', 'Praise Leader'),
+  ('91000000-0000-4000-a000-000000000029', '90000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000004', 'Worship Leader'),
   ('91000000-0000-4000-a000-000000000002', '90000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000006', 'Backup Vocal'),
   ('91000000-0000-4000-a000-000000000003', '90000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000005', 'Choir Member'),
-  -- Choir Sunday 2 — led by Michael, NO songs selected (tests the flow)
-  ('91000000-0000-4000-a000-000000000004', '90000000-0000-4000-a000-000000000002', '10000000-0000-4000-a000-000000000006', 'Song Leader'),
-  ('91000000-0000-4000-a000-000000000005', '90000000-0000-4000-a000-000000000002', '10000000-0000-4000-a000-000000000005', 'Backup Vocal'),
+  -- Choir Sunday 2 — Michael: Praise, Hannah: Worship, NO songs selected (tests the flow)
+  ('91000000-0000-4000-a000-000000000004', '90000000-0000-4000-a000-000000000002', '10000000-0000-4000-a000-000000000006', 'Praise Leader'),
+  ('91000000-0000-4000-a000-000000000005', '90000000-0000-4000-a000-000000000002', '10000000-0000-4000-a000-000000000005', 'Worship Leader'),
   ('91000000-0000-4000-a000-000000000006', '90000000-0000-4000-a000-000000000002', '10000000-0000-4000-a000-000000000004', 'Choir Member'),
-  -- Choir Thanksgiving — led by Sarah
-  ('91000000-0000-4000-a000-000000000007', '90000000-0000-4000-a000-000000000003', '10000000-0000-4000-a000-000000000004', 'Song Leader'),
+  -- Choir Thanksgiving — Sarah: Praise, Michael: Worship
+  ('91000000-0000-4000-a000-000000000007', '90000000-0000-4000-a000-000000000003', '10000000-0000-4000-a000-000000000004', 'Praise Leader'),
   ('91000000-0000-4000-a000-000000000008', '90000000-0000-4000-a000-000000000003', '10000000-0000-4000-a000-000000000005', 'Backup Vocal'),
-  ('91000000-0000-4000-a000-000000000009', '90000000-0000-4000-a000-000000000003', '10000000-0000-4000-a000-000000000006', 'Choir Member'),
-  -- Choir Sunday 4 — led by Hannah
-  ('91000000-0000-4000-a000-000000000010', '90000000-0000-4000-a000-000000000004', '10000000-0000-4000-a000-000000000005', 'Song Leader'),
-  ('91000000-0000-4000-a000-000000000011', '90000000-0000-4000-a000-000000000004', '10000000-0000-4000-a000-000000000006', 'Backup Vocal'),
-  ('91000000-0000-4000-a000-000000000012', '90000000-0000-4000-a000-000000000004', '10000000-0000-4000-a000-000000000004', 'Choir Member'),
+  ('91000000-0000-4000-a000-000000000009', '90000000-0000-4000-a000-000000000003', '10000000-0000-4000-a000-000000000006', 'Worship Leader'),
+  -- Choir Sunday 4 — Hannah: Praise, Sarah: Worship
+  ('91000000-0000-4000-a000-000000000010', '90000000-0000-4000-a000-000000000004', '10000000-0000-4000-a000-000000000005', 'Praise Leader'),
+  ('91000000-0000-4000-a000-000000000011', '90000000-0000-4000-a000-000000000004', '10000000-0000-4000-a000-000000000006', 'Choir Member'),
+  ('91000000-0000-4000-a000-000000000012', '90000000-0000-4000-a000-000000000004', '10000000-0000-4000-a000-000000000004', 'Worship Leader'),
+  -- Choir rehearsal (11) — every choir member expected, so all can confirm availability
+  ('91000000-0000-4000-a000-000000000030', '90000000-0000-4000-a000-000000000011', '10000000-0000-4000-a000-000000000004', 'Choir Member'),
+  ('91000000-0000-4000-a000-000000000031', '90000000-0000-4000-a000-000000000011', '10000000-0000-4000-a000-000000000005', 'Choir Member'),
+  ('91000000-0000-4000-a000-000000000032', '90000000-0000-4000-a000-000000000011', '10000000-0000-4000-a000-000000000006', 'Choir Member'),
+  -- Cancelled rehearsal (12) — assignments kept for history
+  ('91000000-0000-4000-a000-000000000033', '90000000-0000-4000-a000-000000000012', '10000000-0000-4000-a000-000000000004', 'Choir Member'),
+  ('91000000-0000-4000-a000-000000000034', '90000000-0000-4000-a000-000000000012', '10000000-0000-4000-a000-000000000005', 'Choir Member'),
+  ('91000000-0000-4000-a000-000000000035', '90000000-0000-4000-a000-000000000012', '10000000-0000-4000-a000-000000000006', 'Choir Member'),
   -- Media
   ('91000000-0000-4000-a000-000000000013', '90000000-0000-4000-a000-000000000005', '10000000-0000-4000-a000-000000000007', 'Sound'),
   ('91000000-0000-4000-a000-000000000014', '90000000-0000-4000-a000-000000000005', '10000000-0000-4000-a000-000000000003', 'Camera'),
@@ -449,17 +477,23 @@ insert into public.availability_responses (rota_assignment_id, user_id, status, 
   ('91000000-0000-4000-a000-000000000013', '10000000-0000-4000-a000-000000000007', 'available',   null),
   ('91000000-0000-4000-a000-000000000014', '10000000-0000-4000-a000-000000000003', 'maybe',       'Can serve but need to leave early.'),
   ('91000000-0000-4000-a000-000000000017', '10000000-0000-4000-a000-000000000006', 'available',   null),
-  ('91000000-0000-4000-a000-000000000025', '10000000-0000-4000-a000-000000000001', 'available',   null);
+  ('91000000-0000-4000-a000-000000000025', '10000000-0000-4000-a000-000000000001', 'available',   null),
+  -- Rehearsal tracker: Sarah available, Hannah maybe, Michael not responded
+  ('91000000-0000-4000-a000-000000000030', '10000000-0000-4000-a000-000000000004', 'available',   null),
+  ('91000000-0000-4000-a000-000000000031', '10000000-0000-4000-a000-000000000005', 'maybe',       'Depends on my shift ending on time.');
 
--- Choir song selections (rota-choir-2 deliberately has none) ------------------------------------
+-- Choir song selections, split into praise/worship sections -------------------------------------
+-- (rota-choir-2 deliberately has none; order_index restarts per section)
 
-insert into public.choir_rota_song_selections (rota_entry_id, song_id, selected_by, order_index) values
-  ('90000000-0000-4000-a000-000000000001', '80000000-0000-4000-a000-000000000008', '10000000-0000-4000-a000-000000000004', 0),
-  ('90000000-0000-4000-a000-000000000001', '80000000-0000-4000-a000-000000000005', '10000000-0000-4000-a000-000000000004', 1),
-  ('90000000-0000-4000-a000-000000000001', '80000000-0000-4000-a000-000000000004', '10000000-0000-4000-a000-000000000004', 2),
-  ('90000000-0000-4000-a000-000000000003', '80000000-0000-4000-a000-000000000010', '10000000-0000-4000-a000-000000000004', 0),
-  ('90000000-0000-4000-a000-000000000003', '80000000-0000-4000-a000-000000000002', '10000000-0000-4000-a000-000000000004', 1),
-  ('90000000-0000-4000-a000-000000000003', '80000000-0000-4000-a000-000000000009', '10000000-0000-4000-a000-000000000004', 2);
+insert into public.choir_rota_song_selections (rota_entry_id, song_id, section, selected_by, order_index) values
+  -- Sunday 1 — praise opens upbeat, worship slows down (Sarah picked both)
+  ('90000000-0000-4000-a000-000000000001', '80000000-0000-4000-a000-000000000008', 'praise',  '10000000-0000-4000-a000-000000000004', 0),
+  ('90000000-0000-4000-a000-000000000001', '80000000-0000-4000-a000-000000000005', 'worship', '10000000-0000-4000-a000-000000000004', 0),
+  ('90000000-0000-4000-a000-000000000001', '80000000-0000-4000-a000-000000000004', 'worship', '10000000-0000-4000-a000-000000000004', 1),
+  -- Thanksgiving — Sarah picked praise, Michael picked worship
+  ('90000000-0000-4000-a000-000000000003', '80000000-0000-4000-a000-000000000010', 'praise',  '10000000-0000-4000-a000-000000000004', 0),
+  ('90000000-0000-4000-a000-000000000003', '80000000-0000-4000-a000-000000000009', 'praise',  '10000000-0000-4000-a000-000000000004', 1),
+  ('90000000-0000-4000-a000-000000000003', '80000000-0000-4000-a000-000000000002', 'worship', '10000000-0000-4000-a000-000000000006', 0);
 
 -- Chat messages -----------------------------------------------------------------------------------
 

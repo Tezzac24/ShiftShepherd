@@ -9,7 +9,11 @@ A mobile-first church coordination app for **Grace Community Church** — events
 - Home prioritises latest announcement, next upcoming event, then the user's next team responsibility.
 - Event create/edit uses an inline calendar date picker, a simple readable time list, and recurrence choices including monthly weekday patterns.
 - Recurring events are stored as base mock rows and expanded locally for upcoming Home and Calendar lists.
-- Supabase planning includes `003_add_event_recurrence.sql`; only auth + profile lookup are wired to live Supabase, and feature data stays mocked/local.
+- Choir rota entries assign a **Praise Leader** and a **Worship Leader** (one person may hold both roles); the set list splits into Praise Songs and Worship Songs, each managed only by its leader (choir team leader/admin can manage both).
+- **Plan the Month** lets choir leaders create a whole month of Sunday services and weekly rehearsals at once, with default leaders and per-date overrides.
+- Choir rehearsals include every choir member so each can confirm availability; rota detail shows an Available / Maybe / Unavailable / Not responded tracker.
+- Rehearsals (or services) can be **cancelled** instead of deleted: they stay visible with a Cancelled badge, drop out of responsibilities, and offer a prefilled team announcement (never auto-sent).
+- Supabase planning includes migrations `003`–`005` (recurrence, song sections + section RLS, rota cancellation); only **auth + profile lookup** are wired to live Supabase — feature data stays mocked.
 - Demo changes (announcements, rotas, songs, messages, notification settings...) persist locally via AsyncStorage and can be reset from **Profile -> Reset Demo Data**.
 
 ## Tech Stack
@@ -70,9 +74,9 @@ The login screen has a **test account selector**. Pick any account to explore th
 | Daniel Okafor | Church Admin | Sees every team, all admin actions |
 | Miriam Blake | Announcement Manager | Creating church-wide announcements; leads Ushers |
 | Joseph Carter | Event Manager | Creating/editing calendar events; leads Youth Team |
-| Sarah Williams | Choir Team Leader | Managing choir rota, overriding song selections |
-| Hannah Adeyemi | Choir Member | Song database add/edit/delete, availability |
-| Michael Thompson | Assigned Choir Song Leader | **Selecting songs** for the rota date he leads |
+| Sarah Williams | Choir Team Leader | Managing choir rota, Plan the Month, overriding both song sections |
+| Hannah Adeyemi | Choir Member / Worship Leader | Rehearsal availability; **worship songs** for the date she leads |
+| Michael Thompson | Assigned Praise Leader | **Praise songs** for the rota date he leads (not worship) |
 | David Chen | Media Team Leader | Managing the media rota |
 | Ruth Johnson | General Member | Empty states (no teams, no responsibilities) |
 

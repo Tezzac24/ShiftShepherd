@@ -16,10 +16,10 @@ import { useAppData } from '../../lib/appData/AppDataContext';
 import {
   assignmentsForEntry,
   availabilityForAssignment,
+  nextActiveRotaEntryForTeam,
   selectionsForEntry,
   teamAnnouncements,
   teamMembers,
-  upcomingRotaEntriesForTeam,
   userName,
 } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
@@ -60,8 +60,7 @@ export default function TeamSpaceScreen() {
 
   const isChoir = team.type === 'choir';
   const isLeader = canManageTeamRota(user, team.id);
-  const nextEntries = upcomingRotaEntriesForTeam(team.id, data.rotaEntries);
-  const nextEntry = nextEntries[0];
+  const nextEntry = nextActiveRotaEntryForTeam(team.id, data.rotaEntries);
   const announcements = teamAnnouncements(team.id, data.announcements).slice(0, 2);
   const members = teamMembers(team.id, data.memberships, data.users);
   const unread = data.unreadByTeam[team.id] ?? 0;
@@ -204,6 +203,19 @@ export default function TeamSpaceScreen() {
                 router.push({ pathname: '/teams/[teamId]/rota/edit', params: { teamId: team.id } })
               }
             />
+            {isChoir ? (
+              <Button
+                title="Plan the Month Ahead"
+                variant="secondary"
+                icon="calendar-number-outline"
+                onPress={() =>
+                  router.push({
+                    pathname: '/teams/[teamId]/rota/plan-month',
+                    params: { teamId: team.id },
+                  })
+                }
+              />
+            ) : null}
             {canCreateTeamAnnouncements(user, team.id) ? (
               <Button
                 title="New Team Announcement"
