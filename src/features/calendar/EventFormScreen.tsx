@@ -11,6 +11,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
 import { SelectField } from '../../components/SelectField';
 import { TextField } from '../../components/TextField';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canManageEvents } from '../../lib/permissions';
@@ -37,6 +38,7 @@ export default function EventFormScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const user = useRequiredUser();
   const data = useAppData();
+  const showToast = useToast();
 
   const existing = id ? data.events.find((e) => e.id === id) : undefined;
   const editing = !!existing;
@@ -95,6 +97,27 @@ export default function EventFormScreen() {
     return iso(d);
   };
 
+  /**
+   * Validates the combined start/end date-times (local device time).
+   * The calendar already blocks past DATES, but today + an earlier TIME used
+   * to slip through and create an event that was already over. Editing may
+   * keep an unchanged (possibly past) start — e.g. fixing a typo on an event
+   * that has started — but may not move the start into the past.
+   */
+  const timeValidationError = (): string | null => {
+    if (!dateKey || !startTime || !endTime) return null;
+    const start = new Date(buildTime(dateKey, startTime));
+    const end = new Date(buildTime(dateKey, endTime));
+    if (end.getTime() <= start.getTime()) return 'End time must be after start time.';
+    const startChanged =
+      !existing || start.getTime() !== new Date(existing.start_time).getTime();
+    if (startChanged && start.getTime() < Date.now()) {
+      return 'Choose a start time that has not already passed.';
+    }
+    return null;
+  };
+  const timeError = timeValidationError();
+
   const updateRepeatType = (repeatType: RepeatType) => {
     setRecurrence((current) => ({
       ...current,
@@ -109,6 +132,12 @@ export default function EventFormScreen() {
     if (saving) return; // no duplicate submissions
     if (!title.trim() || !categoryId || !dateKey || !startTime || !endTime || !location.trim()) {
       setError('Please fill in the title, category, date, times, and location.');
+      return;
+    }
+    // Re-validate at save time (the inline check's "now" may have gone stale).
+    const timeProblem = timeValidationError();
+    if (timeProblem) {
+      setError(timeProblem);
       return;
     }
     const startTimeIso = buildTime(dateKey, startTime);
@@ -138,6 +167,7 @@ export default function EventFormScreen() {
       } else {
         await data.addEvent(record);
       }
+      showToast(editing ? 'Event updated.' : 'Event created.');
       router.back();
     } catch (saveError) {
       setError(
@@ -167,6 +197,11 @@ export default function EventFormScreen() {
       <DateField label="Date" value={dateKey} onChange={setDateKey} />
       <TimeField label="Start time" value={startTime} onChange={(t) => setStartTime(t)} />
       <TimeField label="End time" value={endTime} onChange={(t) => setEndTime(t)} />
+      {timeError ? (
+        <AppText tone="danger" accessibilityLiveRegion="polite">
+          {timeError}
+        </AppText>
+      ) : null}
       <Card style={styles.repeatsCard}>
         <View style={styles.switchRow}>
           <View style={{ flex: 1 }}>

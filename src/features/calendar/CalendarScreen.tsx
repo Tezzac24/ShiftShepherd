@@ -1,15 +1,16 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
+import { colors, spacing, touchTarget } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
 import { EventCard } from '../../components/EventCard';
 import { Screen } from '../../components/Screen';
 import { useAppData } from '../../lib/appData/AppDataContext';
-import { upcomingEvents } from '../../lib/appData/selectors';
+import { pastEvents, upcomingEvents } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canManageEvents } from '../../lib/permissions';
 
@@ -19,6 +20,10 @@ export default function CalendarScreen() {
   const data = useAppData();
 
   const events = upcomingEvents(data.events);
+  // Finished events stay available for reference, tucked away below the
+  // upcoming list and collapsed by default.
+  const past = pastEvents(data.events);
+  const [showPast, setShowPast] = useState(false);
   // Live mode only: a first load shows a spinner instead of pretending the
   // list is empty; a failed load offers a retry instead of stale content.
   const loadingFirstTime = data.eventsLoading && events.length === 0;
@@ -79,6 +84,43 @@ export default function CalendarScreen() {
           message="There are no upcoming events right now."
         />
       )}
+
+      {past.length > 0 ? (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Past events, ${past.length}`}
+            accessibilityHint={showPast ? 'Hides past events' : 'Shows past events'}
+            accessibilityState={{ expanded: showPast }}
+            onPress={() => setShowPast((current) => !current)}
+            style={({ pressed }) => [styles.pastToggle, pressed && styles.pressed]}
+          >
+            <AppText variant="label" tone="secondary">
+              Past events ({past.length})
+            </AppText>
+            <Ionicons
+              name={showPast ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color={colors.textMuted}
+            />
+          </Pressable>
+          {showPast
+            ? past.map((event) => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  category={data.categories.find((c) => c.id === event.category_id)}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/events/[id]',
+                      params: { id: event.id, occurrenceStart: event.start_time },
+                    })
+                  }
+                />
+              ))
+            : null}
+        </>
+      ) : null}
     </Screen>
   );
 }
@@ -93,4 +135,16 @@ const styles = StyleSheet.create({
   loadingBox: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
   errorBox: { gap: spacing.sm },
   errorText: { textAlign: 'center' },
+  pastToggle: {
+    minHeight: touchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  pressed: { opacity: 0.7 },
 });

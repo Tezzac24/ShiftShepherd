@@ -11,6 +11,7 @@ import { Card } from '../../components/Card';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
@@ -23,6 +24,7 @@ export default function AnnouncementDetailScreen() {
   const user = useRequiredUser();
   const data = useAppData();
   const confirm = useConfirm();
+  const showToast = useToast();
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -59,6 +61,7 @@ export default function AnnouncementDetailScreen() {
     setDeleting(true);
     try {
       await data.deleteAnnouncement(announcement.id);
+      showToast('Announcement deleted.');
       router.back();
     } catch (error) {
       setDeleteError(
@@ -71,7 +74,7 @@ export default function AnnouncementDetailScreen() {
   };
 
   return (
-    <Screen>
+    <Screen contentStyle={styles.contentGrow}>
       <Stack.Screen options={{ title: 'Announcement' }} />
       <Card>
         <View style={styles.badges}>
@@ -165,6 +168,9 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   linkedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  actions: { gap: spacing.sm, marginTop: spacing.sm },
+  // Grows so the actions can anchor to the lower part of short screens;
+  // on long content they simply follow the content.
+  contentGrow: { flexGrow: 1 },
+  actions: { gap: spacing.sm, marginTop: 'auto', paddingTop: spacing.md },
   deleteError: { textAlign: 'center' },
 });

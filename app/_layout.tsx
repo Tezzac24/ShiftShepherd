@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { colors, spacing } from '@/constants/theme';
 import { AppText } from '@/src/components/AppText';
 import { ConfirmProvider } from '@/src/components/ConfirmDialog';
+import { ToastProvider } from '@/src/components/Toast';
 import { AppDataProvider, useAppData } from '@/src/lib/appData/AppDataContext';
 import { AuthProvider, useAuth } from '@/src/lib/auth/AuthContext';
 
@@ -77,8 +78,10 @@ export default function RootLayout() {
     <AuthProvider>
       <AppDataProvider>
         <ConfirmProvider>
-          <RootStack />
-          <StatusBar style="dark" />
+          <ToastProvider>
+            <RootStack />
+            <StatusBar style="dark" />
+          </ToastProvider>
         </ConfirmProvider>
       </AppDataProvider>
     </AuthProvider>

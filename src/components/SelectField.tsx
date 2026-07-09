@@ -1,6 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import {
+  Animated,
+  FlatList,
+  Modal,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import { colors, radius, spacing, touchTarget } from '../../constants/theme';
 import { AppText } from './AppText';
@@ -20,8 +28,9 @@ interface SelectFieldProps<T extends string> {
 }
 
 /**
- * A simple, obvious picker: a big field that opens a full-screen modal list.
- * No hidden gestures — friendly for less technical users.
+ * A simple, obvious picker: a big field that opens a bottom-sheet list.
+ * Friendly for less technical users: closes via the X, choosing an option,
+ * tapping outside the panel, or the familiar swipe-down on its header.
  */
 export function SelectField<T extends string>({
   label,
@@ -32,6 +41,33 @@ export function SelectField<T extends string>({
 }: SelectFieldProps<T>) {
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
+  // How far the sheet has been dragged down (reset whenever it reopens).
+  const sheetShift = useRef(new Animated.Value(0)).current;
+
+  const close = () => {
+    setOpen(false);
+    sheetShift.setValue(0);
+  };
+
+  // Swipe-down lives on the sheet HEADER only, so the option list underneath
+  // keeps scrolling normally. Taps (the X) still work — the gesture only
+  // claims the touch once it clearly moves downwards.
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_event, gesture) =>
+        gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      onPanResponderMove: (_event, gesture) => {
+        if (gesture.dy > 0) sheetShift.setValue(gesture.dy);
+      },
+      onPanResponderRelease: (_event, gesture) => {
+        if (gesture.dy > 90 || gesture.vy > 0.8) {
+          close();
+        } else {
+          Animated.spring(sheetShift, { toValue: 0, useNativeDriver: true }).start();
+        }
+      },
+    }),
+  ).current;
 
   return (
     <View style={styles.wrap}>
@@ -48,19 +84,30 @@ export function SelectField<T extends string>({
         <Ionicons name="chevron-down" size={22} color={colors.textMuted} />
       </Pressable>
 
-      <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
+      <Modal visible={open} animationType="slide" transparent onRequestClose={close}>
         <View style={styles.overlay}>
-          <View style={styles.sheet}>
-            <View style={styles.sheetHeader}>
-              <AppText variant="subheading">{label}</AppText>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close"
-                onPress={() => setOpen(false)}
-                hitSlop={12}
-              >
-                <Ionicons name="close" size={26} color={colors.textSecondary} />
-              </Pressable>
+          {/* Tapping anywhere outside the panel closes it. The sheet renders
+              on top, so taps inside it never reach this backdrop. */}
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            accessibilityRole="button"
+            accessibilityLabel="Close without choosing"
+            onPress={close}
+          />
+          <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetShift }] }]}>
+            <View {...panResponder.panHandlers}>
+              <View style={styles.dragHandle} />
+              <View style={styles.sheetHeader}>
+                <AppText variant="subheading">{label}</AppText>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  onPress={close}
+                  hitSlop={12}
+                >
+                  <Ionicons name="close" size={26} color={colors.textSecondary} />
+                </Pressable>
+              </View>
             </View>
             <FlatList
               data={options}
@@ -91,7 +138,7 @@ export function SelectField<T extends string>({
                 </Pressable>
               )}
             />
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </View>
@@ -123,11 +170,20 @@ const styles = StyleSheet.create({
     maxHeight: '75%',
     paddingBottom: spacing.xl,
   },
+  dragHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.borderStrong,
+    marginTop: spacing.sm,
+  },
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: spacing.lg,
+    paddingTop: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },

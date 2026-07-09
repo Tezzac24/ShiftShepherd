@@ -69,6 +69,42 @@ export function nextEvent(events: Event[]): EventOccurrence | undefined {
   return upcomingEvents(events)[0];
 }
 
+/** When the event finished — for a recurring series, the end of its last day. */
+function eventEndedAt(event: Event): number {
+  if (event.is_recurring && event.recurrence_end_date) {
+    const seriesEnd = parseDateKey(event.recurrence_end_date);
+    seriesEnd.setHours(23, 59, 59, 999);
+    return seriesEnd.getTime();
+  }
+  return new Date(event.end_time).getTime();
+}
+
+/**
+ * True when the event has already finished. A recurring series only counts
+ * as past once its end date has passed; an open-ended series never does.
+ */
+export function isPastEvent(event: Event, now = new Date()): boolean {
+  if (event.is_recurring && !event.recurrence_end_date) return false;
+  return eventEndedAt(event) < now.getTime();
+}
+
+/**
+ * Base event rows that haven't finished yet — for choices like the
+ * announcement linked-event picker (past events shouldn't be offered).
+ */
+export function currentAndUpcomingEvents(events: Event[]): Event[] {
+  const now = new Date();
+  return events.filter((e) => !isPastEvent(e, now));
+}
+
+/** Finished events for the calendar's "Past events" section, newest first. */
+export function pastEvents(events: Event[]): Event[] {
+  const now = new Date();
+  return events
+    .filter((e) => isPastEvent(e, now))
+    .sort((a, b) => eventEndedAt(b) - eventEndedAt(a));
+}
+
 // ---------------------------------------------------------------------------
 // Announcements
 // ---------------------------------------------------------------------------

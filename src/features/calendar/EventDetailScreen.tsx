@@ -11,12 +11,13 @@ import { Card } from '../../components/Card';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canManageEvents } from '../../lib/permissions';
 import { formatFullDate, formatTime } from '../../utils/dates';
-import { recurrenceLabelForEvent } from '../../utils/recurrence';
+import { nextOccurrenceForEvent, recurrenceLabelForEvent } from '../../utils/recurrence';
 
 export default function EventDetailScreen() {
   const router = useRouter();
@@ -24,6 +25,7 @@ export default function EventDetailScreen() {
   const user = useRequiredUser();
   const data = useAppData();
   const confirm = useConfirm();
+  const showToast = useToast();
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -53,11 +55,23 @@ export default function EventDetailScreen() {
   const category = data.categories.find((c) => c.id === event.category_id);
   const cat = category ? categoryColors[category.name] : undefined;
   const team = event.team_id ? data.teams.find((t) => t.id === event.team_id) : undefined;
-  const start = occurrenceStart ? new Date(occurrenceStart) : new Date(event.start_time);
-  const baseStart = new Date(event.start_time);
-  const baseEnd = new Date(event.end_time);
-  const duration = Math.max(0, baseEnd.getTime() - baseStart.getTime());
-  const end = occurrenceStart ? new Date(start.getTime() + duration) : baseEnd;
+  // The route's occurrenceStart only says WHICH occurrence was opened. The
+  // event may have been edited since it was passed, so displayed times are
+  // always recomputed from the current event data — never from the raw param
+  // (a stale param previously kept showing the old time after an edit).
+  let start = new Date(event.start_time);
+  let end = new Date(event.end_time);
+  if (event.is_recurring) {
+    const fromDay = occurrenceStart ? new Date(occurrenceStart) : new Date();
+    if (!Number.isNaN(fromDay.getTime())) {
+      fromDay.setHours(0, 0, 0, 0);
+      const occurrence = nextOccurrenceForEvent(event, fromDay);
+      if (occurrence) {
+        start = new Date(occurrence.start_time);
+        end = new Date(occurrence.end_time);
+      }
+    }
+  }
   const recurrenceLabel = recurrenceLabelForEvent(event);
 
   const handleDelete = async () => {
@@ -71,6 +85,7 @@ export default function EventDetailScreen() {
     setDeleting(true);
     try {
       await data.deleteEvent(event.id);
+      showToast('Event deleted.');
       router.back();
     } catch (error) {
       setDeleteError(
@@ -83,7 +98,7 @@ export default function EventDetailScreen() {
   };
 
   return (
-    <Screen>
+    <Screen contentStyle={styles.contentGrow}>
       <Stack.Screen options={{ title: 'Event' }} />
       <Card>
         {category ? <Badge label={category.name} bg={cat?.bg} fg={cat?.fg} /> : null}
@@ -159,7 +174,10 @@ export default function EventDetailScreen() {
 
 const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  actions: { gap: spacing.sm, marginTop: spacing.sm },
+  // Grows so the actions can anchor to the lower part of short screens;
+  // on long content they simply follow the content.
+  contentGrow: { flexGrow: 1 },
+  actions: { gap: spacing.sm, marginTop: 'auto', paddingTop: spacing.md },
   loadingBox: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
   deleteError: { textAlign: 'center' },
 });

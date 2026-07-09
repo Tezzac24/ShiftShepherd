@@ -10,7 +10,9 @@ import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
 import { SelectField } from '../../components/SelectField';
 import { TextField } from '../../components/TextField';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
+import { currentAndUpcomingEvents } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import {
   canCreateChurchAnnouncements,
@@ -37,6 +39,7 @@ export default function AnnouncementFormScreen() {
   }>();
   const user = useRequiredUser();
   const data = useAppData();
+  const showToast = useToast();
 
   const existing = id ? data.announcements.find((a) => a.id === id) : undefined;
   const editing = !!existing;
@@ -67,6 +70,15 @@ export default function AnnouncementFormScreen() {
   const [includeImage, setIncludeImage] = useState(!!existing?.image_url);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Only events that haven't finished are offered for linking. An existing
+  // link to a now-past event stays choosable so editing never silently
+  // drops a valid link.
+  const linkableEvents = currentAndUpcomingEvents(data.events);
+  const linkedPastEvent =
+    linkedEventId && !linkableEvents.some((e) => e.id === linkedEventId)
+      ? data.events.find((e) => e.id === linkedEventId)
+      : undefined;
 
   const allowed = editing ? canEditAnnouncement(user, existing) : audienceOptions.length > 0;
   if (!allowed) {
@@ -108,6 +120,7 @@ export default function AnnouncementFormScreen() {
       } else {
         await data.addAnnouncement(record);
       }
+      showToast(editing ? 'Announcement updated.' : 'Announcement posted.');
       router.back();
     } catch (saveError) {
       setError(
@@ -149,7 +162,10 @@ export default function AnnouncementFormScreen() {
         value={linkedEventId ?? 'none'}
         options={[
           { label: 'No linked event', value: 'none' },
-          ...data.events.map((e) => ({ label: e.title, value: e.id })),
+          ...(linkedPastEvent
+            ? [{ label: `${linkedPastEvent.title} (finished)`, value: linkedPastEvent.id }]
+            : []),
+          ...linkableEvents.map((e) => ({ label: e.title, value: e.id })),
         ]}
         onChange={(v) => setLinkedEventId(v === 'none' ? null : v)}
       />
