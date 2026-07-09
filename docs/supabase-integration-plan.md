@@ -13,12 +13,12 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history now tracks `001`–`006`.
+- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history now tracks `001`–`006` plus the pushed events and rota grants migrations.
 - Run `supabase/seed/dev_seed.sql` and link 4–5 auth users (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project) — aligned 2026-07-09:** remote `supabase_migrations.schema_migrations` now records versions `001`–`006`, and migrations `003`–`006` are applied remotely (verified via `supabase migration list` and MCP introspection). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; `003`–`006` were applied with `supabase db push`. Future schema changes use the normal `supabase migration new` → `supabase db push` workflow. **Do not rename `001`–`006`** — the remote history tracks those exact version strings. See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project) — aligned 2026-07-09:** remote `supabase_migrations.schema_migrations` now records versions `001`–`006` plus the pushed events and rota grants migrations, and migrations `003`–`006` are applied remotely (verified via `supabase migration list` and MCP introspection). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; `003`–`006` and later pushed grant migrations were applied with `supabase db push`. Future schema changes use the normal `supabase migration new` → `supabase db push` workflow. **Do not rename `001`–`006`** — the remote history tracks those exact version strings. See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ### 2. Auth + profiles ✅ (mostly done)
 
@@ -26,7 +26,7 @@ The single riskiest step — done in its own pass. What shipped:
 
 - `src/lib/supabase/client.ts` creates an env-guarded client (AsyncStorage-backed session persistence on native; demo mode when env vars are missing).
 - `AuthContext` supports **two modes** behind an unchanged screen-facing API: demo (mock selector, remembered locally) and Supabase email/password with session restore + auth-state listener.
-- After login the `profiles` row is fetched by `auth_user_id = auth.uid()`. Because feature data is still mocked, profiles whose email matches a demo person are bridged onto the mock identity (id, teams, permissions); unrecognised profiles get their real org role and no mock memberships. Auth users with no linked profile get a friendly message and are signed out — no auto-created profiles yet.
+- After login the `profiles` row is fetched by `auth_user_id = auth.uid()`. In the first auth pass, while feature data was still mocked, profiles whose email matched a demo person were bridged onto the mock identity (id, teams, permissions); unrecognised profiles got their real org role and no mock memberships. Auth users with no linked profile got a friendly message and were signed out — no auto-created profiles yet.
 
 Still to do in this step:
 
@@ -83,12 +83,12 @@ Fetch-only, as planned (the app has no team-management screens; admins manage te
 2. `AuthContext` now builds Supabase sessions entirely from live rows (profile + org role + own memberships) — the email→mock-identity bridge is gone. All ids in a live session are real UUIDs.
 3. `AppDataContext` gained a third live slice (`teamsLive`/`teamsLoading`/`teamsError`/`refreshTeams`): `organisation`, `users`, `teams`, and `memberships` come from the live directory for linked Supabase sessions and stay mock in demo mode. Live directory data is session-only (never persisted; cleared on sign-out).
 4. The announcements/events services dropped their profile/team id bridges — live rows keep real UUIDs end-to-end and screens resolve names against the live directory. Only the **event-category name bridge** remains (categories are still mock in the app).
-5. **Temporary demo bridge** (`src/lib/appData/demoBridge.ts`): rotas, songs, chat, and availability are still demo/local data keyed by mock ids, so in live mode those collections are re-keyed onto live team/profile UUIDs for display (teams by name, people by email), and local writes map ids back to mock ids so the persisted demo snapshot stays clean. Nothing in it touches Supabase; delete it slice by slice as steps 7–9 go live.
+5. **Temporary demo bridge** (`src/lib/appData/demoBridge.ts`): after steps 7 and 8, only chat is still demo/local data keyed by mock ids, so in live mode chat is re-keyed onto live team/profile UUIDs for display (teams by name, people by email), and local chat writes map ids back to mock ids so the persisted demo snapshot stays clean. Nothing in it touches Supabase; delete it when step 9 goes live.
 6. Teams tab, team space, Messages tab, and the Home team sections show calm loading/error+retry states while the directory loads.
 
 Note the **team-name edge case** under Risks below — still open, and now user-visible: a non-member viewing a church-wide event linked to a team cannot resolve that team's name (RLS hides the team row), so the detail screen simply omits it.
 
-### 7. Rotas & availability ✅ (app code done — grants migration pending push)
+### 7. Rotas & availability ✅ (done)
 
 The most relational slice. What shipped (same pattern as announcements/events/teams):
 
@@ -96,8 +96,8 @@ The most relational slice. What shipped (same pattern as announcements/events/te
 2. **Deviation from the original sketch:** replace-assignments is a client-side diff (delete removed + insert added), not a transactional RPC. A failure can leave a partial list, but every mutation quietly re-syncs afterwards so the UI heals; an RPC can be added later if it ever matters in practice.
 3. `AppDataContext` keeps two rota stores (persisted local/demo + session-only live), switching on the same condition as the other slices. All rota actions (`addRotaEntry`, `updateRotaEntry`, `deleteRotaEntry`, `cancelRotaEntry`, `restoreRotaEntry`, `setAvailability`) are async in both modes; live mutations apply the server rows then quietly re-sync. Live rota data is never persisted to AsyncStorage and clears on sign-out/user switch.
 4. Rota list/detail/form, Plan the Month, the team space rota section, and Home's "Your Next Responsibility" gained loading, error+retry, and saving states with toast feedback; Home's responsibility card is fully live-backed in Supabase mode.
-5. The demo bridge dropped its rota re-keying — only songs, song selections, and chat still go through it. **Known gap until step 8:** choir song selections reference rota entries by id, so in live mode the seeded selections don't attach to live entries (selections made in live mode are stored locally against the live entry UUID and display fine).
-6. A grants migration (`20260709154733_grant_authenticated_rota_api_privileges.sql`) gives `authenticated` select/insert/update/delete on `rota_entries`, `rota_assignments`, and `availability_responses` — verified missing via read-only introspection; RLS (002/005) stays the authority. **Until it is approved and pushed (`supabase db push`), live rota mode shows the friendly "couldn't load the rota" state with retry; demo mode is unaffected.**
+5. The demo bridge dropped its rota re-keying. After step 8, only chat still goes through the bridge.
+6. A grants migration (`20260709154733_grant_authenticated_rota_api_privileges.sql`) gives `authenticated` select/insert/update/delete on `rota_entries`, `rota_assignments`, and `availability_responses` — verified missing via read-only introspection, then pushed and verified remotely. RLS (002/005) stays the authority.
 
 Choir specifics that ride on this slice (unchanged product behaviour):
 
@@ -107,10 +107,17 @@ Choir specifics that ride on this slice (unchanged product behaviour):
 
 Verify RLS from the app: Daniel (admin) full rota CRUD on every team; Sarah (choir leader) CRUD incl. cancel/restore on the choir rota only; Hannah/Michael respond to their own assignments (and cannot edit entries); Ruth sees no team rotas.
 
-### 8. Songs & song selection
+### 8. Songs & song selection ✅ (app code done — grants migration pending push)
 
-- `songs` + `song_links`: fetch with a join (`select *, links:song_links(*)`) — the nested `links` array then matches the `Song` type as-is. Saving a song writes both tables (RPC or two calls; links are small enough to delete-and-reinsert).
-- `choir_rota_song_selections`: `setSongSelections(entryId, section, songIds)` = delete that **section's** existing rows + insert with per-section `order_index` — wrap in an RPC for atomicity, leaving the other section untouched. RLS (migration 004, `can_manage_song_section()`) enforces the section rule server-side: the Praise Leader may only write `section = 'praise'` rows, the Worship Leader only `'worship'`, a legacy Song Leader / choir team leader / admin both. The DB still rejects songs that do not belong to the rota entry's team. Test deliberately as Hannah (worship leader on her date: praise writes should fail), Michael (praise leader on his date: worship writes should fail), Sarah (team leader override: both succeed), a plain member (all writes fail), and a cross-team song id (fails).
+1. `src/lib/supabase/services/songs.ts` fetches `songs`, `song_links`, and `choir_rota_song_selections` into the existing `Song` and `ChoirSongSelection` types. DB fields stay isolated in the service, live ids are real UUIDs, songs sort by title, and selections sort by entry/section/order.
+2. Song CRUD writes `songs` and replaces `song_links` when links are edited. Delete cascades through links and selections in the database. The service refuses mock ids and returns friendly load/save/delete/permission messages.
+3. `setSongSelections(entryId, section, songIds)` deletes that **section's** existing rows, inserts rows with per-section `order_index`, and leaves the other section untouched. This is a client-side two-call replace, not a transactional RPC; every successful save refreshes from Supabase, and failures are surfaced without mutating the local live view.
+4. `AppDataContext` keeps songs/selections in the persisted local store for demo mode and in session-only live state for Supabase Auth with a linked profile. Live song data is cleared on logout/user switch and never saved to AsyncStorage.
+5. Song database, song detail/form, rota detail, rota list, select-songs, and team-space screens gained live loading/error/retry/saving states. Demo/local behaviour remains unchanged.
+6. RLS (migration 004, `can_manage_song_section()`) enforces the section rule server-side: the Praise Leader may only write `section = 'praise'` rows, the Worship Leader only `'worship'`, a legacy Song Leader / choir team leader / admin both. The DB still rejects songs that do not belong to the rota entry's team.
+7. Read-only introspection showed the policies already exist but authenticated Data API grants were missing. A local grants migration (`20260709171613_grant_authenticated_songs_api_privileges.sql`) grants `authenticated` select/insert/update/delete on `songs`, `song_links`, and `choir_rota_song_selections`. It has **not** been pushed. Until it is approved and pushed (`supabase db push`), live song screens show the friendly "couldn't load songs" state with retry; demo mode is unaffected.
+
+Test deliberately as Hannah (worship leader on her date: praise writes should fail), Michael (praise leader on his date: worship writes should fail), Sarah (team leader override: both succeed), a plain member (all writes fail), and a cross-team song id (fails).
 
 ### 9. Chat
 
@@ -161,7 +168,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## What stays mocked until later
 
-- **Songs, chat** — demo/local data until steps 8–9; in live mode they are re-keyed onto live team/profile ids by the temporary demo bridge (`src/lib/appData/demoBridge.ts`) so they keep working next to live teams. Seeded choir song selections don't attach to live rota entries (mock entry ids vs live UUIDs) until step 8.
+- **Chat** — demo/local data until step 9; in live mode it is re-keyed onto live team/profile ids by the temporary demo bridge (`src/lib/appData/demoBridge.ts`) so it keeps working next to live teams.
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
 - **Unread badges** — client-side simulation until a `chat_reads` table exists.
 - **Notification delivery** — settings UI persists locally (or to the table) but nothing pushes until step 11.
@@ -171,13 +178,13 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## Recommended immediate next task
 
-Steps 1–7 are done in app code (auth + live sessions + organisations/roles + announcements + events + the read-only teams/people directory + rotas/availability; songs/chat are mocked but persisted locally, re-keyed onto live ids in live mode via the temporary demo bridge). Next, in order of value:
+Steps 1–8 are done in app code (auth + live sessions + organisations/roles + announcements + events + the read-only teams/people directory + rotas/availability + choir songs/song selections). Chat remains mocked but persisted locally and re-keyed onto live ids in live mode via the temporary demo bridge. Next, in order of value:
 
 1. ✅ **Done (2026-07-09):** migrations `003`–`006` applied remotely with aligned history; the events grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` is pushed and verified.
 2. ✅ **Done (2026-07-09):** **step 5 — events**, including live `linked_event_id` on announcements.
 3. ✅ **Done (2026-07-09):** **step 6 — teams & memberships** (fetch-only), retiring the email/name id bridges in auth, announcements, and events.
-4. ✅ **Done (2026-07-09):** **step 7 — rotas & availability** app code. **Blocked on approval:** push `20260709154733_grant_authenticated_rota_api_privileges.sql` (`supabase db push` after normal preflight) — until then live rota mode shows the friendly error state. The teams-SELECT relaxation (Risks: team-name visibility, option b) was deliberately **not** bundled in — rota entries are only visible to team members, so their team names always resolve; it remains a candidate for the next migration pass.
-5. Start **step 8 — songs & song selection**, which retires the seeded-selections gap and most of the remaining demo bridge.
-6. Add the `handle_new_user` trigger migration.
+4. ✅ **Done (2026-07-09):** **step 7 — rotas & availability**, including the pushed and verified `20260709154733_grant_authenticated_rota_api_privileges.sql` migration. The teams-SELECT relaxation (Risks: team-name visibility, option b) was deliberately **not** bundled in — rota entries are only visible to team members, so their team names always resolve; it remains a candidate for a later migration pass.
+5. ✅ **Done in app code (2026-07-09):** **step 8 — songs & song selection**. **Blocked on approval:** push `20260709171613_grant_authenticated_songs_api_privileges.sql` (`supabase db push` after normal preflight) — until then live song screens show the friendly error state.
+6. Start **step 9 — chat**, or add the `handle_new_user` trigger migration if signup is next.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

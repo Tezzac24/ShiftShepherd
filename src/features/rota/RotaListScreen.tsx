@@ -107,7 +107,9 @@ export default function RotaListScreen() {
                   : undefined
               }
               songCount={
-                isChoir ? selectionsForEntry(entry.id, data.songSelections).length : undefined
+                isChoir && !data.songsLoading && !data.songsError
+                  ? selectionsForEntry(entry.id, data.songSelections).length
+                  : undefined
               }
               onPress={() =>
                 router.push({

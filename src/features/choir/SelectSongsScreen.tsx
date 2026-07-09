@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { colors, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
@@ -11,6 +11,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
 import { SectionHeader } from '../../components/SectionHeader';
 import { TextField } from '../../components/TextField';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import {
   searchSongs,
@@ -37,6 +38,7 @@ export default function SelectSongsScreen() {
   }>();
   const user = useRequiredUser();
   const data = useAppData();
+  const showToast = useToast();
 
   const section: SongSection = sectionParam === 'worship' ? 'worship' : 'praise';
   const sectionLabel = songSectionLabels[section];
@@ -51,6 +53,27 @@ export default function SelectSongsScreen() {
       : [],
   );
   const [query, setQuery] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!entry) return;
+    setSelectedIds(
+      selectionsForEntrySection(entry.id, section, data.songSelections).map((s) => s.song_id),
+    );
+  }, [entry, section, data.songSelections]);
+
+  if ((!team || !entry) && (data.teamsLoading || data.rotasLoading || data.songsLoading)) {
+    return (
+      <Screen>
+        <Stack.Screen options={{ title: 'Select Songs' }} />
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading song choices...</AppText>
+        </View>
+      </Screen>
+    );
+  }
 
   if (
     !team ||
@@ -75,7 +98,8 @@ export default function SelectSongsScreen() {
     selectionsForEntrySection(entry.id, otherSection, data.songSelections).map((s) => s.song_id),
   );
 
-  const results = searchSongs(data.songs, query);
+  const teamSongs = team ? data.songs.filter((song) => song.team_id === team.id) : [];
+  const results = searchSongs(teamSongs, query);
 
   const toggle = (songId: string) => {
     setSelectedIds((prev) =>
@@ -93,9 +117,22 @@ export default function SelectSongsScreen() {
     });
   };
 
-  const handleSave = () => {
-    data.setSongSelections(entry.id, section, selectedIds, user.profile.id);
-    router.back();
+  const handleSave = async () => {
+    if (saving) return;
+    setSaveError(null);
+    setSaving(true);
+    try {
+      await data.setSongSelections(entry.id, section, selectedIds, user.profile.id);
+      showToast(`${sectionLabel} songs saved.`);
+      router.back();
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : 'Your song choices could not be saved. Please try again.',
+      );
+      setSaving(false);
+    }
   };
 
   return (
@@ -165,10 +202,17 @@ export default function SelectSongsScreen() {
       )}
 
       <Button
-        title={`Save ${sectionLabel} Songs`}
+        title={saving ? 'Saving...' : `Save ${sectionLabel} Songs`}
         icon="checkmark-outline"
-        onPress={handleSave}
+        loading={saving}
+        disabled={saving}
+        onPress={() => void handleSave()}
       />
+      {saveError ? (
+        <AppText tone="danger" style={styles.errorText}>
+          {saveError}
+        </AppText>
+      ) : null}
 
       {/* Song database */}
       <SectionHeader title="Song Database" />
@@ -179,7 +223,26 @@ export default function SelectSongsScreen() {
         autoCapitalize="none"
         accessibilityLabel="Search songs"
       />
-      {results.length > 0 ? (
+      {data.songsLoading && teamSongs.length === 0 ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} />
+          <AppText tone="secondary">Loading songs...</AppText>
+        </View>
+      ) : data.songsError && teamSongs.length === 0 ? (
+        <>
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Couldn't load songs"
+            message={data.songsError}
+          />
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshSongs()}
+          />
+        </>
+      ) : results.length > 0 ? (
         results.map((song) => {
           const selected = selectedIds.includes(song.id);
           const inOtherSection = otherSectionIds.has(song.id);
@@ -275,6 +338,7 @@ function IconButton({
 }
 
 const styles = StyleSheet.create({
+  loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
   selectedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   orderCircle: {
     width: 30,
@@ -306,4 +370,5 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.primarySoft,
   },
+  errorText: { textAlign: 'center' },
 });

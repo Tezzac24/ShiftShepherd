@@ -1,32 +1,24 @@
 /**
- * TEMPORARY bridge between the still-local demo slices and the live directory.
+ * TEMPORARY bridge between still-local chat data and the live directory.
  *
- * People, teams, and rotas are live now (real UUIDs from Supabase), but
- * songs, song selections, and chat remain demo/local data keyed by mock ids
- * ('team-choir', 'user-sarah'). So that those features keep working in live
- * mode, this module:
+ * People, teams, rotas, and choir songs now use real UUIDs from Supabase in
+ * live mode, but chat remains demo/local and is still keyed by mock ids
+ * ('team-choir', 'user-sarah'). So that chat keeps working in live mode, this
+ * module:
  *
  *  - re-keys the local demo collections onto their live counterparts for
  *    display (teams matched by name, people matched by email — the dev seed
- *    mirrors the mock data), so live team/user UUIDs find the demo songs and
- *    chat that belong to them;
+ *    mirrors the mock data), so live team/user UUIDs find the demo chat that
+ *    belongs to them;
  *  - maps ids back to mock ids when a demo-slice mutation writes to local
  *    state, so the persisted demo snapshot stays keyed by mock ids and demo
  *    mode is never polluted with live UUIDs.
  *
- * Known gap until songs go live: song selections reference rota entries by
- * id, and live rota entries have UUIDs the mock selections don't know. In
- * live mode the seeded selections therefore don't attach to any entry;
- * selections made in live mode are stored locally keyed by the live entry
- * UUID and display fine. The songs/selections slice going live
- * (docs/supabase-integration-plan.md, step 8) replaces all of that.
- *
  * Nothing here touches Supabase, and live rows never receive mock ids — this
- * is a display/local-write shim only. Delete the remaining pieces as songs
- * (step 8) and chat (step 9) go live — once both are live nothing imports
- * this module and it can be removed.
+ * is a display/local-write shim only. Delete this module when the chat slice
+ * goes live (docs/supabase-integration-plan.md, step 9).
  */
-import { ChatMessage, ChoirSongSelection, Song, Team, UserProfile } from '../../types';
+import { ChatMessage, Team, UserProfile } from '../../types';
 import { mockTeams, mockUsers } from '../mockData';
 
 export interface DemoIdBridge {
@@ -84,8 +76,6 @@ export function toLocalTeamId(bridge: DemoIdBridge | null, id: string): string {
 
 /** The demo/local collections whose ids need re-keying in live mode. */
 export interface DemoCollections {
-  songs: Song[];
-  songSelections: ChoirSongSelection[];
   chatMessages: ChatMessage[];
   unreadByTeam: Record<string, number>;
 }
@@ -96,15 +86,6 @@ export function bridgeDemoCollections(
   bridge: DemoIdBridge,
 ): DemoCollections {
   return {
-    songs: collections.songs.map((s) => ({
-      ...s,
-      team_id: toLiveTeamId(bridge, s.team_id),
-      added_by: toLiveUserId(bridge, s.added_by),
-    })),
-    songSelections: collections.songSelections.map((s) => ({
-      ...s,
-      selected_by: toLiveUserId(bridge, s.selected_by),
-    })),
     chatMessages: collections.chatMessages.map((m) => ({
       ...m,
       team_id: toLiveTeamId(bridge, m.team_id),

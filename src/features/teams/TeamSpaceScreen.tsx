@@ -148,7 +148,9 @@ export default function TeamSpaceScreen() {
               : undefined
           }
           songCount={
-            isChoir ? selectionsForEntry(nextEntry.id, data.songSelections).length : undefined
+            isChoir && !data.songsLoading && !data.songsError
+              ? selectionsForEntry(nextEntry.id, data.songSelections).length
+              : undefined
           }
           onPress={() =>
             router.push({
@@ -209,7 +211,13 @@ export default function TeamSpaceScreen() {
           <ListRow
             icon="musical-notes-outline"
             title="Song Database"
-            subtitle={`${data.songs.length} songs — browse, add and edit`}
+            subtitle={
+              data.songsLoading
+                ? 'Loading songs...'
+                : data.songsError
+                  ? "Songs couldn't load"
+                  : `${data.songs.filter((song) => song.team_id === team.id).length} songs — browse, add and edit`
+            }
             onPress={() =>
               router.push({ pathname: '/teams/[teamId]/songs', params: { teamId: team.id } })
             }

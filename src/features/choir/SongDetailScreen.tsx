@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
-import { Linking, StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
 
-import { spacing } from '../../../constants/theme';
+import { colors, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
@@ -13,6 +13,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { ListRow } from '../../components/ListRow';
 import { Screen } from '../../components/Screen';
 import { SectionHeader } from '../../components/SectionHeader';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
@@ -33,9 +34,24 @@ export default function SongDetailScreen() {
   const user = useRequiredUser();
   const data = useAppData();
   const confirm = useConfirm();
+  const showToast = useToast();
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const team = data.teams.find((t) => t.id === teamId);
   const song = data.songs.find((s) => s.id === songId);
+
+  if ((!team || !song) && (data.teamsLoading || data.songsLoading)) {
+    return (
+      <Screen>
+        <Stack.Screen options={{ title: 'Song' }} />
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading song...</AppText>
+        </View>
+      </Screen>
+    );
+  }
 
   if (!team || !song) {
     return (
@@ -44,8 +60,16 @@ export default function SongDetailScreen() {
         <EmptyState
           icon="musical-notes-outline"
           title="Song not found"
-          message="This song may have been deleted."
+          message={data.songsError ?? 'This song may have been deleted.'}
         />
+        {data.songsError ? (
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshSongs()}
+          />
+        ) : null}
       </Screen>
     );
   }
@@ -53,13 +77,26 @@ export default function SongDetailScreen() {
   const canManage = canManageSongs(user, team);
 
   const handleDelete = async () => {
+    if (deleting) return;
     const ok = await confirm({
       title: 'Delete song',
       message: 'Are you sure you want to delete this song? This action cannot be undone.',
     });
     if (ok) {
-      data.deleteSong(song.id);
-      router.back();
+      setDeleteError(null);
+      setDeleting(true);
+      try {
+        await data.deleteSong(song.id);
+        showToast('Song deleted.');
+        router.back();
+      } catch (error) {
+        setDeleteError(
+          error instanceof Error
+            ? error.message
+            : 'This song could not be deleted. Please try again.',
+        );
+        setDeleting(false);
+      }
     }
   };
 
@@ -115,10 +152,16 @@ export default function SongDetailScreen() {
 
       {canManage ? (
         <View style={styles.actions}>
+          {deleteError ? (
+            <AppText tone="danger" style={styles.errorText}>
+              {deleteError}
+            </AppText>
+          ) : null}
           <Button
             title="Edit Song"
             variant="secondary"
             icon="create-outline"
+            disabled={deleting}
             onPress={() =>
               router.push({
                 pathname: '/teams/[teamId]/songs/edit',
@@ -127,9 +170,11 @@ export default function SongDetailScreen() {
             }
           />
           <Button
-            title="Delete Song"
+            title={deleting ? 'Deleting...' : 'Delete Song'}
             variant="destructive"
             icon="trash-outline"
+            loading={deleting}
+            disabled={deleting}
             onPress={handleDelete}
           />
         </View>
@@ -139,8 +184,10 @@ export default function SongDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   links: { gap: spacing.sm },
   lyrics: { lineHeight: 28 },
   actions: { gap: spacing.sm, marginTop: spacing.sm },
+  errorText: { textAlign: 'center' },
 });

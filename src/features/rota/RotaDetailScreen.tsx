@@ -365,7 +365,29 @@ export default function RotaDetailScreen() {
       {isChoir ? (
         <>
           <SectionHeader title="Selected Songs" />
-          {SONG_SECTIONS.map((section) => {
+          {data.songsLoading && data.songs.length === 0 ? (
+            <Card>
+              <View style={styles.loadingRow}>
+                <ActivityIndicator color={colors.primary} />
+                <AppText tone="secondary">Loading selected songs...</AppText>
+              </View>
+            </Card>
+          ) : data.songsError && data.songs.length === 0 ? (
+            <>
+              <EmptyState
+                icon="cloud-offline-outline"
+                title="Couldn't load songs"
+                message={data.songsError}
+              />
+              <Button
+                title="Try Again"
+                variant="secondary"
+                icon="refresh-outline"
+                onPress={() => void data.refreshSongs()}
+              />
+            </>
+          ) : (
+            SONG_SECTIONS.map((section) => {
             const label = songSectionLabels[section];
             const leader = sectionLeaderAssignment(entryAssignments, section);
             const selections = selectionsForEntrySection(entry.id, section, data.songSelections);
@@ -439,7 +461,7 @@ export default function RotaDetailScreen() {
                 ) : null}
               </Card>
             );
-          })}
+          }))}
         </>
       ) : null}
 
@@ -595,4 +617,5 @@ const styles = StyleSheet.create({
   actions: { gap: spacing.sm, marginTop: spacing.sm },
   errorText: { textAlign: 'center' },
   loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
 });

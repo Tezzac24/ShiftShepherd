@@ -11,8 +11,9 @@
  * the real backend later means swapping implementations, not screens.
  *
  * ★ Announcements, events, the people/teams directory (organisation,
- * profiles, teams, team memberships), and rotas (entries, assignments,
- * availability responses) are the live Supabase slices: when the user is
+ * profiles, teams, team memberships), rotas (entries, assignments,
+ * availability responses), and choir songs/song selections are the live
+ * Supabase slices: when the user is
  * signed in through Supabase Auth with a linked profile, those collections
  * and their actions run against the live database (RLS enforces permissions)
  * via src/lib/supabase/services/. In demo mode — or whenever Supabase env
@@ -20,12 +21,12 @@
  * session state only: it is never written to the demo AsyncStorage snapshot
  * and Reset Demo Data does not touch it.
  *
- * The still-local slices (songs, chat) are keyed by mock ids; in live mode
- * they are re-keyed onto live team/profile UUIDs through the temporary
- * demoBridge so they keep working alongside live teams (see demoBridge.ts).
+ * The still-local chat slice is keyed by mock ids; in live mode it is
+ * re-keyed onto live team/profile UUIDs through the temporary demoBridge so
+ * it keeps working alongside live teams (see demoBridge.ts).
  *
- * TODO: wire to Supabase — repeat the same pattern for songs, chat, and
- * notification preferences (see docs/supabase-integration-plan.md).
+ * TODO: wire to Supabase — repeat the same pattern for chat and notification
+ * preferences (see docs/supabase-integration-plan.md).
  */
 import React, {
   createContext,
@@ -80,6 +81,7 @@ import { isSupabaseConfigured } from '../supabase/client';
 import * as announcementsService from '../supabase/services/announcements';
 import * as eventsService from '../supabase/services/events';
 import * as rotasService from '../supabase/services/rotas';
+import * as songsService from '../supabase/services/songs';
 import * as teamsService from '../supabase/services/teams';
 import {
   bridgeDemoCollections,
@@ -245,12 +247,22 @@ interface AppDataContextValue {
     note: string | null,
   ) => Promise<void>;
 
-  // Songs
+  // Songs - the fifth live Supabase slice, switching exactly like the earlier
+  // slices: live Supabase for linked Supabase sessions, local demo data
+  // otherwise. Live songs/selections are session-only and never persisted.
+  /** True when choir songs come from live Supabase rather than local demo data. */
+  songsLive: boolean;
+  /** True while live songs and song selections are being (re)loaded. */
+  songsLoading: boolean;
+  /** Friendly load-failure message, or null. Always null in demo mode. */
+  songsError: string | null;
+  /** Reload live songs and song selections (no-op in demo mode). */
+  refreshSongs: () => Promise<void>;
   addSong: (
     input: Omit<Song, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>,
-  ) => Song;
-  updateSong: (id: string, patch: Partial<Song>) => void;
-  deleteSong: (id: string) => void;
+  ) => Promise<Song>;
+  updateSong: (id: string, patch: Partial<Song>) => Promise<void>;
+  deleteSong: (id: string) => Promise<void>;
 
   // Choir song selection (replaces one section's selection for a rota date;
   // the other section's songs are left untouched)
@@ -259,7 +271,7 @@ interface AppDataContextValue {
     section: SongSection,
     songIds: string[],
     selectedBy: string,
-  ) => void;
+  ) => Promise<void>;
 
   // Chat
   sendChatMessage: (teamId: string, senderId: string, body: string) => void;
@@ -279,7 +291,7 @@ interface AppDataContextValue {
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
-  // Live-vs-local mode for the wired slices (announcements, events):
+  // Live-vs-local mode for the wired slices:
   // Supabase session + configured client + linked profile ⇒ live; demo mode
   // or missing env vars ⇒ local/mock.
   const { user, authMode } = useAuth();
@@ -290,6 +302,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const eventsLive = liveDataEnabled;
   const teamsLive = liveDataEnabled;
   const rotasLive = liveDataEnabled;
+  const songsLive = liveDataEnabled;
 
   const [localAnnouncements, setLocalAnnouncements] =
     useState<Announcement[]>(mockAnnouncements);
@@ -317,9 +330,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [liveRota, setLiveRota] = useState<rotasService.RotaData | null>(null);
   const [rotasLoading, setRotasLoading] = useState(false);
   const [rotasError, setRotasError] = useState<string | null>(null);
-  const [songs, setSongs] = useState<Song[]>(mockSongs);
-  const [songSelections, setSongSelectionsState] =
+  const [localSongs, setLocalSongs] = useState<Song[]>(mockSongs);
+  const [localSongSelections, setLocalSongSelections] =
     useState<ChoirSongSelection[]>(mockSongSelections);
+  const [liveSongsData, setLiveSongsData] = useState<songsService.SongsData | null>(null);
+  const [songsLoading, setSongsLoading] = useState(false);
+  const [songsError, setSongsError] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(mockChatMessages);
   const [unreadByTeam, setUnreadByTeam] = useState<Record<string, number>>(mockUnreadByTeam);
   const [notificationPrefs, setNotificationPrefs] = useState<
@@ -342,8 +358,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setLocalRotaEntries(persisted.rotaEntries);
         setLocalRotaAssignments(persisted.rotaAssignments);
         setLocalAvailabilityResponses(persisted.availabilityResponses);
-        setSongs(persisted.songs);
-        setSongSelectionsState(persisted.songSelections);
+        setLocalSongs(persisted.songs);
+        setLocalSongSelections(persisted.songSelections);
         setChatMessages(persisted.chatMessages);
         setUnreadByTeam(persisted.unreadByTeam);
         setNotificationPrefs(persisted.notificationPrefs);
@@ -366,8 +382,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       rotaEntries: localRotaEntries,
       rotaAssignments: localRotaAssignments,
       availabilityResponses: localAvailabilityResponses,
-      songs,
-      songSelections,
+      songs: localSongs,
+      songSelections: localSongSelections,
       chatMessages,
       unreadByTeam,
       notificationPrefs,
@@ -385,8 +401,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     localRotaEntries,
     localRotaAssignments,
     localAvailabilityResponses,
-    songs,
-    songSelections,
+    localSongs,
+    localSongSelections,
     chatMessages,
     unreadByTeam,
     notificationPrefs,
@@ -400,8 +416,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setLocalRotaEntries(mockRotaEntries);
     setLocalRotaAssignments(mockRotaAssignments);
     setLocalAvailabilityResponses(mockAvailabilityResponses);
-    setSongs(mockSongs);
-    setSongSelectionsState(mockSongSelections);
+    setLocalSongs(mockSongs);
+    setLocalSongSelections(mockSongSelections);
     setChatMessages(mockChatMessages);
     setUnreadByTeam(mockUnreadByTeam);
     setNotificationPrefs({});
@@ -693,10 +709,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [teamsLive, refreshTeams]);
 
-  // TEMPORARY (see demoBridge.ts): while songs/chat stay demo/local, re-key
-  // them onto live team/profile UUIDs in live mode so they keep working next
-  // to the live directory, and map ids back on local writes so the persisted
-  // demo snapshot stays keyed by mock ids.
+  // TEMPORARY (see demoBridge.ts): chat is still demo/local, so re-key it
+  // onto live team/profile UUIDs in live mode and map ids back on local writes
+  // so the persisted demo snapshot stays keyed by mock ids.
   const demoBridge = useMemo<DemoIdBridge | null>(
     () =>
       teamsLive && liveDirectory
@@ -710,13 +725,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const demoView = useMemo(() => {
     const collections = {
-      songs,
-      songSelections,
       chatMessages,
       unreadByTeam,
     };
     return demoBridge ? bridgeDemoCollections(collections, demoBridge) : collections;
-  }, [demoBridge, songs, songSelections, chatMessages, unreadByTeam]);
+  }, [demoBridge, chatMessages, unreadByTeam]);
 
   // --- Rotas (live Supabase slice ★, with local demo fallback) -----------------
 
@@ -912,8 +925,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             responses: prev.responses.filter((r) => !removed.has(r.rota_assignment_id)),
           };
         });
-        // Song selections are still local; drop any made against this entry.
-        setSongSelectionsState((prev) => prev.filter((s) => s.rota_entry_id !== id));
+        // The database cascades live song selections; keep session state in step.
+        setLiveSongsData((prev) =>
+          prev
+            ? {
+                ...prev,
+                selections: prev.selections.filter((s) => s.rota_entry_id !== id),
+              }
+            : prev,
+        );
         resyncLiveRotas();
         return;
       }
@@ -927,7 +947,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         );
         return prev.filter((a) => a.rota_entry_id !== id);
       });
-      setSongSelectionsState((prev) => prev.filter((s) => s.rota_entry_id !== id));
+      setLocalSongSelections((prev) => prev.filter((s) => s.rota_entry_id !== id));
     },
     [rotasLive, resyncLiveRotas],
   );
@@ -1040,47 +1060,191 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [rotasLive, supabaseProfileId, resyncLiveRotas],
   );
 
-  // --- Songs -----------------------------------------------------------------
+  // --- Songs (live Supabase slice, with local demo fallback) ------------------
 
-  const addSong: AppDataContextValue['addSong'] = useCallback((input) => {
-    // Songs are still demo/local: store mock ids, not live UUIDs.
-    const bridge = demoBridgeRef.current;
-    const record: Song = {
-      ...input,
-      team_id: toLocalTeamId(bridge, input.team_id),
-      added_by: toLocalUserId(bridge, input.added_by),
-      id: makeId('song'),
-      organisation_id: ORG_ID,
-      created_at: now(),
-      updated_at: now(),
-    };
-    setSongs((prev) =>
-      [...prev, record].sort((a, b) => a.title.localeCompare(b.title)),
-    );
-    return record;
+  const refreshSongs: AppDataContextValue['refreshSongs'] = useCallback(async () => {
+    const requestProfileId = supabaseProfileIdRef.current;
+    if (!liveDataEnabledRef.current || !requestProfileId) return;
+    setSongsLoading(true);
+    setSongsError(null);
+    try {
+      const songsData = await songsService.fetchSongsData();
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setLiveSongsData(songsData);
+      }
+    } catch (error) {
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setSongsError(
+          error instanceof Error
+            ? error.message
+            : "We couldn't load songs right now. Please try again.",
+        );
+      }
+    } finally {
+      if (
+        liveDataEnabledRef.current &&
+        supabaseProfileIdRef.current === requestProfileId
+      ) {
+        setSongsLoading(false);
+      }
+    }
   }, []);
 
-  const updateSong: AppDataContextValue['updateSong'] = useCallback((id, patch) => {
-    const bridge = demoBridgeRef.current;
-    const localPatch = { ...patch };
-    if (localPatch.team_id) localPatch.team_id = toLocalTeamId(bridge, localPatch.team_id);
-    if (localPatch.added_by) localPatch.added_by = toLocalUserId(bridge, localPatch.added_by);
-    setSongs((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, ...localPatch, updated_at: now() } : s)),
-    );
+  // Load live songs/selections when a Supabase session appears; clear them
+  // when it goes away. Local demo data is untouched either way.
+  useEffect(() => {
+    if (songsLive) {
+      void refreshSongs();
+    } else {
+      setLiveSongsData(null);
+      setSongsError(null);
+      setSongsLoading(false);
+    }
+  }, [songsLive, refreshSongs]);
+
+  const resyncLiveSongs = useCallback(() => {
+    const requestProfileId = supabaseProfileIdRef.current;
+    if (!requestProfileId) return;
+    songsService
+      .fetchSongsData()
+      .then((songsData) => {
+        if (
+          liveDataEnabledRef.current &&
+          supabaseProfileIdRef.current === requestProfileId
+        ) {
+          setLiveSongsData(songsData);
+        }
+      })
+      .catch((error) => console.warn('[appData] songs re-sync failed', error));
   }, []);
 
-  const deleteSong = useCallback((id: string) => {
-    setSongs((prev) => prev.filter((s) => s.id !== id));
-    setSongSelectionsState((prev) => prev.filter((s) => s.song_id !== id));
-  }, []);
+  const addSong: AppDataContextValue['addSong'] = useCallback(
+    async (input) => {
+      if (songsLive && supabaseProfileId) {
+        const created = await songsService.createSong(input, supabaseProfileId);
+        setLiveSongsData((prev) =>
+          prev
+            ? {
+                ...prev,
+                songs: [...prev.songs, created].sort((a, b) =>
+                  a.title.localeCompare(b.title),
+                ),
+              }
+            : { songs: [created], selections: [] },
+        );
+        resyncLiveSongs();
+        return created;
+      }
+
+      const bridge = demoBridgeRef.current;
+      const id = makeId('song');
+      const record: Song = {
+        ...input,
+        id,
+        organisation_id: ORG_ID,
+        team_id: toLocalTeamId(bridge, input.team_id),
+        added_by: toLocalUserId(bridge, input.added_by),
+        links: input.links.map((link) => ({ ...link, song_id: id })),
+        created_at: now(),
+        updated_at: now(),
+      };
+      setLocalSongs((prev) =>
+        [...prev, record].sort((a, b) => a.title.localeCompare(b.title)),
+      );
+      return record;
+    },
+    [songsLive, supabaseProfileId, resyncLiveSongs],
+  );
+
+  const updateSong: AppDataContextValue['updateSong'] = useCallback(
+    async (id, patch) => {
+      if (songsLive) {
+        const updated = await songsService.updateSong(id, patch);
+        setLiveSongsData((prev) =>
+          prev
+            ? {
+                ...prev,
+                songs: prev.songs
+                  .map((s) => (s.id === id ? updated : s))
+                  .sort((a, b) => a.title.localeCompare(b.title)),
+              }
+            : prev,
+        );
+        resyncLiveSongs();
+        return;
+      }
+
+      const bridge = demoBridgeRef.current;
+      const localPatch = { ...patch };
+      if (localPatch.team_id) localPatch.team_id = toLocalTeamId(bridge, localPatch.team_id);
+      if (localPatch.added_by) localPatch.added_by = toLocalUserId(bridge, localPatch.added_by);
+      if (localPatch.links) {
+        localPatch.links = localPatch.links.map((link) => ({ ...link, song_id: id }));
+      }
+      setLocalSongs((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...localPatch, updated_at: now() } : s)),
+      );
+    },
+    [songsLive, resyncLiveSongs],
+  );
+
+  const deleteSong: AppDataContextValue['deleteSong'] = useCallback(
+    async (id) => {
+      if (songsLive) {
+        await songsService.deleteSong(id);
+        setLiveSongsData((prev) =>
+          prev
+            ? {
+                songs: prev.songs.filter((s) => s.id !== id),
+                selections: prev.selections.filter((s) => s.song_id !== id),
+              }
+            : prev,
+        );
+        resyncLiveSongs();
+        return;
+      }
+      setLocalSongs((prev) => prev.filter((s) => s.id !== id));
+      setLocalSongSelections((prev) => prev.filter((s) => s.song_id !== id));
+    },
+    [songsLive, resyncLiveSongs],
+  );
 
   // --- Choir song selection ----------------------------------------------------
 
   const setSongSelections: AppDataContextValue['setSongSelections'] = useCallback(
-    (rotaEntryId, section, songIds, selectedBy) => {
+    async (rotaEntryId, section, songIds, selectedBy) => {
+      if (songsLive && supabaseProfileId) {
+        const saved = await songsService.replaceSongSelections(
+          rotaEntryId,
+          section,
+          songIds,
+          supabaseProfileId,
+        );
+        setLiveSongsData((prev) =>
+          prev
+            ? {
+                ...prev,
+                selections: [
+                  ...prev.selections.filter(
+                    (s) => s.rota_entry_id !== rotaEntryId || s.section !== section,
+                  ),
+                  ...saved,
+                ],
+              }
+            : { songs: [], selections: saved },
+        );
+        resyncLiveSongs();
+        return;
+      }
+
       const localSelectedBy = toLocalUserId(demoBridgeRef.current, selectedBy);
-      setSongSelectionsState((prev) => [
+      setLocalSongSelections((prev) => [
         ...prev.filter((s) => s.rota_entry_id !== rotaEntryId || s.section !== section),
         ...songIds.map((songId, i) => ({
           id: makeId('sel'),
@@ -1093,7 +1257,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         })),
       ]);
     },
-    [],
+    [songsLive, supabaseProfileId, resyncLiveSongs],
   );
 
   // --- Chat ------------------------------------------------------------------
@@ -1173,9 +1337,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       rotasLoading,
       rotasError,
       refreshRotas,
-      // Still-local slices, re-keyed onto live ids in live mode (demoBridge).
-      songs: demoView.songs,
-      songSelections: demoView.songSelections,
+      // Songs are live for linked Supabase sessions, local/persisted in demo.
+      songs: songsLive ? (liveSongsData?.songs ?? []) : localSongs,
+      songSelections: songsLive ? (liveSongsData?.selections ?? []) : localSongSelections,
+      songsLive,
+      songsLoading,
+      songsError,
+      refreshSongs,
+      // Chat is still local, re-keyed onto live ids in live mode (demoBridge).
       chatMessages: demoView.chatMessages,
       unreadByTeam: demoView.unreadByTeam,
       addAnnouncement,
@@ -1227,6 +1396,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       rotasLoading,
       rotasError,
       refreshRotas,
+      songsLive,
+      liveSongsData,
+      localSongs,
+      localSongSelections,
+      songsLoading,
+      songsError,
+      refreshSongs,
       demoView,
       addAnnouncement,
       updateAnnouncement,

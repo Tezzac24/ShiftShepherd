@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { colors, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
@@ -25,6 +25,18 @@ export default function SongDatabaseScreen() {
 
   const team = data.teams.find((t) => t.id === teamId);
 
+  if (!team && data.teamsLoading) {
+    return (
+      <Screen>
+        <Stack.Screen options={{ title: 'Song Database' }} />
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading the song database...</AppText>
+        </View>
+      </Screen>
+    );
+  }
+
   if (!team || !canManageSongs(user, team)) {
     return (
       <Screen>
@@ -38,7 +50,8 @@ export default function SongDatabaseScreen() {
     );
   }
 
-  const songs = searchSongs(data.songs, query);
+  const teamSongs = data.songs.filter((song) => song.team_id === team.id);
+  const songs = searchSongs(teamSongs, query);
 
   return (
     <Screen>
@@ -60,7 +73,26 @@ export default function SongDatabaseScreen() {
         }
       />
 
-      {songs.length > 0 ? (
+      {data.songsLoading && teamSongs.length === 0 ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading songs...</AppText>
+        </View>
+      ) : data.songsError && teamSongs.length === 0 ? (
+        <>
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Couldn't load songs"
+            message={data.songsError}
+          />
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshSongs()}
+          />
+        </>
+      ) : songs.length > 0 ? (
         songs.map((song) => (
           <Card
             key={song.id}
@@ -117,6 +149,7 @@ export default function SongDatabaseScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
   songCard: { paddingVertical: spacing.md },
   songRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   noteIcon: {
