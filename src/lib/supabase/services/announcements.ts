@@ -14,23 +14,16 @@
  *    translates rejections into friendly plain-English errors;
  *  - never uses service-role keys; anonymous sessions are blocked by RLS.
  *
- * Phase note — id bridging: feature data other than announcements is still
- * mocked, so screens know people/teams by mock ids ('user-sarah',
- * 'team-choir'), while the database uses UUIDs. Rows are mapped at this
- * boundary: live profile UUIDs ↔ mock user ids (matched by email) and live
- * team UUIDs ↔ mock team ids (matched by name), mirroring the email bridge in
- * AuthContext. TODO: wire to Supabase — remove the bridge once profiles and
- * teams go live (docs/supabase-integration-plan.md, step 6).
- *
- * Linked events are live now that events are the second live slice (step 5):
- * in live mode the picker offers live events, so `linked_event_id` is written
- * as-is — it is already a real event UUID. Mock event ids ('event-…') are
- * refused defensively so demo ids can never leak into the live table.
+ * People and teams are live now (step 6), so rows travel with their real
+ * UUIDs end-to-end: `created_by` is a live profile id, `team_id` a live team
+ * id, and screens resolve names against the live directory. Linked events
+ * are live too (step 5): the picker offers live events, so `linked_event_id`
+ * is written as-is. Mock ids ('team-…', 'event-…') are refused defensively so
+ * demo ids can never leak into the live table.
  */
 import { SupabaseClient } from '@supabase/supabase-js';
 
 import { Announcement, AnnouncementAudience } from '../../../types';
-import { mockTeams, mockUsers } from '../../mockData';
 import { getSupabase } from '../client';
 
 // Friendly, non-technical messages — shown directly in the UI.
@@ -61,15 +54,6 @@ interface AnnouncementRow {
   created_by: string;
   created_at: string;
   updated_at: string;
-}
-
-/** Live-UUID ↔ mock-id maps for the still-mocked people and teams. */
-interface IdBridge {
-  /** The caller's live organisation id (needed on inserts). */
-  organisationId: string | null;
-  profileLiveToApp: Map<string, string>;
-  teamLiveToApp: Map<string, string>;
-  teamAppToLive: Map<string, string>;
 }
 
 function requireClient(): SupabaseClient {
@@ -112,80 +96,59 @@ function fail(operation: string, error: unknown, fallback: string): never {
 }
 
 /**
- * Fetch the id bridge for the current session. RLS scopes both queries to
- * what the caller may see (their org's profiles; their accessible teams),
- * which matches exactly the announcements they can read.
+ * The caller's organisation id (needed on inserts). RLS means the caller can
+ * always read their own profile row.
  */
-async function loadBridge(supabase: SupabaseClient): Promise<IdBridge> {
-  const [profilesRes, teamsRes] = await Promise.all([
-    supabase.from('profiles').select('id, email, organisation_id'),
-    supabase.from('teams').select('id, name'),
-  ]);
-  if (profilesRes.error) throw profilesRes.error;
-  if (teamsRes.error) throw teamsRes.error;
-
-  const mockUserByEmail = new Map(mockUsers.map((u) => [u.email.toLowerCase(), u.id]));
-  const mockTeamByName = new Map(mockTeams.map((t) => [t.name.toLowerCase(), t.id]));
-
-  const bridge: IdBridge = {
-    organisationId: profilesRes.data?.[0]?.organisation_id ?? null,
-    profileLiveToApp: new Map(),
-    teamLiveToApp: new Map(),
-    teamAppToLive: new Map(),
-  };
-  for (const row of profilesRes.data ?? []) {
-    const mockId = mockUserByEmail.get(String(row.email).toLowerCase());
-    if (mockId) bridge.profileLiveToApp.set(row.id, mockId);
-  }
-  for (const row of teamsRes.data ?? []) {
-    const mockId = mockTeamByName.get(String(row.name).toLowerCase());
-    if (mockId) {
-      bridge.teamLiveToApp.set(row.id, mockId);
-      bridge.teamAppToLive.set(mockId, row.id);
-    }
-  }
-  return bridge;
+async function fetchOrganisationId(
+  supabase: SupabaseClient,
+  liveProfileId: string,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('organisation_id')
+    .eq('id', liveProfileId)
+    .single();
+  if (error) throw error;
+  return data.organisation_id as string;
 }
 
-/** Map a live row into the app's Announcement shape (mock ids where known). */
-function toAppAnnouncement(row: AnnouncementRow, bridge: IdBridge): Announcement {
+/** Map a live row into the app's Announcement shape (ids stay live UUIDs). */
+function toAppAnnouncement(row: AnnouncementRow): Announcement {
   return {
     id: row.id,
     organisation_id: row.organisation_id,
-    team_id: row.team_id ? (bridge.teamLiveToApp.get(row.team_id) ?? row.team_id) : null,
+    team_id: row.team_id,
     title: row.title,
     body: row.body,
     audience: row.audience,
     pinned: row.pinned,
     image_url: row.image_url,
-    // Events are live too, so this UUID resolves against the live events list.
     linked_event_id: row.linked_event_id,
-    created_by: bridge.profileLiveToApp.get(row.created_by) ?? row.created_by,
+    created_by: row.created_by,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
 }
 
-/** Resolve an app team id to the live team UUID, or fail with a calm message. */
-function toLiveTeamId(appTeamId: string | null, bridge: IdBridge): string | null {
-  if (!appTeamId) return null;
-  const mapped = bridge.teamAppToLive.get(appTeamId);
-  if (mapped) return mapped;
-  // An unmapped id that isn't a mock id ('team-…') is already a live UUID
-  // (e.g. an announcement for a team that exists only in the database).
-  if (!appTeamId.startsWith('team-')) return appTeamId;
-  console.warn(`[announcements] no live team found for "${appTeamId}"`);
-  throw new Error(SAVE_ERROR);
+/** Teams are live, so a team id is already a live UUID — refuse mock ids. */
+function toDbTeamId(teamId: string | null): string | null {
+  if (!teamId) return null;
+  if (teamId.startsWith('team-')) {
+    // A demo/mock team id must never reach the live foreign key.
+    console.warn(`[announcements] refusing mock team id "${teamId}"`);
+    throw new Error(SAVE_ERROR);
+  }
+  return teamId;
 }
 
 /**
  * The mutable columns the client may write. `audience` is always derived
  * from `team_id` so the DB check constraint (church ⇔ team_id null) holds;
  * `created_at`/`updated_at` belong to the database (trigger-owned);
- * `linked_event_id` must already be a live event UUID (the live picker only
- * offers live events) — mock ids are refused rather than written.
+ * `team_id`/`linked_event_id` must already be live UUIDs (the live pickers
+ * only offer live rows) — mock ids are refused rather than written.
  */
-function toDbFields(input: Partial<NewAnnouncementInput>, bridge: IdBridge) {
+function toDbFields(input: Partial<NewAnnouncementInput>) {
   const fields: Record<string, unknown> = {};
   if (input.title !== undefined) fields.title = input.title;
   if (input.body !== undefined) fields.body = input.body;
@@ -200,7 +163,7 @@ function toDbFields(input: Partial<NewAnnouncementInput>, bridge: IdBridge) {
     fields.linked_event_id = input.linked_event_id;
   }
   if (input.team_id !== undefined) {
-    const liveTeamId = toLiveTeamId(input.team_id, bridge);
+    const liveTeamId = toDbTeamId(input.team_id);
     fields.team_id = liveTeamId;
     fields.audience = (liveTeamId ? 'team' : 'church') satisfies AnnouncementAudience;
   }
@@ -214,14 +177,13 @@ function toDbFields(input: Partial<NewAnnouncementInput>, bridge: IdBridge) {
 export async function listAnnouncements(): Promise<Announcement[]> {
   const supabase = requireClient();
   try {
-    const bridge = await loadBridge(supabase);
     const { data, error } = await supabase
       .from('announcements')
       .select('*')
       .order('pinned', { ascending: false })
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return ((data ?? []) as AnnouncementRow[]).map((row) => toAppAnnouncement(row, bridge));
+    return ((data ?? []) as AnnouncementRow[]).map(toAppAnnouncement);
   } catch (error) {
     fail('list', error, LOAD_ERROR);
   }
@@ -237,19 +199,18 @@ export async function createAnnouncement(
 ): Promise<Announcement> {
   const supabase = requireClient();
   try {
-    const bridge = await loadBridge(supabase);
-    if (!bridge.organisationId) throw new Error(SAVE_ERROR);
+    const organisationId = await fetchOrganisationId(supabase, liveProfileId);
     const { data, error } = await supabase
       .from('announcements')
       .insert({
-        ...toDbFields({ ...input, team_id: input.team_id ?? null }, bridge),
-        organisation_id: bridge.organisationId,
+        ...toDbFields({ ...input, team_id: input.team_id ?? null }),
+        organisation_id: organisationId,
         created_by: liveProfileId,
       })
       .select('*')
       .single();
     if (error) throw error;
-    return toAppAnnouncement(data as AnnouncementRow, bridge);
+    return toAppAnnouncement(data as AnnouncementRow);
   } catch (error) {
     fail('create', error, SAVE_ERROR);
   }
@@ -262,10 +223,9 @@ export async function updateAnnouncement(
 ): Promise<Announcement> {
   const supabase = requireClient();
   try {
-    const bridge = await loadBridge(supabase);
     const { data, error } = await supabase
       .from('announcements')
-      .update(toDbFields(patch, bridge))
+      .update(toDbFields(patch))
       .eq('id', id)
       .select('*')
       .maybeSingle();
@@ -273,7 +233,7 @@ export async function updateAnnouncement(
     // RLS silently matches zero rows when the caller may not update this
     // announcement (or it was deleted elsewhere) — surface that honestly.
     if (!data) throw new Error(MISSING_ERROR);
-    return toAppAnnouncement(data as AnnouncementRow, bridge);
+    return toAppAnnouncement(data as AnnouncementRow);
   } catch (error) {
     fail('update', error, SAVE_ERROR);
   }

@@ -16,19 +16,20 @@
  *    translates rejections into friendly plain-English errors;
  *  - never uses service-role keys; anonymous sessions are blocked by RLS.
  *
- * Phase note — id bridging: people, teams, and event categories are still
- * mocked, so screens know them by mock ids ('user-joseph', 'team-choir',
- * 'cat-service'), while the database uses UUIDs. Rows are mapped at this
- * boundary: live profile UUIDs ↔ mock user ids (matched by email), live team
- * UUIDs ↔ mock team ids (matched by name), and live category UUIDs ↔ mock
- * category ids (matched by name — the live seed uses the same twelve names).
- * TODO: wire to Supabase — remove the bridge once profiles/teams (and a live
- * categories fetch) go live (docs/supabase-integration-plan.md, step 6).
+ * People and teams are live now (step 6), so `created_by` and `team_id`
+ * travel as real UUIDs end-to-end and screens resolve names against the live
+ * directory. Mock team ids ('team-…') are refused defensively.
+ *
+ * Phase note — the one remaining bridge: event categories are still mocked
+ * in the app ('cat-service' …), so live category UUIDs ↔ mock category ids
+ * are matched by name at this boundary (the live seed uses the same twelve
+ * names). TODO: wire to Supabase — remove once a live categories fetch
+ * exists (docs/supabase-integration-plan.md).
  */
 import { SupabaseClient } from '@supabase/supabase-js';
 
 import { Event } from '../../../types';
-import { mockCategories, mockTeams, mockUsers } from '../../mockData';
+import { mockCategories } from '../../mockData';
 import { getSupabase } from '../client';
 
 // Friendly, non-technical messages — shown directly in the UI.
@@ -62,13 +63,8 @@ interface EventRow {
   updated_at: string;
 }
 
-/** Live-UUID ↔ mock-id maps for the still-mocked people, teams, categories. */
-interface IdBridge {
-  /** The caller's live organisation id (needed on inserts). */
-  organisationId: string | null;
-  profileLiveToApp: Map<string, string>;
-  teamLiveToApp: Map<string, string>;
-  teamAppToLive: Map<string, string>;
+/** Live-UUID ↔ mock-id maps for the still-mocked event categories. */
+interface CategoryBridge {
   categoryLiveToApp: Map<string, string>;
   categoryAppToLive: Map<string, string>;
 }
@@ -113,43 +109,20 @@ function fail(operation: string, error: unknown, fallback: string): never {
 }
 
 /**
- * Fetch the id bridge for the current session. RLS scopes all three queries
- * to what the caller may see, which matches exactly the events they can read.
+ * Fetch the category name-bridge for the current session (categories are the
+ * one collection still mocked in the app). RLS scopes the query to the
+ * caller's organisation.
  */
-async function loadBridge(supabase: SupabaseClient): Promise<IdBridge> {
-  const [profilesRes, teamsRes, categoriesRes] = await Promise.all([
-    supabase.from('profiles').select('id, email, organisation_id'),
-    supabase.from('teams').select('id, name'),
-    supabase.from('event_categories').select('id, name'),
-  ]);
-  if (profilesRes.error) throw profilesRes.error;
-  if (teamsRes.error) throw teamsRes.error;
-  if (categoriesRes.error) throw categoriesRes.error;
+async function loadCategoryBridge(supabase: SupabaseClient): Promise<CategoryBridge> {
+  const { data, error } = await supabase.from('event_categories').select('id, name');
+  if (error) throw error;
 
-  const mockUserByEmail = new Map(mockUsers.map((u) => [u.email.toLowerCase(), u.id]));
-  const mockTeamByName = new Map(mockTeams.map((t) => [t.name.toLowerCase(), t.id]));
   const mockCategoryByName = new Map(mockCategories.map((c) => [c.name.toLowerCase(), c.id]));
-
-  const bridge: IdBridge = {
-    organisationId: profilesRes.data?.[0]?.organisation_id ?? null,
-    profileLiveToApp: new Map(),
-    teamLiveToApp: new Map(),
-    teamAppToLive: new Map(),
+  const bridge: CategoryBridge = {
     categoryLiveToApp: new Map(),
     categoryAppToLive: new Map(),
   };
-  for (const row of profilesRes.data ?? []) {
-    const mockId = mockUserByEmail.get(String(row.email).toLowerCase());
-    if (mockId) bridge.profileLiveToApp.set(row.id, mockId);
-  }
-  for (const row of teamsRes.data ?? []) {
-    const mockId = mockTeamByName.get(String(row.name).toLowerCase());
-    if (mockId) {
-      bridge.teamLiveToApp.set(row.id, mockId);
-      bridge.teamAppToLive.set(mockId, row.id);
-    }
-  }
-  for (const row of categoriesRes.data ?? []) {
+  for (const row of data ?? []) {
     const mockId = mockCategoryByName.get(String(row.name).toLowerCase());
     if (mockId) {
       bridge.categoryLiveToApp.set(row.id, mockId);
@@ -159,8 +132,25 @@ async function loadBridge(supabase: SupabaseClient): Promise<IdBridge> {
   return bridge;
 }
 
-/** Map a live row into the app's Event shape (mock ids where known). */
-function toAppEvent(row: EventRow, bridge: IdBridge): Event {
+/**
+ * The caller's organisation id (needed on inserts). RLS means the caller can
+ * always read their own profile row.
+ */
+async function fetchOrganisationId(
+  supabase: SupabaseClient,
+  liveProfileId: string,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('organisation_id')
+    .eq('id', liveProfileId)
+    .single();
+  if (error) throw error;
+  return data.organisation_id as string;
+}
+
+/** Map a live row into the app's Event shape (mock category ids where known). */
+function toAppEvent(row: EventRow, bridge: CategoryBridge): Event {
   return {
     id: row.id,
     organisation_id: row.organisation_id,
@@ -172,30 +162,30 @@ function toAppEvent(row: EventRow, bridge: IdBridge): Event {
     start_time: row.start_time,
     end_time: row.end_time,
     location: row.location,
-    team_id: row.team_id ? (bridge.teamLiveToApp.get(row.team_id) ?? row.team_id) : null,
+    team_id: row.team_id,
     is_recurring: row.is_recurring,
     recurrence_rule: row.recurrence_rule,
     recurrence_label: row.recurrence_label,
     recurrence_end_date: row.recurrence_end_date,
-    created_by: bridge.profileLiveToApp.get(row.created_by) ?? row.created_by,
+    created_by: row.created_by,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
 }
 
-/** Resolve an app team id to the live team UUID, or fail with a calm message. */
-function toLiveTeamId(appTeamId: string | null, bridge: IdBridge): string | null {
-  if (!appTeamId) return null;
-  const mapped = bridge.teamAppToLive.get(appTeamId);
-  if (mapped) return mapped;
-  // An unmapped id that isn't a mock id ('team-…') is already a live UUID.
-  if (!appTeamId.startsWith('team-')) return appTeamId;
-  console.warn(`[events] no live team found for "${appTeamId}"`);
-  throw new Error(SAVE_ERROR);
+/** Teams are live, so a team id is already a live UUID — refuse mock ids. */
+function toDbTeamId(teamId: string | null): string | null {
+  if (!teamId) return null;
+  if (teamId.startsWith('team-')) {
+    // A demo/mock team id must never reach the live foreign key.
+    console.warn(`[events] refusing mock team id "${teamId}"`);
+    throw new Error(SAVE_ERROR);
+  }
+  return teamId;
 }
 
 /** Resolve an app category id to the live category UUID. */
-function toLiveCategoryId(appCategoryId: string, bridge: IdBridge): string {
+function toLiveCategoryId(appCategoryId: string, bridge: CategoryBridge): string {
   const mapped = bridge.categoryAppToLive.get(appCategoryId);
   if (mapped) return mapped;
   // An unmapped id that isn't a mock id ('cat-…') is already a live UUID.
@@ -212,7 +202,7 @@ function toLiveCategoryId(appCategoryId: string, bridge: IdBridge): string {
  * label; non-recurring rows must have all recurrence fields null) — the form
  * already builds inputs that way.
  */
-function toDbFields(input: Partial<NewEventInput>, bridge: IdBridge) {
+function toDbFields(input: Partial<NewEventInput>, bridge: CategoryBridge) {
   const fields: Record<string, unknown> = {};
   if (input.title !== undefined) fields.title = input.title;
   if (input.description !== undefined) fields.description = input.description;
@@ -222,7 +212,7 @@ function toDbFields(input: Partial<NewEventInput>, bridge: IdBridge) {
   if (input.start_time !== undefined) fields.start_time = input.start_time;
   if (input.end_time !== undefined) fields.end_time = input.end_time;
   if (input.location !== undefined) fields.location = input.location;
-  if (input.team_id !== undefined) fields.team_id = toLiveTeamId(input.team_id, bridge);
+  if (input.team_id !== undefined) fields.team_id = toDbTeamId(input.team_id);
   if (input.is_recurring !== undefined) fields.is_recurring = input.is_recurring;
   if (input.recurrence_rule !== undefined) fields.recurrence_rule = input.recurrence_rule;
   if (input.recurrence_label !== undefined) fields.recurrence_label = input.recurrence_label;
@@ -240,7 +230,7 @@ function toDbFields(input: Partial<NewEventInput>, bridge: IdBridge) {
 export async function listEvents(): Promise<Event[]> {
   const supabase = requireClient();
   try {
-    const bridge = await loadBridge(supabase);
+    const bridge = await loadCategoryBridge(supabase);
     const { data, error } = await supabase
       .from('events')
       .select('*')
@@ -259,13 +249,15 @@ export async function listEvents(): Promise<Event[]> {
 export async function createEvent(input: NewEventInput, liveProfileId: string): Promise<Event> {
   const supabase = requireClient();
   try {
-    const bridge = await loadBridge(supabase);
-    if (!bridge.organisationId) throw new Error(SAVE_ERROR);
+    const [bridge, organisationId] = await Promise.all([
+      loadCategoryBridge(supabase),
+      fetchOrganisationId(supabase, liveProfileId),
+    ]);
     const { data, error } = await supabase
       .from('events')
       .insert({
         ...toDbFields(input, bridge),
-        organisation_id: bridge.organisationId,
+        organisation_id: organisationId,
         created_by: liveProfileId,
       })
       .select('*')
@@ -281,7 +273,7 @@ export async function createEvent(input: NewEventInput, liveProfileId: string): 
 export async function updateEvent(id: string, patch: Partial<Event>): Promise<Event> {
   const supabase = requireClient();
   try {
-    const bridge = await loadBridge(supabase);
+    const bridge = await loadCategoryBridge(supabase);
     const { data, error } = await supabase
       .from('events')
       .update(toDbFields(patch, bridge))

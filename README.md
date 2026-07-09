@@ -2,7 +2,7 @@
 
 A mobile-first church coordination app for **Grace Community Church** — events, announcements, team rotas, choir song management, and team chat, all in one calm place. Built to reduce reliance on WhatsApp.
 
-**Status:** functional scaffold / demo MVP with optional Supabase Auth and local persistence. **Announcements and events are the live Supabase data slices**: when you sign in with Supabase Auth (and your auth user is linked to a profile), announcements and calendar events load from and save to the live database, protected by RLS. Everything else (teams, rotas, songs, chat, notification preferences) is still mocked/local, and the whole app — announcements and events included — still works fully offline in demo mode.
+**Status:** functional scaffold / demo MVP with optional Supabase Auth and local persistence. **Announcements, events, and the people/teams directory are the live Supabase data slices**: when you sign in with Supabase Auth (and your auth user is linked to a profile), announcements, calendar events, and your teams/members (read-only) load from the live database, protected by RLS — and your session itself (profile, role, memberships) is built from live rows. Rotas, songs, chat, and notification preferences are still mocked/local, and the whole app — live slices included — still works fully offline in demo mode.
 
 ## Current Scaffold Highlights
 
@@ -13,7 +13,7 @@ A mobile-first church coordination app for **Grace Community Church** — events
 - **Plan the Month** lets choir leaders create a whole month of Sunday services and weekly rehearsals at once, with default leaders and per-date overrides.
 - Choir rehearsals include every choir member so each can confirm availability; rota detail shows an Available / Maybe / Unavailable / Not responded tracker.
 - Rehearsals (or services) can be **cancelled** instead of deleted: they stay visible with a Cancelled badge, drop out of responsibilities, and offer a prefilled team announcement (never auto-sent).
-- Supabase migrations `001`–`006` are applied to the dev project with tracked history (see `docs/supabase-migration-alignment-checkpoint.md`); **auth + profile lookup + announcements + events** are wired to live Supabase — all other feature data stays mocked. A timestamped grants migration for the events slice (`20260709093129_grant_authenticated_events_api_privileges.sql`) exists locally and needs `supabase db push` before live events work.
+- Supabase migrations `001`–`006` plus the events grants migration (`20260709093129_grant_authenticated_events_api_privileges.sql`) are applied to the dev project with tracked history (see `docs/supabase-migration-alignment-checkpoint.md`); **auth + live sessions + announcements + events + the read-only people/teams directory** are wired to live Supabase — rotas, songs, and chat stay mocked/local for now.
 - Demo changes (announcements, rotas, songs, messages, notification settings...) persist locally via AsyncStorage and can be reset from **Profile -> Reset Demo Data**.
 
 ## Tech Stack
@@ -58,18 +58,19 @@ With no `.env` file the app runs fully offline on mock data. Pick a test account
 
 Notes:
 - A Supabase auth user with **no linked profile** gets a friendly "account not linked yet" message - no profile is auto-created in this phase.
-- Signed-in Supabase users whose profile email matches a demo person get that person's teams/permissions (feature data is still mocked, so demo identities are bridged inside the auth layer).
+- A Supabase session is built entirely from live rows: your profile, organisation role, and team memberships come from the database (real UUIDs — no demo-identity bridging in the auth layer any more).
 - The demo account selector stays available even when Supabase is configured.
 
-### Live announcements & events (Supabase data slices)
+### Live announcements, events & teams (Supabase data slices)
 
-When you are signed in through **Supabase Auth with a linked profile**, the announcements and calendar/events screens read and write the live `announcements` and `events` tables (`src/lib/supabase/services/`); in demo mode they keep using local data. Worth knowing:
+When you are signed in through **Supabase Auth with a linked profile**, the announcements and calendar/events screens read and write the live `announcements` and `events` tables, and the Teams/Messages/Home/Profile screens show your live teams, members, and organisation (read-only — team management still happens in the Supabase dashboard). All of it goes through `src/lib/supabase/services/`; in demo mode everything keeps using local data. Worth knowing:
 
 - **RLS is the authority.** Client-side role checks only hide buttons; the server enforces that church-wide announcements need a church admin or announcement manager, team announcements need that team's leader (or an admin), events can only be created/edited/deleted by a church admin or event manager, and reads are limited to your organisation and accessible teams. Live data is **authenticated-only** — anonymous users can read nothing.
 - The announcements columns are `body` (not "content") and `pinned` (not "priority").
 - Linking an announcement to an event works in both modes: the picker lists live events in live mode (real UUIDs) and local events in demo mode.
 - Recurring events are stored as single base rows (rule + label + optional end date) and expanded into upcoming occurrences on-device — same as demo mode.
-- Live announcements and events are session data: they are not saved into the demo AsyncStorage snapshot, and **Reset Demo Data** does not touch the live database.
+- Live announcements, events, and the teams directory are session data: they are not saved into the demo AsyncStorage snapshot, and **Reset Demo Data** does not touch the live database.
+- Rotas, songs, and chat are still demo/local data. In live mode they are shown against your live teams (matched by team name/member email behind the scenes), and changes to them stay on your device — they do not reach the database or other people yet.
 
 To try it end to end (after the setup steps above):
 

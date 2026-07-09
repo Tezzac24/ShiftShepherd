@@ -1,8 +1,8 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { spacing } from '../../../constants/theme';
+import { colors, spacing } from '../../../constants/theme';
 import { AnnouncementCard } from '../../components/AnnouncementCard';
 import { AppText } from '../../components/AppText';
 import { Badge, CountBadge } from '../../components/Badge';
@@ -40,6 +40,38 @@ export default function TeamSpaceScreen() {
   const data = useAppData();
 
   const team = data.teams.find((t) => t.id === teamId);
+
+  // Live mode: the directory may still be loading (or have failed) — don't
+  // flash "Team not found" while the team is simply on its way.
+  if (!team && data.teamsLoading) {
+    return (
+      <Screen>
+        <Stack.Screen options={{ title: 'Team' }} />
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <AppText tone="secondary">Loading your team…</AppText>
+        </View>
+      </Screen>
+    );
+  }
+  if (!team && data.teamsError) {
+    return (
+      <Screen>
+        <Stack.Screen options={{ title: 'Team' }} />
+        <EmptyState
+          icon="cloud-offline-outline"
+          title="Couldn’t load this team"
+          message={data.teamsError}
+        />
+        <Button
+          title="Try Again"
+          variant="secondary"
+          icon="refresh-outline"
+          onPress={() => void data.refreshTeams()}
+        />
+      </Screen>
+    );
+  }
 
   if (!team || !canViewTeam(user, team.id)) {
     return (
@@ -240,6 +272,7 @@ export default function TeamSpaceScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
   header: { gap: spacing.xs },
   memberRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
   shortcuts: { gap: spacing.sm },

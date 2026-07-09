@@ -1,11 +1,12 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { spacing } from '../../../constants/theme';
+import { colors, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { CountBadge } from '../../components/Badge';
+import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
@@ -20,13 +21,38 @@ export default function MessagesScreen() {
   const data = useAppData();
 
   const teams = visibleTeams(user, data.teams);
+  // Live mode: the directory loads after sign-in — show calm loading/error
+  // states instead of flashing the "no team chats" message.
+  const showLoading = data.teamsLoading && teams.length === 0;
+  const showError = !!data.teamsError && teams.length === 0 && !data.teamsLoading;
 
   return (
     <Screen safeTop>
       <AppText variant="title">Messages</AppText>
       <AppText tone="secondary">Your team conversations.</AppText>
 
-      {teams.length > 0 ? (
+      {showLoading ? (
+        <Card>
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={colors.primary} />
+            <AppText tone="secondary">Loading your teams…</AppText>
+          </View>
+        </Card>
+      ) : showError ? (
+        <>
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Couldn’t load your teams"
+            message={data.teamsError ?? ''}
+          />
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshTeams()}
+          />
+        </>
+      ) : teams.length > 0 ? (
         teams.map((team) => {
           const last = lastMessageForTeam(team.id, data.chatMessages);
           const unread = data.unreadByTeam[team.id] ?? 0;
@@ -78,6 +104,7 @@ export default function MessagesScreen() {
 
 const styles = StyleSheet.create({
   chatCard: { paddingVertical: spacing.md },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   titleRow: {
     flexDirection: 'row',

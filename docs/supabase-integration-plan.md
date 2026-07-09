@@ -30,6 +30,7 @@ The single riskiest step — done in its own pass. What shipped:
 
 Still to do in this step:
 
+- ~~Replace the email→mock-identity bridge in `buildSupabaseSession`~~ ✅ done in step 6: Supabase sessions are now built entirely from `profiles` + `organisation_roles` + `team_memberships` queries — all ids in a live session are real UUIDs.
 - Add a `handle_new_user` trigger (new migration) that inserts a `profiles` row on signup. For V1 single-church, it can hard-code the Grace Community organisation id and a `general_member` org role:
   ```sql
   create function public.handle_new_user() returns trigger
@@ -43,11 +44,10 @@ Still to do in this step:
     for each row execute function public.handle_new_user();
   ```
   Multi-church later replaces the hard-coded org with invite codes.
-- Replace the email→mock-identity bridge in `buildSupabaseSession` with sessions built entirely from `profiles` + `organisation_roles` + `team_memberships` queries. This happens naturally once teams/memberships go live (step 6) — until then live team UUIDs would not match mock team ids.
 
-### 3. Organisations & roles
+### 3. Organisations & roles ✅ (done with step 6)
 
-Mostly free after step 2 — `SessionUser` already carries org + role. Point the organisation name on Home at the fetched row. No UI changes.
+`SessionUser` carries org + role, and the organisation name on Home now comes from the live `organisations` row in live mode (fetched with the teams directory). No UI changes.
 
 ### 4. Announcements — the first vertical slice ⭐ ✅ (done)
 
@@ -58,7 +58,7 @@ What shipped (the pattern to repeat for every feature):
 1. `src/lib/supabase/services/announcements.ts` — `listAnnouncements / createAnnouncement / updateAnnouncement / deleteAnnouncement` returning the existing `Announcement` type, with all DB↔app mapping centralized there. The live table uses `body` (not "content") and `pinned` (not "priority"); `audience` is always derived from `team_id` so the DB check constraint holds; `updated_at` is trigger-owned and never sent.
 2. `AppDataContext` keeps **two announcement stores**: the persisted local/demo list (unchanged, still reset by Reset Demo Data) and a session-only live list used when `authMode === 'supabase'` and the session carries a linked profile id (`SessionUser.supabaseProfileId`). `add/update/deleteAnnouncement` are now async in both modes; in live mode they apply the server-returned row, then quietly re-sync the list. Errors reject with friendly messages and never mutate state.
 3. Screens gained loading/saving/error states but kept the same selectors and data shapes.
-4. **Id bridging (temporary):** because people/teams are still mocked, the service maps live profile UUIDs ↔ mock user ids by email and live team UUIDs ↔ mock team ids by name (same philosophy as the auth email bridge). Remove when step 6 (teams) goes live.
+4. ~~**Id bridging (temporary)**~~ ✅ removed in step 6: people/teams are live, so announcement rows travel with real profile/team UUIDs end-to-end and screens resolve names against the live directory. Mock ids ('team-…', 'event-…') are still refused defensively at the service boundary.
 5. **Deferred:** ~~`linked_event_id` writes~~ (done in step 5 — the live picker offers live events and the service refuses mock ids) and optimistic-update-with-rollback (simple await + friendly error was safer for a first slice; revisit when a slice needs snappier UX).
 
 Verify RLS from the app: log in as Ruth (can read, no create button, and a hand-crafted insert fails server-side), Miriam (church-wide CRUD), Sarah (choir announcements only).
@@ -67,7 +67,7 @@ Verify RLS from the app: log in as Ruth (can read, no create button, and a hand-
 
 Same pattern as announcements (`events` + read-only `event_categories`). What shipped:
 
-1. `src/lib/supabase/services/events.ts` — `listEvents / createEvent / updateEvent / deleteEvent` returning the existing `Event` type. The id bridge extends the announcements one with **categories matched by name** (the live seed uses the same twelve names); `created_by` is always the caller's live profile id on insert and never patched.
+1. `src/lib/supabase/services/events.ts` — `listEvents / createEvent / updateEvent / deleteEvent` returning the existing `Event` type. `created_by` is always the caller's live profile id on insert and never patched. Since step 6 the only remaining bridge is **categories matched by name** (the live seed uses the same twelve names; the app's category list is still mock) — team/profile ids pass through as real UUIDs.
 2. `AppDataContext` keeps two event stores (persisted local/demo + session-only live), switching on the same condition as announcements. `add/update/deleteEvent` are async in both modes; live mutations apply the server row then quietly re-sync.
 3. Calendar/Home/detail/form screens gained loading, error+retry, and saving/deleting states; recurring events still travel as base rows and are expanded client-side (`utils/recurrence`), which works unchanged for live rows.
 4. **Live `linked_event_id` unlocked:** the announcement form's linked-event picker now shows in live mode too (it lists live events, so the id is a real UUID); the announcements service refuses mock `event-…` ids defensively.
@@ -75,13 +75,26 @@ Same pattern as announcements (`events` + read-only `event_categories`). What sh
 
 Verify RLS from the app: Joseph (event manager) full CRUD; Daniel (admin) full CRUD; Ruth/Sarah read-only (no New Event button, and a hand-crafted insert fails server-side).
 
-### 6. Teams & memberships
+### 6. Teams & memberships ✅ (done, read-only)
 
-Read-only in the current UI (no team-management screens yet), so this is fetch-only: teams + memberships into context at login. Note the **team-name edge case** under Risks below.
+Fetch-only, as planned (the app has no team-management screens; admins manage teams in the dashboard). What shipped:
+
+1. `src/lib/supabase/services/teams.ts` — `fetchTeamsDirectory()` returns the caller's organisation, visible profiles, visible teams, and those teams' memberships in one parallel fetch. RLS does the filtering (members see their teams, church admins see all); migration 006's SELECT grants already covered every table, so **no new migration was needed** and there are deliberately no write grants.
+2. `AuthContext` now builds Supabase sessions entirely from live rows (profile + org role + own memberships) — the email→mock-identity bridge is gone. All ids in a live session are real UUIDs.
+3. `AppDataContext` gained a third live slice (`teamsLive`/`teamsLoading`/`teamsError`/`refreshTeams`): `organisation`, `users`, `teams`, and `memberships` come from the live directory for linked Supabase sessions and stay mock in demo mode. Live directory data is session-only (never persisted; cleared on sign-out).
+4. The announcements/events services dropped their profile/team id bridges — live rows keep real UUIDs end-to-end and screens resolve names against the live directory. Only the **event-category name bridge** remains (categories are still mock in the app).
+5. **Temporary demo bridge** (`src/lib/appData/demoBridge.ts`): rotas, songs, chat, and availability are still demo/local data keyed by mock ids, so in live mode those collections are re-keyed onto live team/profile UUIDs for display (teams by name, people by email), and local writes map ids back to mock ids so the persisted demo snapshot stays clean. Nothing in it touches Supabase; delete it slice by slice as steps 7–9 go live.
+6. Teams tab, team space, Messages tab, and the Home team sections show calm loading/error+retry states while the directory loads.
+
+Note the **team-name edge case** under Risks below — still open, and now user-visible: a non-member viewing a church-wide event linked to a team cannot resolve that team's name (RLS hides the team row), so the detail screen simply omits it.
 
 ### 7. Rotas & availability
 
-The most relational slice. Service functions: `listEntriesWithAssignments(teamId)`, `saveEntry(entry, assignments)` (create/update + replace assignments), `deleteEntry`, `cancelEntry(entryId, reason)` / `restoreEntry(entryId)` (updates `status` + `cancelled_*` from migration 005 — allowed by the existing leaders-manage-rota policy), and `respondToAssignment(assignmentId, status, note)` — the last one is an **upsert** onto the `unique(rota_assignment_id)` constraint, with `user_id` set from the current profile and matching the assignment. Replace-assignments should be a single RPC (Postgres function) so it is transactional.
+The most relational slice — and the recommended next one.
+
+> **Grants check (verified read-only 2026-07-09):** `rota_entries`, `rota_assignments`, `availability_responses`, `songs`, `song_links`, `choir_rota_song_selections`, and `chat_messages` have **no** `authenticated` Data API privileges yet (006 and the events grants migration didn't cover them). This slice therefore needs a small grants migration (select/insert/update/delete per the RLS policies' intent) before any of it can go live — RLS itself is already in place from 002/004/005.
+
+Service functions: `listEntriesWithAssignments(teamId)`, `saveEntry(entry, assignments)` (create/update + replace assignments), `deleteEntry`, `cancelEntry(entryId, reason)` / `restoreEntry(entryId)` (updates `status` + `cancelled_*` from migration 005 — allowed by the existing leaders-manage-rota policy), and `respondToAssignment(assignmentId, status, note)` — the last one is an **upsert** onto the `unique(rota_assignment_id)` constraint, with `user_id` set from the current profile and matching the assignment. Replace-assignments should be a single RPC (Postgres function) so it is transactional.
 
 Choir specifics that ride on this slice:
 
@@ -143,6 +156,8 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## What stays mocked until later
 
+- **Rotas, songs, chat** — demo/local data until steps 7–9; in live mode they are re-keyed onto live team/profile ids by the temporary demo bridge (`src/lib/appData/demoBridge.ts`) so they keep working next to live teams.
+- **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
 - **Unread badges** — client-side simulation until a `chat_reads` table exists.
 - **Notification delivery** — settings UI persists locally (or to the table) but nothing pushes until step 11.
 - **Images & attachments** — placeholders until step 10 (Storage).
@@ -151,11 +166,12 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ## Recommended immediate next task
 
-Steps 1–2, 4, and 5 are done (auth + profile lookup + announcements + events are live; everything else is mocked but persisted locally). Next, in order of value:
+Steps 1–6 are done (auth + live sessions + organisations/roles + announcements + events + the read-only teams/people directory; rotas/songs/chat are mocked but persisted locally, re-keyed onto live ids in live mode via the temporary demo bridge). Next, in order of value:
 
-1. ✅ **Done (2026-07-09):** migrations `003`–`006` are applied to the remote dev DB and migration history is aligned (records `001`–`006`). Future schema changes use `supabase migration new` → `supabase db push`. See `docs/supabase-migration-alignment-checkpoint.md`.
-2. ✅ **Done (2026-07-09):** **step 5 — events** is implemented, including live `linked_event_id` on announcements. The grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` still needs `supabase db push` (with approval) before live events work against the dev project.
-3. Add the `handle_new_user` trigger migration.
-4. Start **step 6 — teams & memberships** (fetch-only), which also retires the email/name id bridges.
+1. ✅ **Done (2026-07-09):** migrations `003`–`006` applied remotely with aligned history; the events grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` is pushed and verified.
+2. ✅ **Done (2026-07-09):** **step 5 — events**, including live `linked_event_id` on announcements.
+3. ✅ **Done (2026-07-09):** **step 6 — teams & memberships** (fetch-only), retiring the email/name id bridges in auth, announcements, and events.
+4. Start **step 7 — rotas & availability** (needs the grants migration flagged in that step), which also lets the demo bridge start shrinking. Consider bundling the teams-SELECT relaxation (Risks: team-name visibility, option b) into the same migration pass.
+5. Add the `handle_new_user` trigger migration.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { colors, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Badge, CountBadge } from '../../components/Badge';
+import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
@@ -33,6 +34,10 @@ export default function TeamsScreen() {
   const data = useAppData();
 
   const teams = visibleTeams(user, data.teams);
+  // Live mode: the directory loads after sign-in — show calm loading/error
+  // states instead of flashing the "no teams" message.
+  const showLoading = data.teamsLoading && teams.length === 0;
+  const showError = !!data.teamsError && teams.length === 0 && !data.teamsLoading;
 
   return (
     <Screen safeTop>
@@ -43,7 +48,28 @@ export default function TeamsScreen() {
           : 'The teams you belong to.'}
       </AppText>
 
-      {teams.length > 0 ? (
+      {showLoading ? (
+        <Card>
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={colors.primary} />
+            <AppText tone="secondary">Loading your teams…</AppText>
+          </View>
+        </Card>
+      ) : showError ? (
+        <>
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Couldn’t load your teams"
+            message={data.teamsError ?? ''}
+          />
+          <Button
+            title="Try Again"
+            variant="secondary"
+            icon="refresh-outline"
+            onPress={() => void data.refreshTeams()}
+          />
+        </>
+      ) : teams.length > 0 ? (
         teams.map((team) => {
           const nextRota = upcomingRotaEntriesForTeam(team.id, data.rotaEntries)[0];
           const lastMsg = lastMessageForTeam(team.id, data.chatMessages);
@@ -106,4 +132,5 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   badgeRow: { flexDirection: 'row', gap: spacing.xs, marginTop: 2, flexWrap: 'wrap' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
 });

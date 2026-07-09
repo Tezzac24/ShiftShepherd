@@ -10,20 +10,14 @@
  *
  *  - **Supabase mode** (when EXPO_PUBLIC_SUPABASE_URL / _ANON_KEY are set):
  *    real email/password sign-in via Supabase Auth, with session restore on
- *    cold start and an auth-state listener. After login the matching row in
- *    `profiles` (auth_user_id = auth.uid()) is fetched and converted into the
- *    same SessionUser shape the rest of the app already uses, so screens and
- *    permission checks never know which mode is active.
- *
- * Feature data stays mocked in this phase, so a Supabase profile whose email
- * matches a mock user (the seeded demo people) is bridged onto that mock
- * user's id/memberships — keeping rotas, teams, and permissions working.
- * Unrecognised profiles get a real session with their fetched org role but no
- * mock team memberships (their real team ids don't exist in mock data yet).
- *
- * TODO: wire to Supabase data — once feature slices go live, replace the
- * email bridge with sessions built entirely from profiles/organisation_roles/
- * team_memberships queries (docs/supabase-integration-plan.md, step 2+).
+ *    cold start and an auth-state listener. After login the session is built
+ *    entirely from live rows — the `profiles` row (auth_user_id = auth.uid()),
+ *    the caller's `organisation_roles` row, and their `team_memberships` —
+ *    converted into the same SessionUser shape the rest of the app already
+ *    uses, so screens and permission checks never know which mode is active.
+ *    All ids in a Supabase session are real database UUIDs (the old bridge
+ *    that mapped seeded demo people onto mock identities by email is gone —
+ *    people and teams are live now).
  */
 import React, {
   createContext,
@@ -80,7 +74,8 @@ function buildMockSession(userId: string): SessionUser | null {
 }
 
 /**
- * Build a SessionUser for a signed-in Supabase auth user.
+ * Build a SessionUser for a signed-in Supabase auth user, entirely from live
+ * rows: profile, organisation role, and team memberships (all real UUIDs).
  * Returns null when no linked `profiles` row exists.
  * Throws on network/query failure (callers translate to a friendly message).
  */
@@ -96,21 +91,6 @@ async function buildSupabaseSession(authUserId: string): Promise<SessionUser | n
   if (profileError) throw profileError;
   if (!profileRow) return null;
 
-  // Phase note: feature data is still mocked, so seeded demo people (matched
-  // by email) are bridged onto their mock identity — that keeps their teams,
-  // rotas, and permission checks working exactly as in demo mode.
-  const bridged = mockUsers.find(
-    (u) => u.email.toLowerCase() === String(profileRow.email).toLowerCase(),
-  );
-  if (bridged) {
-    const session = buildMockSession(bridged.id);
-    // Keep the real profile id alongside the bridged mock identity — live
-    // data services (announcements) must write real UUIDs, not mock ids.
-    if (session) return { ...session, supabaseProfileId: profileRow.id };
-  }
-
-  // Unrecognised profile: real profile row + real org role, but no mock team
-  // memberships (their live team ids don't exist in mock data yet).
   const profile: UserProfile = {
     id: profileRow.id,
     auth_user_id: profileRow.auth_user_id,
@@ -121,14 +101,18 @@ async function buildSupabaseSession(authUserId: string): Promise<SessionUser | n
     avatar_url: profileRow.avatar_url,
     created_at: profileRow.created_at,
   };
-  const { data: roleRow, error: roleError } = await supabase
-    .from('organisation_roles')
-    .select('role')
-    .eq('user_id', profileRow.id)
-    .maybeSingle();
-  if (roleError) throw roleError;
-  const orgRole = (roleRow?.role ?? 'general_member') as OrganisationRoleName;
-  const memberships: TeamMembership[] = [];
+  const [roleRes, membershipsRes] = await Promise.all([
+    supabase.from('organisation_roles').select('role').eq('user_id', profileRow.id).maybeSingle(),
+    supabase
+      .from('team_memberships')
+      .select('id, team_id, user_id, role, created_at')
+      .eq('user_id', profileRow.id)
+      .order('created_at', { ascending: true }),
+  ]);
+  if (roleRes.error) throw roleRes.error;
+  if (membershipsRes.error) throw membershipsRes.error;
+  const orgRole = (roleRes.data?.role ?? 'general_member') as OrganisationRoleName;
+  const memberships = (membershipsRes.data ?? []) as TeamMembership[];
   return { profile, orgRole, memberships, supabaseProfileId: profileRow.id };
 }
 

@@ -184,6 +184,14 @@ export default function HomeScreen() {
             </View>
           ) : null}
         </Card>
+      ) : data.teamsLoading ? (
+        // Live mode: responsibilities need the teams directory to resolve.
+        <Card>
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={colors.primary} />
+            <AppText tone="secondary">Loading your teams…</AppText>
+          </View>
+        </Card>
       ) : (
         <EmptyState
           icon="checkmark-done-outline"
@@ -218,6 +226,13 @@ export default function HomeScreen() {
             </View>
           </Card>
         ))
+      ) : data.teamsLoading ? (
+        <Card>
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={colors.primary} />
+            <AppText tone="secondary">Loading your teams…</AppText>
+          </View>
+        </Card>
       ) : (
         <EmptyState
           icon="people-outline"

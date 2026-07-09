@@ -88,14 +88,14 @@ The app uses Expo Router: `app/` contains file-based routes (thin re-exports), `
 - **React Native** with **Expo** (~54)
 - **TypeScript** (strict mode)
 - **Expo Router** (file-based routing; `app/` routes re-export screens from `src/features/`)
-- **Supabase** — production backend. Currently wired: **email/password Auth + signed-in profile lookup + the announcements and events data slices** (env-guarded client in `src/lib/supabase/client.ts`; demo mode when env vars are missing). All other feature data stays mocked/local.
+- **Supabase** — production backend. Currently wired: **email/password Auth + live sessions (profile/role/memberships) + the announcements, events, and read-only people/teams-directory data slices** (env-guarded client in `src/lib/supabase/client.ts`; demo mode when env vars are missing). Rotas, songs, chat, and notification preferences stay mocked/local.
 - **AsyncStorage** — versioned local persistence for demo/mock state (`src/lib/storage/persistence.ts`)
 - **@expo/vector-icons**; notifications are stubbed (`src/lib/notifications/`)
 
 ## Architecture Patterns
 
 ### Authentication
-Auth logic stays abstracted behind `src/lib/auth/AuthContext.tsx`, which is dual-mode: **demo login** with hardcoded test user profiles (always available; the only mode when Supabase env vars are missing), and **Supabase email/password Auth** with session restore, an auth-state listener, and a `profiles.auth_user_id = auth.uid()` lookup mapped into the app's `SessionUser` shape. Do not spread mode selection or session mapping across screens.
+Auth logic stays abstracted behind `src/lib/auth/AuthContext.tsx`, which is dual-mode: **demo login** with hardcoded test user profiles (always available; the only mode when Supabase env vars are missing), and **Supabase email/password Auth** with session restore, an auth-state listener, and a session built entirely from live rows (`profiles.auth_user_id = auth.uid()` lookup + `organisation_roles` + `team_memberships`) mapped into the app's `SessionUser` shape — all ids in a live session are real UUIDs. Do not spread mode selection or session mapping across screens.
 
 ### Role-Based UI
 All screens render conditionally based on the current user's `OrganisationRole`. Permission checks belong in `src/lib/permissions/`, not inline in components.
@@ -104,7 +104,7 @@ All screens render conditionally based on the current user's `OrganisationRole`.
 All mock data goes in `src/lib/mockData/`. The data models must match the intended Supabase schema (defined in `docs/one-shot-build-prompt.md`, section 5) — even for mocked data. Mutable app state is persisted to AsyncStorage through `src/lib/storage/persistence.ts` (version envelope, safe fallback to mock seeds on invalid data); the mock seeds remain the reset source of truth (**Profile → Reset Demo Data**).
 
 ### Backend Abstraction
-API calls go through a service layer (`src/lib/supabase/services/`). Live Supabase currently serves: auth/session operations, the signed-in user's profile lookup, **announcements** (`src/lib/supabase/services/announcements.ts`, including live `linked_event_id`), and **events** (`src/lib/supabase/services/events.ts`, including recurrence fields) — live only for Supabase-Auth sessions with a linked profile; demo mode stays local. Everything else returns mock data through `src/lib/appData/`. DB↔app mapping stays centralized in the services (the live announcements table uses `body` and `pinned`; while people/teams/categories are mocked, live UUIDs are bridged onto mock ids there by email/name). Never use service role keys; `.env.example` stays placeholder-only.
+API calls go through a service layer (`src/lib/supabase/services/`). Live Supabase currently serves: auth/session operations, **announcements** (`announcements.ts`, including live `linked_event_id`), **events** (`events.ts`, including recurrence fields), and the **read-only people/teams directory** (`teams.ts` — organisation, profiles, teams, memberships; no team-management UI exists, so no write path) — live only for Supabase-Auth sessions with a linked profile; demo mode stays local. Rotas, songs, and chat return mock data through `src/lib/appData/`; in live mode those still-local collections are re-keyed onto live team/profile UUIDs by the temporary bridge in `src/lib/appData/demoBridge.ts` (teams by name, people by email — delete it slice by slice as rotas/songs/chat go live). DB↔app mapping stays centralized in the services (the live announcements table uses `body` and `pinned`; live ids are real UUIDs end-to-end, with only event categories still name-bridged onto mock ids). Never use service role keys; `.env.example` stays placeholder-only.
 
 The Supabase MCP server is configured against the **dev** project — use it to inspect the live schema/data. Migration history is now aligned and tracked: remote `supabase_migrations.schema_migrations` records `001`–`006`, and `supabase migration list` shows `001`–`006` on both local and remote (see `docs/supabase-migration-alignment-checkpoint.md`). Do not rename `001`–`006` (remote history tracks those exact version strings); create future migrations with `supabase migration new <descriptive_name>` and keep the generated timestamped filename. `supabase db push` is the normal workflow now, but don't run it — or any remote database write — casually; only after normal preflight checks and explicit approval.
 
@@ -138,7 +138,7 @@ Colour tokens, typography, and spacing are in `constants/theme.ts`.
 
 ## Scope Notes
 
-V1 is a **functional scaffold with mocked, locally persisted data** plus optional real Supabase email/password Auth and live announcements and events slices — not a production app. Do not wire further Supabase feature data (teams, rotas, songs, chat, preferences), realtime, storage, push delivery, OAuth, or SMS login unless explicitly requested. Use clear `// TODO: wire to Supabase` comments at integration points.
+V1 is a **functional scaffold with mocked, locally persisted data** plus optional real Supabase email/password Auth and live announcements, events, and read-only people/teams-directory slices — not a production app. Do not wire further Supabase feature data (rotas, songs, chat, preferences), team-management writes, realtime, storage, push delivery, OAuth, or SMS login unless explicitly requested. Use clear `// TODO: wire to Supabase` comments at integration points.
 
 The choir feature is a first-class priority for V1 (song database, song selection for rota dates, choir-specific rota).
 
