@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, ViewStyle } from 'react-native';
+import { StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { Button as PaperButton } from 'react-native-paper';
 
-import { colors, radius, spacing, touchTarget } from '../../constants/theme';
-import { AppText } from './AppText';
+import { colors, radius, touchTarget, type } from '../../constants/theme';
 
 type Variant = 'primary' | 'secondary' | 'destructive' | 'ghost';
+type PaperButtonMode = React.ComponentProps<typeof PaperButton>['mode'];
 
 interface ButtonProps {
   title: string;
@@ -14,9 +15,30 @@ interface ButtonProps {
   icon?: keyof typeof Ionicons.glyphMap;
   disabled?: boolean;
   loading?: boolean;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   accessibilityHint?: string;
 }
+
+const buttonMode: Record<Variant, PaperButtonMode> = {
+  primary: 'contained',
+  secondary: 'contained-tonal',
+  destructive: 'contained-tonal',
+  ghost: 'outlined',
+};
+
+const buttonColor: Record<Variant, string> = {
+  primary: colors.primary,
+  secondary: colors.accentSoft,
+  destructive: colors.dangerSoft,
+  ghost: 'transparent',
+};
+
+const textColor: Record<Variant, string> = {
+  primary: colors.white,
+  secondary: colors.accent,
+  destructive: colors.danger,
+  ghost: colors.primary,
+};
 
 export function Button({
   title,
@@ -28,47 +50,38 @@ export function Button({
   style,
   accessibilityHint,
 }: ButtonProps) {
-  const bg: Record<Variant, string> = {
-    primary: colors.primary,
-    secondary: colors.accentSoft,
-    destructive: colors.dangerSoft,
-    ghost: 'transparent',
-  };
-  const fg: Record<Variant, string> = {
-    primary: colors.white,
-    secondary: colors.accent,
-    destructive: colors.danger,
-    ghost: colors.primary,
-  };
+  const labelColor = textColor[variant];
 
   return (
-    <Pressable
+    <PaperButton
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{ disabled: !!disabled }}
-      onPress={onPress}
-      disabled={disabled || loading}
-      style={({ pressed }) => [
+      onPress={loading ? undefined : onPress}
+      disabled={disabled}
+      loading={loading}
+      mode={buttonMode[variant]}
+      buttonColor={buttonColor[variant]}
+      textColor={labelColor}
+      uppercase={false}
+      icon={
+        icon
+          ? ({ size, color }) => (
+              <Ionicons name={icon} size={size} color={color} />
+            )
+          : undefined
+      }
+      contentStyle={styles.content}
+      labelStyle={styles.label}
+      style={[
         styles.base,
-        { backgroundColor: bg[variant] },
         variant === 'ghost' && styles.ghost,
-        pressed && styles.pressed,
         disabled && styles.disabled,
         style,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator color={fg[variant]} />
-      ) : (
-        <>
-          {icon ? <Ionicons name={icon} size={22} color={fg[variant]} /> : null}
-          <AppText variant="bodyBold" style={{ color: fg[variant] }}>
-            {title}
-          </AppText>
-        </>
-      )}
-    </Pressable>
+      {title}
+    </PaperButton>
   );
 }
 
@@ -76,17 +89,17 @@ const styles = StyleSheet.create({
   base: {
     minHeight: touchTarget,
     borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
+  },
+  content: { minHeight: touchTarget },
+  label: {
+    fontSize: type.bodyBold.fontSize,
+    lineHeight: type.bodyBold.lineHeight,
+    fontWeight: type.bodyBold.fontWeight,
+    letterSpacing: 0,
   },
   ghost: {
     borderWidth: 1.5,
     borderColor: colors.primary,
   },
-  pressed: { opacity: 0.75 },
   disabled: { opacity: 0.45 },
 });
