@@ -119,7 +119,7 @@ Verify RLS from the app: Daniel (admin) full rota CRUD on every team; Sarah (cho
 
 Test deliberately as Hannah (worship leader on her date: praise writes should fail), Michael (praise leader on his date: worship writes should fail), Sarah (team leader override: both succeed), a plain member (all writes fail), and a cross-team song id (fails).
 
-### 9. Chat ✅ (app code done — grants migration pending push)
+### 9. Chat ✅ (done)
 
 Text-only V1, same pattern as the earlier slices. What shipped:
 
@@ -128,7 +128,7 @@ Text-only V1, same pattern as the earlier slices. What shipped:
 3. **No realtime yet** (deliberately deferred): live messages refresh at sign-in, when a chat screen opens, after each send, and via a visible "Check for new messages" bar on the chat screen. The team chat screen gained loading, error+retry, sending, and inline failed-send states (the draft is kept so nothing is lost).
 4. **Unread badges are demo-only now**: the simulated counts made no sense against live data, so live mode shows none — real unread tracking is a `chat_reads` schema addition for later. Attachments stay a "coming soon" placeholder in both modes until the Storage slice (step 10); there is no edit/delete (no RLS policies for either, matching the UI).
 5. The temporary demo bridge (`src/lib/appData/demoBridge.ts`) existed only to re-key still-local chat onto live ids — chat going live made it dead code, so it is **deleted**. Demo mode runs on pure mock ids; live mode is real UUIDs end-to-end (only event categories remain name-bridged).
-6. Read-only introspection confirmed the RLS policies exist but authenticated Data API grants were missing. A local grants migration (`20260709205903_grant_authenticated_chat_api_privileges.sql`) grants `authenticated` **select, insert** on `chat_messages` only (no update/delete, nothing on `chat_attachments`, nothing to anon). It has **not** been pushed. Until it is approved and pushed (`supabase db push`), live chat screens show the friendly "couldn't load messages" state with retry; demo mode is unaffected.
+6. Read-only introspection confirmed the RLS policies exist but authenticated Data API grants were missing. A grants migration (`20260709205903_grant_authenticated_chat_api_privileges.sql`) grants `authenticated` **select, insert** on `chat_messages` only (no update/delete, nothing on `chat_attachments`, nothing to anon). It has since been **pushed and verified remotely** (2026-07-09; grants confirmed via read-only introspection).
 
 Verify RLS from the app: Daniel (admin) reads/sends in every team chat; Hannah sends in Choir; Ruth (no teams) sees no team chats, and a hand-crafted insert (or a send with a forged sender) fails server-side. Later: enable **Realtime** on `chat_messages` (add it to the `supabase_realtime` publication) and subscribe per open chat.
 
@@ -201,7 +201,7 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 3. ✅ **Done (2026-07-09):** **step 6 — teams & memberships** (fetch-only), retiring the email/name id bridges in auth, announcements, and events.
 4. ✅ **Done (2026-07-09):** **step 7 — rotas & availability**, including the pushed and verified `20260709154733_grant_authenticated_rota_api_privileges.sql` migration. The teams-SELECT relaxation (Risks: team-name visibility, option b) was deliberately **not** bundled in — rota entries are only visible to team members, so their team names always resolve; it remains a candidate for a later migration pass.
 5. ✅ **Done (2026-07-09):** **step 8 — songs & song selection**, including the pushed and verified `20260709171613_grant_authenticated_songs_api_privileges.sql` migration; choir songs passed manual QA.
-6. ✅ **Done in app code (2026-07-09):** **step 9 — chat** (text-only, no realtime), retiring `demoBridge.ts`. **Blocked on approval:** push `20260709205903_grant_authenticated_chat_api_privileges.sql` (`supabase db push` after normal preflight) — until then live chat screens show the friendly error state.
+6. ✅ **Done (2026-07-09):** **step 9 — chat** (text-only, no realtime), retiring `demoBridge.ts`, including the pushed and verified `20260709205903_grant_authenticated_chat_api_privileges.sql` migration.
 7. ✅ **Done (2026-07-09):** **step 11, first half — notification preferences** persist to `notification_preferences`, including the pushed and verified `20260709220528_grant_authenticated_notification_prefs_api_privileges.sql` migration. Push token registration/delivery stays deferred (needs a development build with `expo-notifications` + an EAS project id).
 8. Next slice candidates: the `handle_new_user` trigger migration if signup is next, **Realtime on `chat_messages`** to remove the manual-refresh limitation, or **Storage** (step 10) to unlock avatars/images/attachments.
 

@@ -14,9 +14,9 @@
  * chat_attachments stays untouched until the Storage slice.
  *
  * This service needs the grants migration
- * `20260709205903_grant_authenticated_chat_api_privileges.sql` applied.
- * Until then, live chat screens show a friendly load/send error; demo mode is
- * unaffected.
+ * `20260709205903_grant_authenticated_chat_api_privileges.sql` (pushed and
+ * verified 2026-07-09). If the grants are ever missing, live chat screens
+ * show a friendly load/send error; demo mode is unaffected.
  */
 import { SupabaseClient } from '@supabase/supabase-js';
 

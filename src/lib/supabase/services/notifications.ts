@@ -20,8 +20,9 @@
  *
  * This service needs the grants migration
  * `20260709220528_grant_authenticated_notification_prefs_api_privileges.sql`
- * applied. Until then, the live notification settings screen shows a friendly
- * load-error state; demo mode is unaffected.
+ * (pushed and verified 2026-07-09). If the grants are ever missing, the live
+ * notification settings screen shows a friendly load-error state; demo mode
+ * is unaffected.
  */
 import { SupabaseClient } from '@supabase/supabase-js';
 
