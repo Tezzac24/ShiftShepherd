@@ -13,7 +13,7 @@ A mobile-first church coordination app for **Grace Community Church** — events
 - **Plan the Month** lets choir leaders create a whole month of Sunday services and weekly rehearsals at once, with default leaders and per-date overrides.
 - Choir rehearsals include every choir member so each can confirm availability; rota detail shows an Available / Maybe / Unavailable / Not responded tracker.
 - Rehearsals (or services) can be **cancelled** instead of deleted: they stay visible with a Cancelled badge, drop out of responsibilities, and offer a prefilled team announcement (never auto-sent).
-- Supabase planning includes migrations `003`–`005` (recurrence, song sections + section RLS, rota cancellation); **auth + profile lookup + announcements** are wired to live Supabase — all other feature data stays mocked. (The remote dev database currently has only `001`–`002` applied, run manually via the dashboard, so migration history isn't tracked; `003`–`005` should be applied there before wiring events/songs/rota cancellation.)
+- Supabase planning includes migrations `003`–`006` (recurrence, song sections + section RLS, rota cancellation, authenticated API grants); **auth + profile lookup + announcements** are wired to live Supabase — all other feature data stays mocked. (The remote dev database currently has `001`–`002` plus manual grants effectively present, all run manually via the dashboard, so migration history isn't tracked; `003`–`005` should be applied there before wiring events/songs/rota cancellation.)
 - Demo changes (announcements, rotas, songs, messages, notification settings...) persist locally via AsyncStorage and can be reset from **Profile -> Reset Demo Data**.
 
 ## Tech Stack

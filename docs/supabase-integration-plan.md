@@ -13,12 +13,12 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the three migrations in order (see `supabase/README.md` for CLI filename requirements vs dashboard paste order).
+- Run the migrations in order (see `supabase/README.md` for CLI filename requirements vs dashboard paste order).
 - Run `supabase/seed/dev_seed.sql` and link 4–5 auth users (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration-history caveat (dev project, checked July 2026):** migrations `001`–`002` were run manually through the dashboard SQL editor, so `supabase_migrations.schema_migrations` does not exist and the CLI/MCP migration history is empty — **don't treat Supabase migration history as a source of truth**; use live schema introspection (e.g. the Supabase MCP server) together with the local migration files. Migrations `003`–`005` are **not applied remotely yet** (verified: `events.is_recurring`, `choir_rota_song_selections.section`, and `rota_entries.status` are all absent). Align the remote dev DB with `003`–`005` before wiring events, songs, or rota cancellation — none of them block announcements.
+> **Migration-history caveat (dev project, checked July 2026):** migrations `001`–`002` were run manually through the dashboard SQL editor, so `supabase_migrations.schema_migrations` does not exist and the CLI/MCP migration history is empty — **don't treat Supabase migration history as a source of truth**; use live schema introspection (e.g. the Supabase MCP server) together with the local migration files. Migration `006` records the manual authenticated Data API grants already needed by auth/profile lookup and live announcements. Migrations `003`–`005` are **not applied remotely yet** (verified: `events.is_recurring`, `choir_rota_song_selections.section`, and `rota_entries.status` are all absent). Align the remote dev DB with `003`–`006` before wiring events, songs, or rota cancellation, and do not run `supabase db push` blindly until migration history is reconciled. See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ### 2. Auth + profiles ✅ (mostly done)
 
@@ -147,7 +147,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 Steps 1–2 and 4 are done (auth + profile lookup + announcements are live; everything else is mocked but persisted locally). Next, in order of value:
 
-1. Apply migrations `003`–`005` to the remote dev DB and start tracking migration history properly (CLI `supabase db push` after renaming to timestamped files — see `supabase/README.md`).
+1. After explicit approval, apply migrations `003`–`006` to the remote dev DB manually in order, then reconcile/baseline migration history before using CLI `supabase db push` for hosted dev.
 2. Add the `handle_new_user` trigger migration.
 3. Start **step 5 — events**, repeating the announcements service pattern (which also unblocks live `linked_event_id`).
 

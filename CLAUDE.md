@@ -106,7 +106,7 @@ All mock data goes in `src/lib/mockData/`. The data models must match the intend
 ### Backend Abstraction
 API calls go through a service layer (`src/lib/supabase/services/`). Live Supabase currently serves: auth/session operations, the signed-in user's profile lookup, and **announcements** (the first live feature slice — `src/lib/supabase/services/announcements.ts`, live only for Supabase-Auth sessions with a linked profile; demo mode stays local). Everything else returns mock data through `src/lib/appData/`. DB↔app mapping stays centralized in the service (the live table uses `body` and `pinned`; while people/teams are mocked, live UUIDs are bridged onto mock ids there). Never use service role keys; `.env.example` stays placeholder-only.
 
-The Supabase MCP server is configured against the **dev** project — use it to inspect the live schema/data. Migration history is not tracked there (early migrations were run manually; `003`–`005` are not applied remotely yet), so introspect the schema rather than trusting `list_migrations`, and don't apply migrations unless explicitly asked.
+The Supabase MCP server is configured against the **dev** project — use it to inspect the live schema/data. Migration history is not tracked there (early migrations were run manually; `003`–`005` are not applied remotely yet; `006` records manual authenticated API grants already effectively present), so introspect the schema rather than trusting `list_migrations`, don't run `supabase db push` blindly, and don't apply migrations unless explicitly asked.
 
 ## Data Models
 
