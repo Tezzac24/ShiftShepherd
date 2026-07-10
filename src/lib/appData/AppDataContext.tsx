@@ -53,6 +53,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { AppState } from 'react-native';
 
 import {
   Announcement,
@@ -99,6 +100,7 @@ import * as announcementsService from '../supabase/services/announcements';
 import * as chatService from '../supabase/services/chat';
 import * as eventsService from '../supabase/services/events';
 import * as notificationsService from '../supabase/services/notifications';
+import * as profileAvatarsService from '../supabase/services/profileAvatars';
 import * as rotasService from '../supabase/services/rotas';
 import * as songsService from '../supabase/services/songs';
 import * as teamsService from '../supabase/services/teams';
@@ -178,6 +180,25 @@ interface AppDataContextValue {
   teamsError: string | null;
   /** Reload the live people/teams directory (no-op in demo mode). */
   refreshTeams: () => Promise<void>;
+
+  // Profile avatars — the first Supabase Storage slice. avatar_url holds a
+  // private-bucket storage path in live mode, so display goes through
+  // short-lived signed URLs cached here for the session. Demo mode never
+  // touches Storage (mock avatar_url is a plain URL or null).
+  /**
+   * Resolve a profile's avatar image for display: a signed URL in live mode
+   * (undefined while unsigned/unavailable — show initials instead), the
+   * mock avatar_url passthrough in demo mode.
+   */
+  getAvatarUri: (profile: UserProfile | undefined | null) => string | undefined;
+  /**
+   * Upload or replace the signed-in user's own profile photo (live Supabase
+   * sessions only). Rejects with a friendly message on failure; on success
+   * the session user, directory, and signed-URL cache all update in place.
+   */
+  setOwnAvatar: (file: profileAvatarsService.PickedAvatarFile) => Promise<void>;
+  /** Remove the signed-in user's own profile photo (live sessions only). */
+  removeOwnAvatar: () => Promise<void>;
 
   // Mutable collections
   announcements: Announcement[];
@@ -400,7 +421,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // Live-vs-local mode for the wired slices:
   // Supabase session + configured client + linked profile ⇒ live; demo mode
   // or missing env vars ⇒ local/mock.
-  const { user, authMode } = useAuth();
+  const { user, authMode, applySessionAvatarUrl } = useAuth();
   const supabaseProfileId =
     authMode === 'supabase' ? (user?.supabaseProfileId ?? null) : null;
   const liveDataEnabled = isSupabaseConfigured && supabaseProfileId !== null;
@@ -429,6 +450,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [liveDirectory, setLiveDirectory] = useState<teamsService.TeamsDirectory | null>(null);
   const [teamsLoading, setTeamsLoading] = useState(false);
   const [teamsError, setTeamsError] = useState<string | null>(null);
+  // Signed display URLs for live avatar paths (private bucket). Session-only:
+  // cleared with the directory on sign-out, refreshed on app foreground.
+  const [avatarSignedUrls, setAvatarSignedUrls] = useState<Record<string, string>>({});
+  const avatarSignedUrlsRef = useRef<Record<string, string>>({});
+  avatarSignedUrlsRef.current = avatarSignedUrls;
+  const avatarsSignedAtRef = useRef(0);
   const [localRotaEntries, setLocalRotaEntries] = useState<RotaEntry[]>(mockRotaEntries);
   const [localRotaAssignments, setLocalRotaAssignments] =
     useState<RotaAssignment[]>(mockRotaAssignments);
@@ -837,6 +864,122 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setTeamsLoading(false);
     }
   }, [teamsLive, refreshTeams]);
+
+  // --- Profile avatars (first Supabase Storage slice ★) ------------------------
+
+  // Every avatar path visible this session: the live directory's profiles
+  // plus the session user's own (kept in step immediately after an upload,
+  // before any directory reload).
+  const liveAvatarPaths = useMemo<string[]>(() => {
+    if (!teamsLive) return [];
+    const paths = new Set<string>();
+    for (const person of liveDirectory?.users ?? []) {
+      if (person.avatar_url) paths.add(person.avatar_url);
+    }
+    const own = authMode === 'supabase' ? user?.profile.avatar_url : null;
+    if (own) paths.add(own);
+    return [...paths].sort();
+  }, [teamsLive, liveDirectory, authMode, user]);
+  const liveAvatarPathsRef = useRef<string[]>([]);
+  liveAvatarPathsRef.current = liveAvatarPaths;
+
+  // Sign whichever paths have no display URL yet. Failures just leave the
+  // initials fallback in place — signing is display-only and never an error.
+  useEffect(() => {
+    if (liveAvatarPaths.length === 0) {
+      avatarsSignedAtRef.current = 0;
+      setAvatarSignedUrls((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+      return;
+    }
+    const missing = liveAvatarPaths.filter((path) => !avatarSignedUrlsRef.current[path]);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void profileAvatarsService.createAvatarSignedUrls(missing).then((signed) => {
+      if (cancelled || !signed || !liveDataEnabledRef.current) return;
+      avatarsSignedAtRef.current = Date.now();
+      setAvatarSignedUrls((prev) => ({ ...prev, ...signed }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [liveAvatarPaths]);
+
+  // Signed URLs expire (1 hour TTL): re-sign everything when the app returns
+  // to the foreground past half that lifetime, so photos survive long sessions.
+  useEffect(() => {
+    if (!liveDataEnabled) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const paths = liveAvatarPathsRef.current;
+      const halfLifeMs = (profileAvatarsService.AVATAR_SIGNED_URL_TTL_SECONDS * 1000) / 2;
+      if (paths.length === 0 || Date.now() - avatarsSignedAtRef.current < halfLifeMs) return;
+      void profileAvatarsService.createAvatarSignedUrls(paths).then((signed) => {
+        if (!signed || !liveDataEnabledRef.current) return;
+        avatarsSignedAtRef.current = Date.now();
+        setAvatarSignedUrls((prev) => ({ ...prev, ...signed }));
+      });
+    });
+    return () => subscription.remove();
+  }, [liveDataEnabled]);
+
+  const getAvatarUri: AppDataContextValue['getAvatarUri'] = useCallback(
+    (profile) => {
+      const path = profile?.avatar_url;
+      if (!path) return undefined;
+      if (liveDataEnabled) return avatarSignedUrls[path];
+      // Demo/mock data only ever carries a plain URL (currently always null).
+      return /^https?:\/\//.test(path) ? path : undefined;
+    },
+    [liveDataEnabled, avatarSignedUrls],
+  );
+
+  // Keep the live directory's copy of a profile in step with an avatar change
+  // so lists showing that person update without a full (flickering) reload.
+  const patchLiveDirectoryAvatar = useCallback(
+    (profileId: string, avatarPath: string | null) => {
+      setLiveDirectory((prev) =>
+        prev
+          ? {
+              ...prev,
+              users: prev.users.map((person) =>
+                person.id === profileId ? { ...person, avatar_url: avatarPath } : person,
+              ),
+            }
+          : prev,
+      );
+    },
+    [],
+  );
+
+  const setOwnAvatar: AppDataContextValue['setOwnAvatar'] = useCallback(
+    async (file) => {
+      if (!liveDataEnabled || !supabaseProfileId) {
+        // The UI only offers photo management in live mode; keep a calm
+        // message anyway in case that ever regresses.
+        throw new Error('Profile photos are available when signed in with your church account.');
+      }
+      const previousPath = user?.profile.avatar_url ?? null;
+      const newPath = await profileAvatarsService.uploadOwnProfileAvatar(
+        file,
+        supabaseProfileId,
+        previousPath,
+      );
+      // The path-set effect above signs the new path for display.
+      applySessionAvatarUrl(newPath);
+      patchLiveDirectoryAvatar(supabaseProfileId, newPath);
+    },
+    [liveDataEnabled, supabaseProfileId, user, applySessionAvatarUrl, patchLiveDirectoryAvatar],
+  );
+
+  const removeOwnAvatar: AppDataContextValue['removeOwnAvatar'] = useCallback(async () => {
+    if (!liveDataEnabled || !supabaseProfileId) {
+      throw new Error('Profile photos are available when signed in with your church account.');
+    }
+    const currentPath = user?.profile.avatar_url ?? null;
+    await profileAvatarsService.removeOwnProfileAvatar(supabaseProfileId, currentPath);
+    applySessionAvatarUrl(null);
+    patchLiveDirectoryAvatar(supabaseProfileId, null);
+  }, [liveDataEnabled, supabaseProfileId, user, applySessionAvatarUrl, patchLiveDirectoryAvatar]);
 
   // --- Rotas (live Supabase slice ★, with local demo fallback) -----------------
 
@@ -1659,6 +1802,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       teamsLoading,
       teamsError,
       refreshTeams,
+      getAvatarUri,
+      setOwnAvatar,
+      removeOwnAvatar,
       announcements: announcementsLive ? liveAnnouncements : localAnnouncements,
       announcementsLive,
       announcementsLoading,
@@ -1734,6 +1880,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       teamsLoading,
       teamsError,
       refreshTeams,
+      getAvatarUri,
+      setOwnAvatar,
+      removeOwnAvatar,
       announcementsLive,
       liveAnnouncements,
       localAnnouncements,

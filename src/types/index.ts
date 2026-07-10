@@ -27,6 +27,11 @@ export interface UserProfile {
   full_name: string;
   email: string;
   phone: string | null;
+  /**
+   * Live mode stores a private-bucket storage path
+   * (`profiles/<profileId>/<file>`), displayed via short-lived signed URLs;
+   * demo/mock data may carry a plain URL (currently always null).
+   */
   avatar_url: string | null;
   created_at: string;
 }

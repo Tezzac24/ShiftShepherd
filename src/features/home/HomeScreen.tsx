@@ -62,7 +62,7 @@ export default function HomeScreen() {
           </AppText>
           <AppText tone="secondary">{data.organisation.name}</AppText>
         </View>
-        <Avatar name={user.profile.full_name} size={48} />
+        <Avatar name={user.profile.full_name} uri={data.getAvatarUri(user.profile)} size={48} />
       </View>
 
       {/* 1. Latest announcement */}

@@ -14,6 +14,7 @@ import { Screen } from '../../components/Screen';
 import { SectionHeader } from '../../components/SectionHeader';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
+import { useProfileAvatar } from './useProfileAvatar';
 
 const orgRoleLabels: Record<string, string> = {
   church_admin: 'Church Admin',
@@ -28,6 +29,8 @@ export default function ProfileScreen() {
   const { signOut, authMode } = useAuth();
   const data = useAppData();
   const confirm = useConfirm();
+  const { canManagePhoto, hasPhoto, avatarUri, busy, changePhoto, removePhoto } =
+    useProfileAvatar();
 
   const myTeams = data.teams.filter((t) =>
     user.memberships.some((m) => m.team_id === t.id),
@@ -77,7 +80,31 @@ export default function ProfileScreen() {
       <AppText variant="title">Profile</AppText>
 
       <Card style={styles.profileCard}>
-        <Avatar name={user.profile.full_name} size={72} />
+        <Avatar name={user.profile.full_name} uri={avatarUri} size={72} />
+        {canManagePhoto ? (
+          <View style={styles.photoActions}>
+            <Button
+              title={hasPhoto ? 'Change Photo' : 'Add Photo'}
+              variant="secondary"
+              icon="image-outline"
+              onPress={changePhoto}
+              loading={busy === 'uploading'}
+              disabled={busy !== null}
+              accessibilityHint="Choose a profile photo from your photos"
+            />
+            {hasPhoto ? (
+              <Button
+                title="Remove Photo"
+                variant="ghost"
+                icon="trash-outline"
+                onPress={removePhoto}
+                loading={busy === 'removing'}
+                disabled={busy !== null}
+                accessibilityHint="Removes your profile photo and shows your initials"
+              />
+            ) : null}
+          </View>
+        ) : null}
         <AppText variant="heading">{user.profile.full_name}</AppText>
         <AppText tone="secondary">{user.profile.email}</AppText>
         {user.profile.phone ? <AppText tone="secondary">{user.profile.phone}</AppText> : null}
@@ -153,6 +180,13 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   profileCard: { alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.xl },
+  photoActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'center',
+    marginTop: spacing.xs,
+  },
   badgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

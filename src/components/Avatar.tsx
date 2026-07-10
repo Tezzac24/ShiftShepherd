@@ -1,4 +1,5 @@
-import React from 'react';
+import { Image } from 'expo-image';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { colors } from '../../constants/theme';
@@ -21,7 +22,24 @@ function colorFor(name: string): string {
   return palette[hash % palette.length];
 }
 
-export function Avatar({ name, size = 44 }: { name: string; size?: number }) {
+export function Avatar({
+  name,
+  uri,
+  size = 44,
+}: {
+  name: string;
+  /** Optional photo (e.g. a signed avatar URL). Falls back to initials. */
+  uri?: string | null;
+  size?: number;
+}) {
+  // A photo that fails to load (expired signed URL, offline cold cache)
+  // quietly falls back to initials; a new uri gets a fresh chance.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [uri]);
+
+  const showImage = !!uri && !failed;
   return (
     <View
       style={[
@@ -35,17 +53,28 @@ export function Avatar({ name, size = 44 }: { name: string; size?: number }) {
       ]}
       accessibilityLabel={name}
     >
-      <AppText
-        variant={size >= 56 ? 'heading' : 'label'}
-        tone="inverse"
-        style={{ fontWeight: '700' }}
-      >
-        {initials(name)}
-      </AppText>
+      {showImage ? (
+        <Image
+          source={{ uri }}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
+          contentFit="cover"
+          transition={100}
+          onError={() => setFailed(true)}
+          accessibilityLabel={`${name}'s photo`}
+        />
+      ) : (
+        <AppText
+          variant={size >= 56 ? 'heading' : 'label'}
+          tone="inverse"
+          style={{ fontWeight: '700' }}
+        >
+          {initials(name)}
+        </AppText>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  avatar: { alignItems: 'center', justifyContent: 'center' },
+  avatar: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
 });

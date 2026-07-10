@@ -53,6 +53,13 @@ interface AuthContextValue {
    */
   signInWithEmail: (email: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
+  /**
+   * Patch the signed-in session's profile avatar (storage path in live mode)
+   * after an avatar upload/removal succeeds, so every screen reading
+   * user.profile updates without a re-login. State-only — persistence is the
+   * profile avatars service's job.
+   */
+  applySessionAvatarUrl: (avatarUrl: string | null) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -246,6 +253,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [applySession, signInAsTestUser],
   );
 
+  const applySessionAvatarUrl = useCallback((avatarUrl: string | null) => {
+    setUser((prev) =>
+      prev ? { ...prev, profile: { ...prev.profile, avatar_url: avatarUrl } } : prev,
+    );
+  }, []);
+
   const signOut = useCallback(async () => {
     const mode = authModeRef.current;
     applySession(null, null);
@@ -270,8 +283,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInAsTestUser,
       signInWithEmail,
       signOut,
+      applySessionAvatarUrl,
     }),
-    [user, isLoading, authMode, signInAsTestUser, signInWithEmail, signOut],
+    [user, isLoading, authMode, signInAsTestUser, signInWithEmail, signOut, applySessionAvatarUrl],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

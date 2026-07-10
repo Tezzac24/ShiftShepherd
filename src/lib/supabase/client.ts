@@ -10,9 +10,10 @@
  * user's profile lookup, announcements, events, the read-only people/teams
  * directory, rotas/availability, choir songs/song selections, team chat
  * (including realtime for the open conversation and private per-user unread
- * read states), and notification preferences. Push token
- * registration/delivery and storage stay deferred — see
- * docs/supabase-integration-plan.md for the order.
+ * read states), notification preferences, and profile avatar storage (the
+ * private profile-avatars bucket). Push token registration/delivery and
+ * further storage use cases (announcement images, chat attachments) stay
+ * deferred — see docs/supabase-integration-plan.md for the order.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';

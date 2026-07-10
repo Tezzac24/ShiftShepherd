@@ -148,9 +148,16 @@ Private per-user unread badges for the Messages tab — deliberately **not** rea
 
 Verified from the app (manual QA passed): another member's message shows a count on Sarah's Messages tab; opening the chat clears it and it stays cleared; her own sends never count for her; the open chat never shows unread for messages that stream in while she's reading.
 
-### 10. Storage & uploads
+### 10. Storage & uploads — profile avatars ✅ first slice (app done 2026-07-10; migration pending push)
 
-Buckets for avatars, announcement images, and chat attachments, with storage policies mirroring the same team/org helpers. The UI already treats images/attachments as placeholders, so this unlocks them.
+Storage starts with the smallest contained use case: **profile avatars**. What shipped:
+
+1. `20260710105140_add_profile_avatar_storage.sql` (**local-only until an explicitly approved `supabase db push`**) creates a **private** `profile-avatars` bucket (5 MB cap, JPEG/PNG/WebP only), `storage.objects` policies (org members may read an avatar exactly when they can see its profile row; each user writes/deletes only inside their own `profiles/<profileId>/` folder; nothing for anon), and `set_own_profile_avatar_path(text)` — a narrow security-definer RPC that repoints only the caller's own `profiles.avatar_url` (validating the folder prefix; null = remove). No table change (`avatar_url` existed since 001), and deliberately **no** table-level UPDATE grant on profiles.
+2. `src/lib/supabase/services/profileAvatars.ts` — upload/replace (upload the new object → RPC repoint → best-effort delete of the old object; a failed repoint deletes the fresh upload so the old photo survives), remove (RPC null → best-effort delete), type/size validation with friendly copy, and `createAvatarSignedUrls` (1-hour signed URLs for the private bucket — `avatar_url` stores the storage *path*, never a URL).
+3. `AppDataContext` signs every avatar path visible in the live directory (plus the session user's own), caches the URLs session-only (cleared on sign-out), re-signs on app foreground past half the TTL, and exposes `getAvatarUri` / `setOwnAvatar` / `removeOwnAvatar`; `AuthContext.applySessionAvatarUrl` patches the signed-in session so every screen updates without a reload.
+4. The Profile screen gained Add/Change/Remove Photo (via `expo-image-picker`: permission requested only on tap, images only, no cropping/camera), with loading states, a success toast, and friendly errors. `Avatar` now renders a photo when a URI resolves and falls back to initials (including when a signed URL has expired); Home's greeting and rota-detail assignment rows show photos too. Team avatars stay initials-only.
+5. Demo mode is untouched: photo controls are hidden, Storage is never called, and Reset Demo Data is unaffected. Until the migration is pushed, a live upload fails with the friendly "Profile photos aren't switched on yet" message and nothing else is affected.
+6. Still deferred: announcement images, chat attachments, team avatar management, image cropping, camera capture. Best-effort deletes mean a failed cleanup can orphan an object — a future cleanup job can sweep the bucket against `profiles.avatar_url`.
 
 ### 11. Push notifications — preferences ✅ (done); tokens & delivery deferred
 
@@ -203,7 +210,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
 - ~~**Unread badges**~~ — live unread tracking shipped (step 9c); `20260710031212_add_chat_read_states.sql` is pushed and live badges are active.
 - **Notification delivery** — preferences persist to the table now (step 11, first half), but no push token is registered and nothing pushes until a development build + Edge Function pass.
-- **Images & attachments** — placeholders until step 10 (Storage).
+- **Announcement images & chat attachments** — still placeholders; profile avatars (step 10) are the only live Storage use case so far.
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
 - **Team management UI** (create teams, assign leaders) — admin does this via the dashboard until a screen exists.
 
@@ -221,6 +228,7 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 8. ✅ **Done (pushed + manual QA):** `20260709233705_link_auth_users_to_existing_profiles.sql` safely links newly created Auth users to existing matching profiles; it does not implement signup or create profile/role/membership rows.
 9. ✅ **Done (2026-07-10):** **step 9b — realtime team chat**, including the pushed and verified `20260710020944_enable_realtime_for_chat_messages.sql` publication migration.
 10. ✅ **Done (2026-07-10):** **step 9c — chat unread tracking**, including the pushed and QA'd `20260710031212_add_chat_read_states.sql` migration.
-11. The next slice candidate is **Storage** (step 10); push tokens/delivery remain separate future slices.
+11. ✅ **App done (2026-07-10):** **step 10, first slice — profile avatar storage**. `20260710105140_add_profile_avatar_storage.sql` is **local-only**: live photo uploads show a friendly setup message until it is pushed with explicit approval and QA'd.
+12. Next slice candidates: announcement images or chat attachments (rest of step 10); push tokens/delivery remain separate future slices.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

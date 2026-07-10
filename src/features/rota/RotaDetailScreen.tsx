@@ -479,7 +479,11 @@ export default function RotaDetailScreen() {
         {people.length > 0 ? (
           people.map((person) => (
             <View key={person.userId} style={styles.assignmentRow}>
-              <Avatar name={userName(data.users, person.userId)} size={40} />
+              <Avatar
+                name={userName(data.users, person.userId)}
+                uri={data.getAvatarUri(data.users.find((u) => u.id === person.userId))}
+                size={40}
+              />
               <View style={{ flex: 1 }}>
                 <AppText variant="bodyBold">{userName(data.users, person.userId)}</AppText>
                 <AppText variant="small" tone="secondary">
