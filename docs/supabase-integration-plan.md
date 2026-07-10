@@ -13,12 +13,12 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is aligned through the chat read-states migration (`20260710031212_add_chat_read_states.sql`).
+- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is aligned through the profile avatar storage migration (`20260710105140_add_profile_avatar_storage.sql`).
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006`, the events/rota/songs/chat/notification-preferences grants migrations, the Auth/profile auto-link migration (`20260709233705`), the chat realtime publication migration (`20260710020944`), and the chat read-states migration (`20260710031212`). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006`, the events/rota/songs/chat/notification-preferences grants migrations, the Auth/profile auto-link migration (`20260709233705`), the chat realtime publication migration (`20260710020944`), the chat read-states migration (`20260710031212`), and the profile avatar storage migration (`20260710105140`). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ### 2. Auth + profiles ✅ (done; auto-link migration pushed + QA'd)
 
@@ -148,15 +148,15 @@ Private per-user unread badges for the Messages tab — deliberately **not** rea
 
 Verified from the app (manual QA passed): another member's message shows a count on Sarah's Messages tab; opening the chat clears it and it stays cleared; her own sends never count for her; the open chat never shows unread for messages that stream in while she's reading.
 
-### 10. Storage & uploads — profile avatars ✅ first slice (app done 2026-07-10; migration pending push)
+### 10. Storage & uploads — profile avatars ✅ first slice (done 2026-07-10; migration pushed + QA'd)
 
 Storage starts with the smallest contained use case: **profile avatars**. What shipped:
 
-1. `20260710105140_add_profile_avatar_storage.sql` (**local-only until an explicitly approved `supabase db push`**) creates a **private** `profile-avatars` bucket (5 MB cap, JPEG/PNG/WebP only), `storage.objects` policies (org members may read an avatar exactly when they can see its profile row; each user writes/deletes only inside their own `profiles/<profileId>/` folder; nothing for anon), and `set_own_profile_avatar_path(text)` — a narrow security-definer RPC that repoints only the caller's own `profiles.avatar_url` (validating the folder prefix; null = remove). No table change (`avatar_url` existed since 001), and deliberately **no** table-level UPDATE grant on profiles.
+1. `20260710105140_add_profile_avatar_storage.sql` (pushed and verified) creates a **private** `profile-avatars` bucket (5 MB cap, JPEG/PNG/WebP only), `storage.objects` policies (org members may read an avatar exactly when they can see its profile row; each user writes/deletes only inside their own `profiles/<profileId>/` folder; nothing for anon), and `set_own_profile_avatar_path(text)` — a narrow security-definer RPC that repoints only the caller's own `profiles.avatar_url` (validating the folder prefix; null = remove). No table change (`avatar_url` existed since 001), and deliberately **no** table-level UPDATE grant on profiles.
 2. `src/lib/supabase/services/profileAvatars.ts` — upload/replace (upload the new object → RPC repoint → best-effort delete of the old object; a failed repoint deletes the fresh upload so the old photo survives), remove (RPC null → best-effort delete), type/size validation with friendly copy, and `createAvatarSignedUrls` (1-hour signed URLs for the private bucket — `avatar_url` stores the storage *path*, never a URL).
 3. `AppDataContext` signs every avatar path visible in the live directory (plus the session user's own), caches the URLs session-only (cleared on sign-out), re-signs on app foreground past half the TTL, and exposes `getAvatarUri` / `setOwnAvatar` / `removeOwnAvatar`; `AuthContext.applySessionAvatarUrl` patches the signed-in session so every screen updates without a reload.
 4. The Profile screen gained Add/Change/Remove Photo (via `expo-image-picker`: permission requested only on tap, images only, no cropping/camera), with loading states, a success toast, and friendly errors. `Avatar` now renders a photo when a URI resolves and falls back to initials (including when a signed URL has expired); Home's greeting and rota-detail assignment rows show photos too. Team avatars stay initials-only.
-5. Demo mode is untouched: photo controls are hidden, Storage is never called, and Reset Demo Data is unaffected. Until the migration is pushed, a live upload fails with the friendly "Profile photos aren't switched on yet" message and nothing else is affected.
+5. Demo mode is untouched: photo controls are hidden, Storage is never called, and Reset Demo Data is unaffected. The migration is pushed and photo upload/replace/remove passed manual QA.
 6. Still deferred: announcement images, chat attachments, team avatar management, image cropping, camera capture. Best-effort deletes mean a failed cleanup can orphan an object — a future cleanup job can sweep the bucket against `profiles.avatar_url`.
 
 ### 11. Push notifications — preferences ✅ (done); tokens & delivery deferred
@@ -228,7 +228,7 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 8. ✅ **Done (pushed + manual QA):** `20260709233705_link_auth_users_to_existing_profiles.sql` safely links newly created Auth users to existing matching profiles; it does not implement signup or create profile/role/membership rows.
 9. ✅ **Done (2026-07-10):** **step 9b — realtime team chat**, including the pushed and verified `20260710020944_enable_realtime_for_chat_messages.sql` publication migration.
 10. ✅ **Done (2026-07-10):** **step 9c — chat unread tracking**, including the pushed and QA'd `20260710031212_add_chat_read_states.sql` migration.
-11. ✅ **App done (2026-07-10):** **step 10, first slice — profile avatar storage**. `20260710105140_add_profile_avatar_storage.sql` is **local-only**: live photo uploads show a friendly setup message until it is pushed with explicit approval and QA'd.
+11. ✅ **Done (2026-07-10):** **step 10, first slice — profile avatar storage**, including the pushed and QA'd `20260710105140_add_profile_avatar_storage.sql` migration.
 12. Next slice candidates: announcement images or chat attachments (rest of step 10); push tokens/delivery remain separate future slices.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.
