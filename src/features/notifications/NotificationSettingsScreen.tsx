@@ -13,6 +13,7 @@ import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { NotificationPreferences } from '../../types';
+import { useDevicePushRegistration } from './useDevicePushRegistration';
 
 type PrefKey = keyof Omit<NotificationPreferences, 'id' | 'user_id'>;
 
@@ -56,10 +57,13 @@ const settings: { key: PrefKey; title: string; description: string }[] = [
  * the save is in flight and reverted (plus a friendly message) if it fails.
  * Demo mode keeps the original instant local toggles.
  *
- * Saving preferences is live, but nothing actually pushes yet: registering
- * this device for push notifications needs a development build with
- * expo-notifications and an EAS project id (Expo Go cannot receive remote
- * pushes), so that flow is deliberately absent rather than broken.
+ * Live mode also shows the "Device notifications" card (Push Token
+ * Registration V1): an explicit button that asks for OS permission and
+ * registers this device's Expo push token — never on mount, only on tap.
+ * Nothing is delivered yet; registering needs a development build (Expo Go
+ * cannot receive remote pushes since SDK 53), and unsupported device/build
+ * states show calm setup copy instead. Demo mode hides the card entirely
+ * and never touches push or Supabase APIs.
  */
 export default function NotificationSettingsScreen() {
   const user = useRequiredUser();
@@ -76,6 +80,10 @@ export default function NotificationSettingsScreen() {
   const prefsLive = data.notificationPrefsLive;
   const prefs = data.getNotificationPreferences(user.profile.id);
   const saving = pendingKey !== null;
+
+  const { state: deviceState, register: registerDevice } = useDevicePushRegistration(
+    prefsLive ? (user.supabaseProfileId ?? null) : null,
+  );
 
   const showLoading = prefsLive && data.notificationPrefsLoading;
   const showLoadError =
@@ -175,6 +183,86 @@ export default function NotificationSettingsScreen() {
             </View>
           ) : null}
 
+          {prefsLive ? (
+            <Card style={styles.deviceCard}>
+              <AppText variant="bodyBold">Device notifications</AppText>
+
+              {deviceState.kind === 'registered' ? (
+                <>
+                  <View style={styles.deviceStatusRow}>
+                    <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+                    <AppText style={styles.deviceStatusText}>
+                      This device is registered for notifications.
+                    </AppText>
+                  </View>
+                  <AppText variant="small" tone="muted">
+                    You’re all set. Notification delivery itself arrives in a later
+                    update, and your choices above decide what you’ll hear about.
+                  </AppText>
+                </>
+              ) : deviceState.kind === 'permissionDenied' ? (
+                <>
+                  <AppText variant="small" tone="secondary">
+                    Notifications are switched off for Shift Shepherd in your phone’s
+                    settings. Allow them there, then try again.
+                  </AppText>
+                  <Button
+                    title="Try Again"
+                    variant="secondary"
+                    icon="refresh-outline"
+                    onPress={registerDevice}
+                  />
+                </>
+              ) : deviceState.kind === 'unsupportedDevice' ? (
+                <AppText variant="small" tone="muted">
+                  Device notifications aren’t available here — they work on a real
+                  phone or tablet.
+                </AppText>
+              ) : deviceState.kind === 'needsDevelopmentBuild' ? (
+                <AppText variant="small" tone="muted">
+                  This preview of the app can’t register for notifications. The
+                  installed church app will be able to.
+                </AppText>
+              ) : deviceState.kind === 'missingProjectId' ? (
+                <AppText variant="small" tone="muted">
+                  Notifications aren’t fully set up for this version of the app yet.
+                  Please check back after the next update.
+                </AppText>
+              ) : deviceState.kind === 'failed' ? (
+                <>
+                  <AppText variant="small" style={styles.deviceErrorText}>
+                    {deviceState.message}
+                  </AppText>
+                  <Button
+                    title="Try Again"
+                    variant="secondary"
+                    icon="refresh-outline"
+                    onPress={registerDevice}
+                  />
+                </>
+              ) : (
+                <>
+                  <AppText variant="small" tone="secondary">
+                    Register this device so it can receive church notifications once
+                    delivery is switched on. Your phone will ask for permission first
+                    — nothing is sent without it.
+                  </AppText>
+                  <Button
+                    title={
+                      deviceState.kind === 'working'
+                        ? 'Setting up…'
+                        : 'Enable device notifications'
+                    }
+                    icon="notifications-outline"
+                    loading={deviceState.kind === 'working'}
+                    disabled={deviceState.kind === 'working'}
+                    onPress={registerDevice}
+                  />
+                </>
+              )}
+            </Card>
+          ) : null}
+
           <AppText variant="small" tone="muted" style={styles.note}>
             {prefsLive
               ? 'These settings are saved to your account now. Actual push notifications to this device will be enabled in a later update.'
@@ -189,6 +277,10 @@ export default function NotificationSettingsScreen() {
 const styles = StyleSheet.create({
   card: { gap: spacing.lg },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  deviceCard: { gap: spacing.md },
+  deviceStatusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  deviceStatusText: { color: colors.success, flex: 1 },
+  deviceErrorText: { color: colors.danger },
   note: { textAlign: 'center' },
   centerWrap: { paddingVertical: spacing.xl, gap: spacing.md },
   centerText: { textAlign: 'center' },

@@ -1,7 +1,7 @@
 # Supabase Migration Alignment
 
 **Status: aligned through `20260710162415` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
-This document records that completed remote checkpoint and the rules that keep history aligned; there is currently **no local-only migration**.
+This document records that completed remote checkpoint, the one newer local-only migration (`20260710171200_add_push_token_registration.sql`, awaiting explicit push approval), and the rules that keep history aligned.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
@@ -15,7 +15,7 @@ with explicit approval, verified, and covered by manual QA.
   `001, 002, 003, 004, 005, 006`.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
-- `supabase migration list` shows every migration through `20260710162415` on **both** local and remote; nothing is local-only.
+- `supabase migration list` shows every migration through `20260710162415` on **both** local and remote. `20260710171200_add_push_token_registration.sql` is local-only pending explicit push approval.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -65,6 +65,14 @@ with explicit approval, verified, and covered by manual QA.
   path — the original policy's unqualified `name` resolved to `teams.name` inside its
   subquery and rejected every valid message-scoped upload path. Same private bucket,
   image/path checks, and team-access predicate.
+- `20260710171200_add_push_token_registration.sql` (**local-only**): adds
+  `register_push_token(p_token, p_platform)`, a narrow SECURITY DEFINER upsert onto
+  the existing `push_tokens` table keyed on its globally-unique token column
+  (validates the caller's linked profile, the `ExponentPushToken[…]` shape, and the
+  platform; re-registering bumps `updated_at`; a shared device follows its current
+  signed-in owner). Deliberately **no table-level grants** — the RPC is the only
+  write path, RLS (002) stays authoritative, EXECUTE is revoked from public/anon and
+  granted to authenticated only. No delivery, Edge Functions, or receipts.
 
 ## How Alignment Was Done
 
@@ -144,6 +152,7 @@ passed manual QA (after the `20260710162415` permission fix: members can send im
 in their teams, admins in teams they administer, non-members stay blocked, and text
 chat/realtime/unread tracking still work). Chat supports exactly one optional image
 per message — no arbitrary files, audio/video, galleries, camera capture, full-screen
-viewer, or message edit/delete. The next planned slice is **Push Token Registration
-V1** (registering/persisting Expo push tokens only); real push delivery remains a
-separate, later slice.
+viewer, or message edit/delete. **Push Token Registration V1** app code is now
+implemented; its migration `20260710171200_add_push_token_registration.sql` is
+local-only and needs an explicitly approved `supabase db push` before live token
+registration can pass QA. Real push delivery remains a separate, later slice.

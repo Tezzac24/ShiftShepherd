@@ -13,10 +13,9 @@
  * client-side and only writes a row on their first change (an upsert onto
  * the user_id constraint). The database owns the row id.
  *
- * Push tokens are deliberately NOT handled here yet: registering a device
- * needs expo-notifications plus a development build with an EAS project id
- * (Expo Go cannot receive remote pushes since SDK 53), and this build has
- * neither. See src/lib/notifications/ for the deferral notes.
+ * Push tokens are handled by the separate pushTokens.ts service (Push Token
+ * Registration V1) with the device-side flow in src/lib/notifications/ —
+ * this service stays preferences-only.
  *
  * This service needs the grants migration
  * `20260709220528_grant_authenticated_notification_prefs_api_privileges.sql`

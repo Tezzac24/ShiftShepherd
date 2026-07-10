@@ -17,7 +17,7 @@ The Expo app lives in the repository root:
 
 The app replaces WhatsApp for church operations: scheduling, rotas, team communication, choir song management, and announcements.
 
-The current project state is a functional scaffold with locally persisted mock data. Auth supports two modes behind one abstraction: demo mode (mock test users, always available) and real Supabase email/password Auth when `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` are configured. Live Supabase serves auth/session, announcements (including one optional image), events, rotas/availability, choir songs/selections, team chat (realtime, private unread tracking, and one optional image per message), notification preferences, profile avatars, and the read-only people/teams directory — only for linked Supabase sessions; demo mode keeps everything local. Announcement Images V1 and Chat Image Attachments V1 are pushed and QA'd (`20260710114621`, `20260710124206`, and the `20260710162415` permission fix). Push token registration/delivery remain deferred.
+The current project state is a functional scaffold with locally persisted mock data. Auth supports two modes behind one abstraction: demo mode (mock test users, always available) and real Supabase email/password Auth when `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` are configured. Live Supabase serves auth/session, announcements (including one optional image), events, rotas/availability, choir songs/selections, team chat (realtime, private unread tracking, and one optional image per message), notification preferences, profile avatars, and the read-only people/teams directory — only for linked Supabase sessions; demo mode keeps everything local. Announcement Images V1 and Chat Image Attachments V1 are pushed and QA'd (`20260710114621`, `20260710124206`, and the `20260710162415` permission fix). Push Token Registration V1 (manual, user-initiated device registration from notification settings) is implemented behind local-only `20260710171200_add_push_token_registration.sql` pending explicit push approval; real push delivery remains deferred.
 
 ---
 
@@ -160,10 +160,10 @@ Current architecture:
 - Expo Router for file-based routing
 - Local mocked data and local app state for the scaffold
 - Supabase as the intended production backend
-- Supabase Auth, Postgres, RLS, Realtime (team chat only), profile-avatar Storage, and QA'd announcement-image Storage wired; further Storage use cases and Edge Functions later
-- Expo Notifications later
+- Supabase Auth, Postgres, RLS, Realtime (team chat only), and private Storage (profile avatars, announcement images, chat images — all QA'd) wired; further Storage use cases and Edge Functions later
+- expo-notifications for device push token registration (delivery later); EAS project linked (`eas.json` + `extra.eas.projectId`)
 - `@expo/vector-icons`
-- Notifications currently stubbed through `src/lib/notifications/`
+- Device-side push registration lives in `src/lib/notifications/` (registration only — nothing is delivered)
 
 ---
 
@@ -216,9 +216,9 @@ The mock data should stay realistic and should continue to map closely to the in
 
 Supabase integration code belongs in `src/lib/supabase/`. The client (`client.ts`) is env-guarded: it returns null without `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` and the app runs in demo mode.
 
-Supabase integration stays isolated in `src/lib/supabase/`. In addition to the established live slices, **chat images** use `services/chatAttachments.ts`: one JPEG/PNG/WebP under 5 MB, private `chat-attachments` path `teams/<teamId>/messages/<messageId>/<file>`, atomic message+metadata insert through narrow SECURITY INVOKER RPCs, one-hour signed URLs, and best-effort failed-send cleanup. `chat.ts` performs joined reads with a text-only pre-migration fallback; the open chat keeps its single `chat_messages` subscription and coalesces a refetch after inserts so attachments appear without duplicates. Image-only messages are supported. Demo chat stays local/text-only and never calls Storage. Profile avatars and announcement images remain unchanged. Arbitrary files, multiple attachments, chat edit/delete, visible receipts, and push delivery remain deferred. DB↔app mapping stays centralized; live ids are real UUIDs end-to-end and demo mode uses pure mock ids.
+Supabase integration stays isolated in `src/lib/supabase/`. In addition to the established live slices, **chat images** use `services/chatAttachments.ts`: one JPEG/PNG/WebP under 5 MB, private `chat-attachments` path `teams/<teamId>/messages/<messageId>/<file>`, atomic message+metadata insert through narrow SECURITY INVOKER RPCs, one-hour signed URLs, and best-effort failed-send cleanup. `chat.ts` performs joined reads with a text-only pre-migration fallback; the open chat keeps its single `chat_messages` subscription and coalesces a refetch after inserts so attachments appear without duplicates. Image-only messages are supported. Demo chat stays local/text-only and never calls Storage. Profile avatars and announcement images remain unchanged. **Push tokens** use `services/pushTokens.ts`: registration-only writes through the narrow SECURITY DEFINER `register_push_token` RPC (no table-level grants; upsert keyed on the globally-unique token so re-registering refreshes `updated_at` and a shared device follows its current signed-in owner), with the device-side permission/token flow in `src/lib/notifications/` — strictly user-initiated, demo mode never calls push or Supabase APIs, and tokens are never logged or shown. Arbitrary files, multiple attachments, chat edit/delete, visible receipts, and push delivery remain deferred. DB↔app mapping stays centralized; live ids are real UUIDs end-to-end and demo mode uses pure mock ids.
 
-The Supabase MCP server is configured against the dev project — use it to inspect the live schema/data. Remote history is aligned through pushed/QA'd `20260710162415` with no local-only migrations (see `docs/supabase-migration-alignment-checkpoint.md`). Do not rename `001`–`006` or timestamped migrations; create future migrations with `supabase migration new <descriptive_name>` and keep the generated filename. Never run `supabase db push` or another remote database write without explicit approval.
+The Supabase MCP server is configured against the dev project — use it to inspect the live schema/data. Remote history is aligned through pushed/QA'd `20260710162415`; `20260710171200_add_push_token_registration.sql` is local-only and needs explicit `supabase db push` approval before live registration QA (see `docs/supabase-migration-alignment-checkpoint.md`). Do not rename `001`–`006` or timestamped migrations; create future migrations with `supabase migration new <descriptive_name>` and keep the generated filename. Never run `supabase db push` or another remote database write without explicit approval.
 
 Never use or request service role keys; `.env.example` stays placeholder-only.
 
@@ -293,11 +293,11 @@ The choir feature is first-class for V1:
 
 ## Current Scope
 
-V1 is a functional scaffold with mocked, locally persisted data plus optional Supabase email/password Auth and the documented live slices. Storage is limited to profile avatars, one announcement image, and one chat image per message — all live and QA'd (no arbitrary files, galleries, or message edit/delete). Realtime stays limited to the open team chat. Demo/local mode intentionally remains supported.
+V1 is a functional scaffold with mocked, locally persisted data plus optional Supabase email/password Auth and the documented live slices. Storage is limited to profile avatars, one announcement image, and one chat image per message — all live and QA'd (no arbitrary files, galleries, or message edit/delete). Realtime stays limited to the open team chat. Push Token Registration V1 is implemented (manual registration only; its migration awaits an explicitly approved push). Demo/local mode intentionally remains supported.
 
 Do not add these unless explicitly requested:
 
-- Team-management writes or push token registration
+- Team-management writes
 - Real OAuth
 - Real SMS login
 - Real push notifications
