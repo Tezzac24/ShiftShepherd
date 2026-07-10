@@ -9,7 +9,8 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tezzac24.shiftshepherd"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +20,11 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.tezzac24.shiftshepherd"
     },
     "web": {
       "output": "static",
@@ -41,7 +46,14 @@
           "resizeMode": "contain",
           "backgroundColor": "#EEF3FC"
         }
-      ]
-    ]
+      ],
+      "expo-notifications"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b3912257-9eb2-4be1-81fd-b37d74990308"
+      }
+    }
   }
 }
