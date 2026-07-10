@@ -13,12 +13,12 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is aligned through the profile avatar storage migration (`20260710105140_add_profile_avatar_storage.sql`); the announcement image storage migration (`20260710114621_add_announcement_image_storage.sql`) is intentionally local-only pending an explicitly approved push.
+- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is aligned through the pushed and QA'd announcement image storage migration (`20260710114621_add_announcement_image_storage.sql`).
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006`, the events/rota/songs/chat/notification-preferences grants migrations, the Auth/profile auto-link migration (`20260709233705`), the chat realtime publication migration (`20260710020944`), the chat read-states migration (`20260710031212`), and the profile avatar storage migration (`20260710105140`). `20260710114621_add_announcement_image_storage.sql` is the one local-only migration, pending an explicitly approved `supabase db push`. Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through the pushed, verified, and QA'd announcement image storage migration (`20260710114621`). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ### 2. Auth + profiles ✅ (done; auto-link migration pushed + QA'd)
 
@@ -159,15 +159,15 @@ Storage starts with the smallest contained use case: **profile avatars**. What s
 5. Demo mode is untouched: photo controls are hidden, Storage is never called, and Reset Demo Data is unaffected. The migration is pushed and photo upload/replace/remove passed manual QA.
 6. Still deferred: chat attachments, team avatar management, image cropping, camera capture. Best-effort deletes mean a failed cleanup can orphan an object — a future cleanup job can sweep the bucket against `profiles.avatar_url`.
 
-### 10b. Storage & uploads — announcement images ✅ second slice (app done 2026-07-10; migration pending push)
+### 10b. Storage & uploads — announcement images ✅ second slice (pushed + QA'd 2026-07-10)
 
 One optional image per announcement, same design language as avatars. What shipped:
 
-1. `20260710114621_add_announcement_image_storage.sql` (**local-only until an explicitly approved `supabase db push`**) creates a **private** `announcement-images` bucket (5 MB cap, JPEG/PNG/WebP only) and `storage.objects` policies keyed off the path `announcements/<announcementId>/<file>`: anyone who can read the announcement can read its image, and only the users the existing 002 rules allow to manage that announcement can add/replace/delete its objects (delete additionally allows the uploader's own objects via `owner_id`, so cleanup right after an announcement delete still works). Nothing for anon. **No table change and no RPC**: the path lives in the existing `announcements.image_url` column, repointed through the existing announcements update path — the announcements UPDATE policy + grants already scope that to authorised editors.
+1. `20260710114621_add_announcement_image_storage.sql` (pushed, verified, and manually QA'd) creates a **private** `announcement-images` bucket (5 MB cap, JPEG/PNG/WebP only) and `storage.objects` policies keyed off the path `announcements/<announcementId>/<file>`: anyone who can read the announcement can read its image, and only the users the existing 002 rules allow to manage that announcement can add/replace/delete its objects (delete additionally allows the uploader's own objects via `owner_id`, so cleanup right after an announcement delete still works). Nothing for anon. **No table change and no RPC**: the path lives in the existing `announcements.image_url` column, repointed through the existing announcements update path — the announcements UPDATE policy + grants already scope that to authorised editors.
 2. `src/lib/supabase/services/announcementImages.ts` — upload/replace (upload new object → repoint `image_url` via the announcements service → best-effort delete of the old object; a failed repoint deletes the fresh upload), remove (repoint null → best-effort delete), type/size validation with friendly copy, `isAnnouncementImagePath` (only `announcements/…` values are ever signed or deleted — the legacy `'placeholder'` seed marker renders nothing), and 1-hour signed URLs for the private bucket. `image_url` stores the storage *path*, never a URL.
 3. `AppDataContext` signs every image path in the live announcements list, caches URLs session-only (cleared with live announcements on sign-out), re-signs on app foreground past half the TTL, and exposes `getAnnouncementImageUri` / `setAnnouncementImage` / `removeAnnouncementImage`. Deleting an announcement best-effort deletes its image object after the row delete.
 4. The announcement form (create + edit, live mode only) replaced the old demo "Include an image" placeholder toggle with real Add/Change/Remove image controls (`expo-image-picker`: permission requested only on tap, images only, no cropping/camera; picks validate immediately and preview locally). Nothing uploads until save: the announcement row saves first, then the image change applies — an image failure never rolls back the text, it toasts "saved, but the image…" and the person can retry from Edit. Announcement cards (list, Home, team space) show a modest preview and the detail screen a larger image; a load failure just hides the image.
-5. Demo mode has no announcement image controls and never calls Storage (the placeholder toggle is gone; demo announcements are text-only). Until the migration is pushed, a live image upload fails with the friendly "Announcement images aren't switched on yet" message and the announcement itself still saves.
+5. Demo mode has no announcement image controls and never calls Storage (the placeholder toggle is gone; demo announcements are text-only). Live uploads are active after the migration push and manual QA.
 6. Still deferred: chat attachments, multi-image galleries, document uploads, team avatars, image cropping, camera capture. Best-effort deletes mean a failed cleanup can orphan an object — a future cleanup job can sweep the bucket against `announcements.image_url`.
 
 ### 11. Push notifications — preferences ✅ (done); tokens & delivery deferred
@@ -221,7 +221,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
 - ~~**Unread badges**~~ — live unread tracking shipped (step 9c); `20260710031212_add_chat_read_states.sql` is pushed and live badges are active.
 - **Notification delivery** — preferences persist to the table now (step 11, first half), but no push token is registered and nothing pushes until a development build + Edge Function pass.
-- **Chat attachments** — still placeholders. Announcement Images V1 is implemented as step 10b, but its private-bucket migration remains local-only until explicitly pushed; multi-image galleries are out of scope.
+- **Chat attachments** — still placeholders. Announcement Images V1 is implemented, pushed, and QA'd as step 10b; multi-image galleries are out of scope.
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
 - **Team management UI** (create teams, assign leaders) — admin does this via the dashboard until a screen exists.
 
@@ -240,6 +240,6 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 9. ✅ **Done (2026-07-10):** **step 9b — realtime team chat**, including the pushed and verified `20260710020944_enable_realtime_for_chat_messages.sql` publication migration.
 10. ✅ **Done (2026-07-10):** **step 9c — chat unread tracking**, including the pushed and QA'd `20260710031212_add_chat_read_states.sql` migration.
 11. ✅ **Done (2026-07-10):** **step 10, first slice — profile avatar storage**, including the pushed and QA'd `20260710105140_add_profile_avatar_storage.sql` migration.
-12. Next slice after the explicitly approved announcement-image migration push and QA: chat attachments only if separately approved; push tokens/delivery remain separate future slices.
+12. Next approved slice: focused chat image attachments; push tokens/delivery remain separate future slices.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

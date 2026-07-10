@@ -1,12 +1,12 @@
 # Supabase Migration Alignment
 
-**Status: aligned through `20260710105140` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
-This document records that completed checkpoint, the one pending local-only migration, and the rules that keep history aligned.
+**Status: aligned through `20260710114621` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
+This document records that completed checkpoint and the rules that keep history aligned.
 Since then the timestamped migrations (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, and the profile avatar storage
 `20260710105140`) have each been pushed with explicit approval. `20260710114621_add_announcement_image_storage.sql`
-is intentionally local-only pending an explicitly approved `supabase db push`; no remote database write was made for it.
+was subsequently pushed, verified, and passed manual QA.
 
 ## Outcome (TL;DR)
 
@@ -14,7 +14,7 @@ is intentionally local-only pending an explicitly approved `supabase db push`; n
   `001, 002, 003, 004, 005, 006`.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
-- `supabase migration list` shows every migration through `20260710105140` on **both** local and remote; `20260710114621` is local-only.
+- `supabase migration list` shows every migration through `20260710114621` on **both** local and remote; there is no local-only migration at this checkpoint.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -50,7 +50,7 @@ is intentionally local-only pending an explicitly approved `supabase db push`; n
   with consistency checks.
 - `006_grant_authenticated_api_privileges.sql`: authenticated Data API grants for
   auth/profile lookup and live announcement CRUD. Grants nothing to `anon`.
-- `20260710114621_add_announcement_image_storage.sql` (**local-only**): private
+- `20260710114621_add_announcement_image_storage.sql` (**pushed + QA'd**): private
   `announcement-images` bucket (JPEG/PNG/WebP, 5 MB), authenticated storage-object
   policies tied to announcement visibility/management, and no table change or RPC.
   `announcements.image_url` stores one optional storage path, never a signed URL.
@@ -127,8 +127,6 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 
 ## Result
 
-The remote dev schema matches the repo migrations through `20260710105140`, and migration
-history is tracked. Before Announcement Images V1 can receive manual QA, explicitly approve
-and run `supabase db push`, then verify `20260710114621` appears on both sides of
-`supabase migration list` and test its private-bucket policies. No chat attachments,
+The remote dev schema matches the repo migrations through `20260710114621`, migration
+history is tracked, and Announcement Images V1 passed manual QA. No chat attachments,
 multi-image galleries, or push-notification work is part of that migration.
