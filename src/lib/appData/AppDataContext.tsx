@@ -100,6 +100,7 @@ import * as announcementImagesService from '../supabase/services/announcementIma
 import * as announcementsService from '../supabase/services/announcements';
 import * as chatService from '../supabase/services/chat';
 import * as chatAttachmentsService from '../supabase/services/chatAttachments';
+import { requestChatMessagePushDelivery } from '../supabase/services/pushDelivery';
 import * as eventsService from '../supabase/services/events';
 import * as notificationsService from '../supabase/services/notifications';
 import * as profileAvatarsService from '../supabase/services/profileAvatars';
@@ -1882,6 +1883,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             )
           : await chatService.sendChatMessage(teamId, body, supabaseProfileId);
         setLiveChatMessages((prev) => mergeChatMessages(prev, [sent]));
+        // Best-effort push to the other team members — only ever from this
+        // send-success path (never from realtime arrivals or refetches, which
+        // would ask again for every receiver). Fire-and-forget by design.
+        requestChatMessagePushDelivery(sent.id);
         resyncLiveChat();
         return;
       }

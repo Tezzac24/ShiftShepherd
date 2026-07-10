@@ -2,6 +2,7 @@
 
 **Status: aligned through `20260710171200` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
 This document records that completed remote checkpoint, including Push Token Registration V1, and the rules that keep history aligned.
+**One migration is currently local-only:** `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) awaits an explicitly approved `supabase db push`; the matching `send-chat-message-push` Edge Function is likewise not deployed yet.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
@@ -161,5 +162,8 @@ per message — no arbitrary files, audio/video, galleries, camera capture, full
 viewer, or message edit/delete. **Push Token Registration V1** and its migration
 `20260710171200_add_push_token_registration.sql` are pushed, DB/RPC-verified, and
 passed iOS Simulator runtime QA on 2026-07-11 (Android and physical iPhone QA
-deferred). Real push delivery remains a separate, later slice and must start
-narrowly with chat messages only.
+deferred). Real push delivery started narrowly with chat messages only:
+**Chat Message Push Delivery V1** is implemented locally (the
+`send-chat-message-push` Edge Function plus the local-only
+`20260710234443_add_push_delivery_foundation.sql` ledger migration) and goes
+live only after an explicitly approved migration push and function deploy.
