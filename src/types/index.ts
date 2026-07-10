@@ -85,6 +85,12 @@ export interface Announcement {
   body: string;
   audience: AnnouncementAudience;
   pinned: boolean;
+  /**
+   * Live mode stores a private-bucket storage path
+   * (`announcements/<announcementId>/<file>`), displayed via short-lived
+   * signed URLs. Demo/mock data has no real images (the legacy
+   * 'placeholder' marker renders nothing).
+   */
   image_url: string | null;
   linked_event_id: ID | null;
   created_by: ID;

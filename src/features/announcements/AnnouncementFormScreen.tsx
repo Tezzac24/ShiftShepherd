@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Switch, View } from 'react-native';
 
 import { colors, spacing } from '../../../constants/theme';
+import { AnnouncementImage } from '../../components/AnnouncementImage';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
@@ -19,6 +20,8 @@ import {
   canCreateTeamAnnouncements,
   canEditAnnouncement,
 } from '../../lib/permissions';
+import { isAnnouncementImagePath } from '../../lib/supabase/services/announcementImages';
+import { useAnnouncementImageDraft } from './useAnnouncementImageDraft';
 
 const CHURCH_WIDE = 'church';
 
@@ -67,9 +70,23 @@ export default function AnnouncementFormScreen() {
   const [linkedEventId, setLinkedEventId] = useState<string | null>(
     existing?.linked_event_id ?? null,
   );
-  const [includeImage, setIncludeImage] = useState(!!existing?.image_url);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // One optional image per announcement — a live-Supabase Storage feature.
+  // Picks/removals are held as a draft and applied after the announcement
+  // itself saves; demo mode shows no image controls and never calls Storage.
+  const imagesEnabled = data.announcementsLive;
+  const { draft: imageDraft, picking, pickImage, markRemoved } = useAnnouncementImageDraft();
+  const existingHasImage = isAnnouncementImagePath(existing?.image_url ?? null);
+  const showsImage =
+    imageDraft.kind === 'replace' || (imageDraft.kind === 'unchanged' && existingHasImage);
+  const displayImageUri =
+    imageDraft.kind === 'replace'
+      ? imageDraft.previewUri
+      : imageDraft.kind === 'unchanged'
+        ? data.getAnnouncementImageUri(existing)
+        : undefined;
 
   // Only events that haven't finished are offered for linking. An existing
   // link to a now-past event stays choosable so editing never silently
@@ -100,13 +117,14 @@ export default function AnnouncementFormScreen() {
       setError('Please add a title, a message, and choose who should see it.');
       return;
     }
+    // No image_url here: on create it starts null (the image uploads after
+    // the row exists), and on update the dedicated image actions own it.
     const record = {
       title: title.trim(),
       body: body.trim(),
       team_id: audience === CHURCH_WIDE ? null : audience,
       audience: (audience === CHURCH_WIDE ? 'church' : 'team') as 'church' | 'team',
       pinned,
-      image_url: includeImage ? 'placeholder' : null,
       // In live mode the picker lists live events, so this is already a real
       // event UUID (or null); in demo mode it is a local mock event id.
       linked_event_id: linkedEventId,
@@ -115,11 +133,42 @@ export default function AnnouncementFormScreen() {
     setError(null);
     setSaving(true);
     try {
+      let savedId: string;
       if (existing) {
         await data.updateAnnouncement(existing.id, record);
+        savedId = existing.id;
       } else {
-        await data.addAnnouncement(record);
+        const created = await data.addAnnouncement({ ...record, image_url: null });
+        savedId = created.id;
       }
+
+      // Apply the pending image change now the announcement row exists. The
+      // text is already saved, so an image failure never rolls it back — the
+      // person hears what happened and can retry from Edit Announcement.
+      const wantsImageChange =
+        imagesEnabled &&
+        (imageDraft.kind === 'replace' || (imageDraft.kind === 'remove' && existingHasImage));
+      if (wantsImageChange) {
+        try {
+          if (imageDraft.kind === 'replace') {
+            await data.setAnnouncementImage(savedId, imageDraft.file);
+          } else {
+            await data.removeAnnouncementImage(savedId);
+          }
+        } catch (imageError) {
+          const reason = imageError instanceof Error ? imageError.message : '';
+          showToast(
+            (editing
+              ? `Your changes were saved, but the image change didn’t go through. ${reason}`
+              : `Your announcement was posted, but the image wasn’t added. ${reason}`
+            ).trim(),
+            'error',
+          );
+          router.back();
+          return;
+        }
+      }
+
       showToast(editing ? 'Announcement updated.' : 'Announcement posted.');
       router.back();
     } catch (saveError) {
@@ -185,21 +234,40 @@ export default function AnnouncementFormScreen() {
             accessibilityLabel="Pin this announcement"
           />
         </View>
-        <View style={styles.toggleRow}>
-          <View style={{ flex: 1 }}>
-            <AppText variant="bodyBold">Include an image</AppText>
+      </Card>
+
+      {imagesEnabled ? (
+        <Card>
+          <View>
+            <AppText variant="bodyBold">Image (optional)</AppText>
             <AppText variant="small" tone="secondary">
-              Image upload is a placeholder in this demo build.
+              Add a photo to show with this announcement.
             </AppText>
           </View>
-          <Switch
-            value={includeImage}
-            onValueChange={setIncludeImage}
-            trackColor={{ true: colors.primary, false: colors.borderStrong }}
-            accessibilityLabel="Include an image placeholder"
-          />
-        </View>
-      </Card>
+          <AnnouncementImage uri={displayImageUri} height={160} />
+          <View style={styles.imageActions}>
+            <Button
+              title={showsImage ? 'Change image' : 'Add image'}
+              variant="secondary"
+              icon="image-outline"
+              onPress={() => void pickImage()}
+              loading={picking}
+              disabled={saving}
+              accessibilityHint="Choose an image from your photos"
+            />
+            {showsImage ? (
+              <Button
+                title="Remove image"
+                variant="ghost"
+                icon="trash-outline"
+                onPress={markRemoved}
+                disabled={saving || picking}
+                accessibilityHint="The announcement will show no image after saving"
+              />
+            ) : null}
+          </View>
+        </Card>
+      ) : null}
 
       {error ? (
         <AppText tone="danger" style={styles.error}>
@@ -228,6 +296,7 @@ export default function AnnouncementFormScreen() {
 const styles = StyleSheet.create({
   toggleCard: { gap: spacing.md },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  imageActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   error: { textAlign: 'center' },
   actions: { gap: spacing.sm, marginTop: spacing.sm },
 });

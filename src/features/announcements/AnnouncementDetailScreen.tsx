@@ -3,7 +3,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { colors, spacing } from '../../../constants/theme';
+import { AnnouncementImage } from '../../components/AnnouncementImage';
 import { AppText } from '../../components/AppText';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
@@ -90,14 +91,12 @@ export default function AnnouncementDetailScreen() {
           {formatRelative(announcement.created_at)}
         </AppText>
 
-        {announcement.image_url ? (
-          <View style={styles.imagePlaceholder} accessibilityLabel="Announcement image placeholder">
-            <Ionicons name="image-outline" size={40} color={colors.textMuted} />
-            <AppText variant="small" tone="muted">
-              Image (placeholder)
-            </AppText>
-          </View>
-        ) : null}
+        {/* Renders nothing when there is no image (or it can't load). */}
+        <AnnouncementImage
+          uri={data.getAnnouncementImageUri(announcement)}
+          height={200}
+          accessibilityLabel={`Image for ${announcement.title}`}
+        />
 
         <AppText style={styles.body}>{announcement.body}</AppText>
       </Card>
@@ -157,16 +156,6 @@ export default function AnnouncementDetailScreen() {
 const styles = StyleSheet.create({
   badges: { flexDirection: 'row', gap: spacing.sm },
   body: { marginTop: spacing.xs },
-  imagePlaceholder: {
-    height: 140,
-    borderRadius: radius.md,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-  },
   linkedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   // Grows so the actions can anchor to the lower part of short screens;
   // on long content they simply follow the content.

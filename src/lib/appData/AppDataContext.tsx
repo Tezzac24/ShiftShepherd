@@ -96,6 +96,7 @@ import {
 } from '../mockData';
 import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../storage/persistence';
 import { isSupabaseConfigured } from '../supabase/client';
+import * as announcementImagesService from '../supabase/services/announcementImages';
 import * as announcementsService from '../supabase/services/announcements';
 import * as chatService from '../supabase/services/chat';
 import * as eventsService from '../supabase/services/events';
@@ -233,6 +234,33 @@ interface AppDataContextValue {
   ) => Promise<Announcement>;
   updateAnnouncement: (id: string, patch: Partial<Announcement>) => Promise<void>;
   deleteAnnouncement: (id: string) => Promise<void>;
+
+  // Announcement images — the second Supabase Storage slice. image_url holds
+  // a private-bucket storage path in live mode, so display goes through
+  // short-lived signed URLs cached here for the session. Demo mode has no
+  // announcement images and never touches Storage (the legacy mock
+  // 'placeholder' marker renders nothing).
+  /**
+   * Resolve an announcement's image for display: a signed URL in live mode
+   * (undefined while unsigned/unavailable — show no image instead);
+   * undefined in demo mode.
+   */
+  getAnnouncementImageUri: (
+    announcement: Announcement | undefined | null,
+  ) => string | undefined;
+  /**
+   * Upload or replace an announcement's image (live Supabase sessions only;
+   * storage policies + announcements RLS enforce that only that
+   * announcement's editors can). On success the announcement row points at
+   * the new image and the live list updates in place; rejects with a
+   * friendly message on failure and changes nothing locally.
+   */
+  setAnnouncementImage: (
+    announcementId: string,
+    file: announcementImagesService.PickedAnnouncementImage,
+  ) => Promise<void>;
+  /** Remove an announcement's image (live sessions only). */
+  removeAnnouncementImage: (announcementId: string) => Promise<void>;
 
   // Events — the second live Supabase slice, switching exactly like
   // announcements: live Supabase for linked Supabase sessions, local demo
@@ -438,6 +466,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [liveAnnouncements, setLiveAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
   const [announcementsError, setAnnouncementsError] = useState<string | null>(null);
+  // Ref so the image actions (stable callbacks) read the current live list.
+  const liveAnnouncementsRef = useRef<Announcement[]>([]);
+  liveAnnouncementsRef.current = liveAnnouncements;
+  // Signed display URLs for live announcement image paths (private bucket).
+  // Session-only: cleared when live announcements clear, refreshed on app
+  // foreground — the same lifecycle as the avatar cache below.
+  const [announcementImageSignedUrls, setAnnouncementImageSignedUrls] = useState<
+    Record<string, string>
+  >({});
+  const announcementImageSignedUrlsRef = useRef<Record<string, string>>({});
+  announcementImageSignedUrlsRef.current = announcementImageSignedUrls;
+  const announcementImagesSignedAtRef = useRef(0);
   // Lets in-flight fetches notice the mode flipped (e.g. sign-out mid-load).
   const liveDataEnabledRef = useRef(false);
   liveDataEnabledRef.current = liveDataEnabled;
@@ -691,7 +731,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const deleteAnnouncement: AppDataContextValue['deleteAnnouncement'] = useCallback(
     async (id) => {
       if (announcementsLive) {
+        const imagePath = liveAnnouncementsRef.current.find((a) => a.id === id)?.image_url ?? null;
         await announcementsService.deleteAnnouncement(id);
+        // Best-effort: the row is already gone, so a failed object delete
+        // only leaves an invisible orphan (see the images service).
+        if (announcementImagesService.isAnnouncementImagePath(imagePath)) {
+          void announcementImagesService.deleteAnnouncementImageObject(imagePath);
+        }
         setLiveAnnouncements((prev) => prev.filter((a) => a.id !== id));
         resyncLiveAnnouncements();
         return;
@@ -699,6 +745,127 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setLocalAnnouncements((prev) => prev.filter((a) => a.id !== id));
     },
     [announcementsLive, resyncLiveAnnouncements],
+  );
+
+  // --- Announcement images (second Supabase Storage slice ★) -------------------
+
+  // Every announcement image path visible this session (live announcements
+  // whose image_url is a real storage path — legacy values sign nothing).
+  const liveAnnouncementImagePaths = useMemo<string[]>(() => {
+    if (!announcementsLive) return [];
+    const paths = new Set<string>();
+    for (const announcement of liveAnnouncements) {
+      if (announcementImagesService.isAnnouncementImagePath(announcement.image_url)) {
+        paths.add(announcement.image_url);
+      }
+    }
+    return [...paths].sort();
+  }, [announcementsLive, liveAnnouncements]);
+  const liveAnnouncementImagePathsRef = useRef<string[]>([]);
+  liveAnnouncementImagePathsRef.current = liveAnnouncementImagePaths;
+
+  // Sign whichever paths have no display URL yet. Failures just leave the
+  // image hidden — signing is display-only and never an error.
+  useEffect(() => {
+    if (liveAnnouncementImagePaths.length === 0) {
+      announcementImagesSignedAtRef.current = 0;
+      setAnnouncementImageSignedUrls((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+      return;
+    }
+    const missing = liveAnnouncementImagePaths.filter(
+      (path) => !announcementImageSignedUrlsRef.current[path],
+    );
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void announcementImagesService
+      .createAnnouncementImageSignedUrls(missing)
+      .then((signed) => {
+        if (cancelled || !signed || !liveDataEnabledRef.current) return;
+        announcementImagesSignedAtRef.current = Date.now();
+        setAnnouncementImageSignedUrls((prev) => ({ ...prev, ...signed }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [liveAnnouncementImagePaths]);
+
+  // Signed URLs expire (1 hour TTL): re-sign everything when the app returns
+  // to the foreground past half that lifetime, so images survive long sessions.
+  useEffect(() => {
+    if (!liveDataEnabled) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const paths = liveAnnouncementImagePathsRef.current;
+      const halfLifeMs =
+        (announcementImagesService.ANNOUNCEMENT_IMAGE_SIGNED_URL_TTL_SECONDS * 1000) / 2;
+      if (paths.length === 0 || Date.now() - announcementImagesSignedAtRef.current < halfLifeMs) {
+        return;
+      }
+      void announcementImagesService.createAnnouncementImageSignedUrls(paths).then((signed) => {
+        if (!signed || !liveDataEnabledRef.current) return;
+        announcementImagesSignedAtRef.current = Date.now();
+        setAnnouncementImageSignedUrls((prev) => ({ ...prev, ...signed }));
+      });
+    });
+    return () => subscription.remove();
+  }, [liveDataEnabled]);
+
+  const getAnnouncementImageUri: AppDataContextValue['getAnnouncementImageUri'] = useCallback(
+    (announcement) => {
+      const path = announcement?.image_url;
+      if (!path) return undefined;
+      if (liveDataEnabled) {
+        return announcementImagesService.isAnnouncementImagePath(path)
+          ? announcementImageSignedUrls[path]
+          : undefined;
+      }
+      // Demo/mock announcements have no real images; the legacy 'placeholder'
+      // marker (and any other non-URL value) simply renders nothing.
+      return /^https?:\/\//.test(path) ? path : undefined;
+    },
+    [liveDataEnabled, announcementImageSignedUrls],
+  );
+
+  const setAnnouncementImage: AppDataContextValue['setAnnouncementImage'] = useCallback(
+    async (announcementId, file) => {
+      if (!announcementsLive || !supabaseProfileId) {
+        // The UI only offers image management in live mode; keep a calm
+        // message anyway in case that ever regresses.
+        throw new Error(
+          'Announcement images are available when signed in with your church account.',
+        );
+      }
+      const currentPath =
+        liveAnnouncementsRef.current.find((a) => a.id === announcementId)?.image_url ?? null;
+      const updated = await announcementImagesService.uploadAnnouncementImage(
+        announcementId,
+        file,
+        announcementImagesService.isAnnouncementImagePath(currentPath) ? currentPath : null,
+      );
+      // The path-sign effect above signs the new path for display.
+      setLiveAnnouncements((prev) => prev.map((a) => (a.id === announcementId ? updated : a)));
+      resyncLiveAnnouncements();
+    },
+    [announcementsLive, supabaseProfileId, resyncLiveAnnouncements],
+  );
+
+  const removeAnnouncementImage: AppDataContextValue['removeAnnouncementImage'] = useCallback(
+    async (announcementId) => {
+      if (!announcementsLive || !supabaseProfileId) {
+        throw new Error(
+          'Announcement images are available when signed in with your church account.',
+        );
+      }
+      const currentPath =
+        liveAnnouncementsRef.current.find((a) => a.id === announcementId)?.image_url ?? null;
+      const updated = await announcementImagesService.removeAnnouncementImage(
+        announcementId,
+        announcementImagesService.isAnnouncementImagePath(currentPath) ? currentPath : null,
+      );
+      setLiveAnnouncements((prev) => prev.map((a) => (a.id === announcementId ? updated : a)));
+      resyncLiveAnnouncements();
+    },
+    [announcementsLive, supabaseProfileId, resyncLiveAnnouncements],
   );
 
   // --- Events (live Supabase slice ★, with local demo fallback) ---------------
@@ -1810,6 +1977,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       announcementsLoading,
       announcementsError,
       refreshAnnouncements,
+      getAnnouncementImageUri,
+      setAnnouncementImage,
+      removeAnnouncementImage,
       events: eventsLive ? liveEvents : localEvents,
       eventsLive,
       eventsLoading,
@@ -1889,6 +2059,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       announcementsLoading,
       announcementsError,
       refreshAnnouncements,
+      getAnnouncementImageUri,
+      setAnnouncementImage,
+      removeAnnouncementImage,
       eventsLive,
       liveEvents,
       localEvents,

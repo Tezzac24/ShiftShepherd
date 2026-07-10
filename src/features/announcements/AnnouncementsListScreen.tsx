@@ -61,6 +61,7 @@ export default function AnnouncementsListScreen() {
             announcement={a}
             authorName={userName(data.users, a.created_by)}
             teamName={a.team_id ? data.teams.find((t) => t.id === a.team_id)?.name : undefined}
+            imageUri={data.getAnnouncementImageUri(a)}
             onPress={() => router.push({ pathname: '/announcements/[id]', params: { id: a.id } })}
           />
         ))

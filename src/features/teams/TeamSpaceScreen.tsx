@@ -240,6 +240,7 @@ export default function TeamSpaceScreen() {
             key={a.id}
             announcement={a}
             authorName={userName(data.users, a.created_by)}
+            imageUri={data.getAnnouncementImageUri(a)}
             onPress={() => router.push({ pathname: '/announcements/[id]', params: { id: a.id } })}
           />
         ))

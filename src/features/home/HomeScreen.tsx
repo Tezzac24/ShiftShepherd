@@ -80,6 +80,7 @@ export default function HomeScreen() {
               ? data.teams.find((t) => t.id === announcement.team_id)?.name
               : undefined
           }
+          imageUri={data.getAnnouncementImageUri(announcement)}
           onPress={() =>
             router.push({ pathname: '/announcements/[id]', params: { id: announcement.id } })
           }

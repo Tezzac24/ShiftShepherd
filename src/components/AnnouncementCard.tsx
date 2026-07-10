@@ -5,6 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { colors, spacing } from '../../constants/theme';
 import { Announcement } from '../types';
 import { formatRelative } from '../utils/dates';
+import { AnnouncementImage } from './AnnouncementImage';
 import { AppText } from './AppText';
 import { Badge } from './Badge';
 import { Card } from './Card';
@@ -13,6 +14,8 @@ interface AnnouncementCardProps {
   announcement: Announcement;
   authorName: string;
   teamName?: string;
+  /** Optional display URL for the announcement's image (e.g. a signed URL). */
+  imageUri?: string;
   onPress: () => void;
 }
 
@@ -20,6 +23,7 @@ export function AnnouncementCard({
   announcement,
   authorName,
   teamName,
+  imageUri,
   onPress,
 }: AnnouncementCardProps) {
   return (
@@ -41,6 +45,13 @@ export function AnnouncementCard({
       <AppText tone="secondary" numberOfLines={2}>
         {announcement.body}
       </AppText>
+      {/* A calm, modest preview; the full image lives on the detail screen.
+          Renders nothing when there is no image (or it fails to load). */}
+      <AnnouncementImage
+        uri={imageUri}
+        height={120}
+        accessibilityLabel={`Image for ${announcement.title}`}
+      />
       <View style={styles.metaRow}>
         <Ionicons name="person-circle-outline" size={18} color={colors.textMuted} />
         <AppText variant="small" tone="muted">

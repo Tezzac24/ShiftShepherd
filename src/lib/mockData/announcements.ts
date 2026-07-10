@@ -52,7 +52,9 @@ export const mockAnnouncements: Announcement[] = [
     'In two weeks we will hold a Special Thanksgiving Service followed by a shared lunch together.\n\nPlease bring a dish to share if you can — sign-up sheets are at the welcome desk. Invite family and friends; everyone is welcome!',
     'user-miriam',
     3,
-    { pinned: true, linked_event_id: 'event-thanksgiving', image_url: 'placeholder' },
+    // Announcement images are a live-Supabase Storage feature; demo
+    // announcements stay text-only (no more placeholder image marker).
+    { pinned: true, linked_event_id: 'event-thanksgiving' },
   ),
   announcement(
     'ann-choir-rehearsal',
