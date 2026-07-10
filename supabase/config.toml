@@ -385,6 +385,12 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Chat Message Push Delivery V1: callers must present a valid Supabase user
+# JWT — the platform rejects anonymous requests before the function runs.
+[functions.send-chat-message-push]
+enabled = true
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327
