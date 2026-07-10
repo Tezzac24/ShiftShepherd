@@ -231,6 +231,10 @@ Supabase SQL and docs live under:
 
 ---
 
+### iOS Simulator push-registration QA
+
+Supported Xcode 14+ / macOS 13+ / iOS 16+ Simulator development builds are allowed to attempt Expo token registration; do not use `Device.isDevice` as a blanket iOS push gate. Runtime token failures must remain friendly and retryable. Android QA is deferred, physical iPhone QA is the most representative later step, and Real Push Delivery V1 remains deferred until an Expo token has been collected from a supported development build.
+
 ## Data Models
 
 All TypeScript types live in `src/types/`.

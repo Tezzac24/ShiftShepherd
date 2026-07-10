@@ -74,6 +74,10 @@ with explicit approval, verified, and covered by manual QA.
   write path, RLS (002) stays authoritative, EXECUTE is revoked from public/anon and
   granted to authenticated only. No delivery, Edge Functions, or receipts.
 
+## iOS Simulator registration QA correction
+
+On supported Xcode 14+ / macOS 13+ / iOS 16+ versions, the iOS Simulator development build is allowed to attempt notification permission and Expo token registration. Token acquisition failures remain friendly and retryable rather than being pre-blocked. Android QA is deferred, physical iPhone QA remains the most representative later step, and Real Push Delivery V1 remains deferred until an Expo token has been collected from a supported development build.
+
 ## How Alignment Was Done
 
 The remote database was originally built by running SQL by hand in the dashboard SQL

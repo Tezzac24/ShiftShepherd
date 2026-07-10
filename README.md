@@ -77,6 +77,8 @@ When you are signed in through **Supabase Auth with a linked profile**, the anno
 
 ### iOS Simulator push-registration QA handoff
 
+Supported iOS Simulators are allowed to attempt registration. Expo documents support for Xcode 14+ on macOS 13+ with an iOS 16+ Simulator. If permission or token acquisition fails at runtime, the app keeps its friendly retry state; it does not pre-block the Simulator. Physical iPhone QA remains the most representative later step.
+
 Push Token Registration V1 and its database RPC are pushed and verified; runtime QA is pending. Android QA is deferred. On a MacBook, build and install the iOS Simulator development client, then start Metro for that client:
 
 ```bash

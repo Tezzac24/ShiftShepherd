@@ -108,6 +108,10 @@ API calls go through `src/lib/supabase/services/`. In addition to the establishe
 
 The Supabase MCP server is configured against the **dev** project — use it to inspect the live schema/data. Remote migration history is aligned through pushed/verified `20260710171200`; runtime token-registration QA is pending (iOS Simulator first, while a real token ultimately needs a supported physical development build). Do not rename `001`–`006` or timestamped migrations; create future migrations with `supabase migration new <descriptive_name>` and keep the generated filename. Never run `supabase db push` or another remote database write without explicit approval.
 
+### iOS Simulator push-registration QA
+
+Supported Xcode 14+ / macOS 13+ / iOS 16+ Simulator development builds are allowed to attempt Expo token registration; do not use `Device.isDevice` as a blanket iOS push gate. Runtime token failures must remain friendly and retryable. Android QA is deferred, physical iPhone QA is the most representative later step, and Real Push Delivery V1 remains deferred until an Expo token has been collected from a supported development build.
+
 ## Data Models
 
 All TypeScript types live in `src/types/`. Key interfaces (from the build spec):

@@ -53,10 +53,14 @@ function getEasProjectId(): string | null {
  */
 export function getDevicePushSupport(): DevicePushSupport {
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') return 'unsupportedDevice';
-  if (!Device.isDevice) return 'unsupportedDevice';
   if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
     return 'needsDevelopmentBuild';
   }
+  // Expo supports push notifications in iOS Simulator on supported Xcode/macOS/iOS
+  // versions. Do not use Device.isDevice as a blanket gate: it is false in the
+  // simulator and would prevent Expo from attempting token registration.
+  // Keep Android emulator handling conservative for now.
+  if (Platform.OS === 'android' && !Device.isDevice) return 'unsupportedDevice';
   if (!getEasProjectId()) return 'missingProjectId';
   return 'supported';
 }

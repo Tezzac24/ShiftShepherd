@@ -202,6 +202,10 @@ The "cheap early win" landed first: **notification preferences persist to `notif
 
 ---
 
+## iOS Simulator registration QA correction
+
+The iOS Simulator is not a blanket unsupported runtime. In a development build, supported Xcode 14+ / macOS 13+ / iOS 16+ Simulator versions are allowed to request notification permission and call `getExpoPushTokenAsync`. If Expo cannot issue a token at runtime, the app shows friendly retry copy. Android emulator support remains conservative and Android QA is deferred. Real Push Delivery V1 remains blocked until at least one Expo push token has been collected from a supported development build (simulator or device).
+
 ## How RLS should be tested
 
 Test **denials**, not just success paths — RLS bugs are almost always "someone can see/do too much".
