@@ -56,7 +56,4 @@ create trigger on_auth_user_created_link_existing_profile
   for each row
   execute function public.link_auth_user_to_existing_profile();
 
-comment on trigger on_auth_user_created_link_existing_profile on auth.users is
-  'Links a new Auth user to a pre-existing profile by case-insensitive email when that profile is still unlinked.';
-
 commit;
