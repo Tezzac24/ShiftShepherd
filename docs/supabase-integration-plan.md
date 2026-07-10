@@ -13,12 +13,12 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is aligned through the pushed and QA'd announcement image storage migration (`20260710114621_add_announcement_image_storage.sql`).
+- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is aligned through the pushed and QA'd chat image attachment permission fix (`20260710162415_fix_chat_image_attachment_permissions.sql`).
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through the pushed, verified, and QA'd announcement image storage migration (`20260710114621`). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through the pushed, verified, and QA'd chat image attachment migrations (`20260710124206` plus the `20260710162415` permission fix). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ### 2. Auth + profiles ✅ (done; auto-link migration pushed + QA'd)
 
@@ -170,11 +170,11 @@ One optional image per announcement, same design language as avatars. What shipp
 5. Demo mode has no announcement image controls and never calls Storage (the placeholder toggle is gone; demo announcements are text-only). Live uploads are active after the migration push and manual QA.
 6. Still deferred here: multi-image galleries, document uploads, team avatars, image cropping, and camera capture. Focused chat images are the separate step 10c. Best-effort deletes mean a failed cleanup can orphan an object — a future cleanup job can sweep the bucket against `announcements.image_url`.
 
-### 10c. Storage & uploads — chat image attachments ✅ app done 2026-07-10; migration pending push
+### 10c. Storage & uploads — chat image attachments ✅ third slice (pushed + QA'd 2026-07-10)
 
 One optional image per immutable live chat message; no general file sharing. What shipped:
 
-1. `20260710124206_add_chat_image_attachments.sql` (**local-only until an explicitly approved `supabase db push`**) reuses `public.chat_attachments`, adds nullable `file_size_bytes` metadata (new inserts require it), enforces one attachment per message, restricts new rows to JPEG/PNG/WebP under 5 MB, and grants `authenticated` only SELECT/INSERT. Existing member-read and sender-insert RLS stays authoritative, with the insert policy tightened to the message/team-scoped Storage path. No update/delete table grant and nothing for anon.
+1. `20260710124206_add_chat_image_attachments.sql` (**pushed, verified, and manually QA'd**, together with the `20260710162415_fix_chat_image_attachment_permissions.sql` follow-up — the original upload policy's unqualified `name` resolved to `teams.name` inside its subquery and rejected every valid message-scoped path; the fix only qualifies the storage object path) reuses `public.chat_attachments`, adds nullable `file_size_bytes` metadata (new inserts require it), enforces one attachment per message, restricts new rows to JPEG/PNG/WebP under 5 MB, and grants `authenticated` only SELECT/INSERT. Existing member-read and sender-insert RLS stays authoritative, with the insert policy tightened to the message/team-scoped Storage path. No update/delete table grant and nothing for anon.
 2. The migration creates a **private** `chat-attachments` bucket (5 MB; JPEG/PNG/WebP) with paths `teams/<teamId>/messages/<messageId>/<generatedFileName>`. Accessible team members may upload/read; reads require canonical attachment metadata; only the Storage-recorded uploader may delete for failed-send cleanup. There is no object update/upsert policy and no anon access.
 3. Two narrow `SECURITY INVOKER` RPCs make image-only send safe: `new_chat_message_id()` supplies the database UUID before upload, then `send_chat_image_message(...)` atomically inserts the immutable message plus its one metadata row under existing RLS. Upload failure creates no message; RPC failure rolls both inserts back and the client best-effort deletes the uploaded object.
 4. `chatAttachments.ts` validates picker data, refuses mock ids, uploads image bytes, maps setup/network/permission errors to friendly copy, signs private paths for one hour, and performs cleanup. `chat.ts` loads attachment metadata with messages but falls back to text-only queries before the migration is applied.
@@ -233,7 +233,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
 - ~~**Unread badges**~~ — live unread tracking shipped (step 9c); `20260710031212_add_chat_read_states.sql` is pushed and live badges are active.
 - **Notification delivery** — preferences persist to the table now (step 11, first half), but no push token is registered and nothing pushes until a development build + Edge Function pass.
-- **Chat images migration/QA** — app code is implemented as step 10c, but `20260710124206` remains local-only until explicitly pushed. Arbitrary files and multiple attachments remain out of scope.
+- ~~**Chat images migration/QA**~~ — shipped (step 10c); `20260710124206` plus the `20260710162415` permission fix are pushed and chat images passed manual QA. Arbitrary files and multiple attachments remain out of scope.
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
 - **Team management UI** (create teams, assign leaders) — admin does this via the dashboard until a screen exists.
 
@@ -252,6 +252,7 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 9. ✅ **Done (2026-07-10):** **step 9b — realtime team chat**, including the pushed and verified `20260710020944_enable_realtime_for_chat_messages.sql` publication migration.
 10. ✅ **Done (2026-07-10):** **step 9c — chat unread tracking**, including the pushed and QA'd `20260710031212_add_chat_read_states.sql` migration.
 11. ✅ **Done (2026-07-10):** **step 10, first slice — profile avatar storage**, including the pushed and QA'd `20260710105140_add_profile_avatar_storage.sql` migration.
-12. ✅ **App done (2026-07-10), migration pending:** **step 10c — focused chat image attachments**, with local-only `20260710124206_add_chat_image_attachments.sql`. Next action is explicit push approval and two-user manual QA; push tokens/delivery remain separate future slices.
+12. ✅ **Done (2026-07-10; pushed + QA'd):** **step 10c — focused chat image attachments**, including the pushed `20260710124206_add_chat_image_attachments.sql` and the `20260710162415_fix_chat_image_attachment_permissions.sql` follow-up (the original upload policy's unqualified `name` resolved to `teams.name` and rejected every valid path). Manual QA passed: members send images in their teams, admins in teams they administer, non-members stay blocked, and text chat/realtime/unread tracking still work.
+13. **Next: Push Token Registration V1** — register/persist Expo push tokens from an explicit user action in the notification settings (needs `expo-notifications`, an EAS project id, and a development build for real-token QA). Registration only: real push delivery remains a separate, later slice.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

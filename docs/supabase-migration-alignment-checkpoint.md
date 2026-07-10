@@ -1,12 +1,13 @@
 # Supabase Migration Alignment
 
-**Status: aligned through `20260710114621` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
-This document records that completed remote checkpoint, the one newer local-only migration, and the rules that keep history aligned.
-Since then the timestamped migrations (the events/rota/songs/chat/notification-preferences
+**Status: aligned through `20260710162415` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
+This document records that completed remote checkpoint and the rules that keep history aligned; there is currently **no local-only migration**.
+Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
-`20260710020944`, the chat read-states `20260710031212`, and the profile avatar storage
-`20260710105140`) have each been pushed with explicit approval. `20260710114621_add_announcement_image_storage.sql`
-was subsequently pushed, verified, and passed manual QA.
+`20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
+`20260710105140`, the announcement image storage `20260710114621`, and the chat image
+attachments `20260710124206` with its `20260710162415` permission fix) has been pushed
+with explicit approval, verified, and covered by manual QA.
 
 ## Outcome (TL;DR)
 
@@ -14,7 +15,7 @@ was subsequently pushed, verified, and passed manual QA.
   `001, 002, 003, 004, 005, 006`.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
-- `supabase migration list` shows every migration through `20260710114621` on **both** local and remote. `20260710124206_add_chat_image_attachments.sql` is local-only pending explicit push approval.
+- `supabase migration list` shows every migration through `20260710162415` on **both** local and remote; nothing is local-only.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -54,11 +55,16 @@ was subsequently pushed, verified, and passed manual QA.
   `announcement-images` bucket (JPEG/PNG/WebP, 5 MB), authenticated storage-object
   policies tied to announcement visibility/management, and no table change or RPC.
   `announcements.image_url` stores one optional storage path, never a signed URL.
-- `20260710124206_add_chat_image_attachments.sql` (**local-only**): reuses
+- `20260710124206_add_chat_image_attachments.sql` (**pushed + QA'd**): reuses
   `chat_attachments` for one image per message, adds narrow SELECT/INSERT grants,
   private `chat-attachments` bucket policies, size/type/path enforcement, and
   two authenticated SECURITY INVOKER RPCs for safe image-only sends. No anon,
   message update/delete, arbitrary file, or multiple-attachment access.
+- `20260710162415_fix_chat_image_attachment_permissions.sql` (**pushed + QA'd**):
+  recreates the chat image upload policy with an explicitly qualified storage object
+  path — the original policy's unqualified `name` resolved to `teams.name` inside its
+  subquery and rejected every valid message-scoped upload path. Same private bucket,
+  image/path checks, and team-access predicate.
 
 ## How Alignment Was Done
 
@@ -132,8 +138,12 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 
 ## Result
 
-The remote dev schema matches the repo migrations through `20260710114621`, migration
-history is tracked, and Announcement Images V1 passed manual QA. Chat Image
-Attachments V1 is implemented locally in `20260710124206` but cannot receive live QA
-until an explicitly approved `supabase db push`; multi-image galleries, arbitrary
-files, and push-notification work remain separate.
+The remote dev schema matches the repo migrations through `20260710162415`, migration
+history is tracked, and both Announcement Images V1 and Chat Image Attachments V1
+passed manual QA (after the `20260710162415` permission fix: members can send images
+in their teams, admins in teams they administer, non-members stay blocked, and text
+chat/realtime/unread tracking still work). Chat supports exactly one optional image
+per message — no arbitrary files, audio/video, galleries, camera capture, full-screen
+viewer, or message edit/delete. The next planned slice is **Push Token Registration
+V1** (registering/persisting Expo push tokens only); real push delivery remains a
+separate, later slice.
