@@ -76,7 +76,9 @@ with explicit approval, verified, and covered by manual QA.
 
 ## iOS Simulator registration QA correction
 
-On supported Xcode 14+ / macOS 13+ / iOS 16+ versions, the iOS Simulator development build is allowed to attempt notification permission and Expo token registration. Token acquisition failures remain friendly and retryable rather than being pre-blocked. Android QA is deferred, physical iPhone QA remains the most representative later step, and Real Push Delivery V1 remains deferred until an Expo token has been collected from a supported development build.
+On supported Xcode 14+ / macOS 13+ / iOS 16+ versions, the iOS Simulator development build is allowed to attempt notification permission and Expo token registration. Token acquisition failures remain friendly and retryable rather than being pre-blocked.
+
+**iOS Simulator QA passed (2026-07-11):** the live Device notifications card appears, the OS permission prompt only follows the button tap, the device registers successfully, no raw token is ever shown, and a second signed-in user can re-register the same simulator token (the shared-device takeover path). Android QA is deferred and physical iPhone QA remains the most representative later step. Known accepted polish deferral: the card's "registered" state is session-only and does not persist after leaving and returning to the screen — re-registering succeeds, which is fine for now. Real Push Delivery V1 is not yet implemented and must start narrowly with chat messages only.
 
 ## How Alignment Was Done
 
@@ -157,7 +159,7 @@ in their teams, admins in teams they administer, non-members stay blocked, and t
 chat/realtime/unread tracking still work). Chat supports exactly one optional image
 per message — no arbitrary files, audio/video, galleries, camera capture, full-screen
 viewer, or message edit/delete. **Push Token Registration V1** and its migration
-`20260710171200_add_push_token_registration.sql` are pushed and DB/RPC-verified.
-Runtime QA is next: iOS Simulator QA on a MacBook verifies the friendly unsupported
-state, while collecting a real Expo token requires a supported physical development
-build. Real push delivery remains a separate, later slice.
+`20260710171200_add_push_token_registration.sql` are pushed, DB/RPC-verified, and
+passed iOS Simulator runtime QA on 2026-07-11 (Android and physical iPhone QA
+deferred). Real push delivery remains a separate, later slice and must start
+narrowly with chat messages only.
