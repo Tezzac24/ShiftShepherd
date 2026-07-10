@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import { Alert, Platform, StyleSheet, View } from 'react-native';
 
 import { spacing } from '../../../constants/theme';
@@ -31,6 +31,7 @@ export default function ProfileScreen() {
   const confirm = useConfirm();
   const { canManagePhoto, hasPhoto, avatarUri, busy, changePhoto, removePhoto } =
     useProfileAvatar();
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
 
   const myTeams = data.teams.filter((t) =>
     user.memberships.some((m) => m.team_id === t.id),
@@ -81,10 +82,13 @@ export default function ProfileScreen() {
 
       <Card style={styles.profileCard}>
         <Avatar name={user.profile.full_name} uri={avatarUri} size={72} />
-        {canManagePhoto ? (
-          <View style={styles.photoActions}>
+        {isEditingProfile && canManagePhoto ? (
+          <View style={styles.editProfileActions}>
+            <AppText variant="small" tone="secondary" style={styles.editProfileHint}>
+              You can update your profile photo here.
+            </AppText>
             <Button
-              title={hasPhoto ? 'Change Photo' : 'Add Photo'}
+              title={hasPhoto ? 'Change photo' : 'Add photo'}
               variant="secondary"
               icon="image-outline"
               onPress={changePhoto}
@@ -94,8 +98,8 @@ export default function ProfileScreen() {
             />
             {hasPhoto ? (
               <Button
-                title="Remove Photo"
-                variant="ghost"
+                title="Remove photo"
+                variant="destructive"
                 icon="trash-outline"
                 onPress={removePhoto}
                 loading={busy === 'removing'}
@@ -103,6 +107,14 @@ export default function ProfileScreen() {
                 accessibilityHint="Removes your profile photo and shows your initials"
               />
             ) : null}
+            <Button
+              title="Done"
+              variant="ghost"
+              icon="checkmark-outline"
+              onPress={() => setIsEditingProfile(false)}
+              disabled={busy !== null}
+              accessibilityHint="Finish editing your profile"
+            />
           </View>
         ) : null}
         <AppText variant="heading">{user.profile.full_name}</AppText>
@@ -119,6 +131,16 @@ export default function ProfileScreen() {
               ) : null;
             })}
         </View>
+        {canManagePhoto && !isEditingProfile ? (
+          <Button
+            title="Edit profile"
+            variant="ghost"
+            icon="create-outline"
+            onPress={() => setIsEditingProfile(true)}
+            style={styles.editProfileButton}
+            accessibilityHint="Change your profile photo"
+          />
+        ) : null}
       </Card>
 
       <SectionHeader title="Your Teams" />
@@ -180,13 +202,15 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   profileCard: { alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.xl },
-  photoActions: {
+  editProfileActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
     justifyContent: 'center',
     marginTop: spacing.xs,
   },
+  editProfileHint: { textAlign: 'center', width: '100%' },
+  editProfileButton: { marginTop: spacing.sm },
   badgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
