@@ -21,10 +21,14 @@
  * session state only: it is never written to the demo AsyncStorage snapshot
  * and Reset Demo Data does not touch it.
  *
- * Chat has no realtime yet: live messages are fetched at sign-in, when a chat
- * screen opens, after each send, and on manual refresh. The simulated unread
- * counts are demo-only (real unread tracking needs a chat_reads table), so
- * live mode simply shows no unread badges.
+ * Chat is realtime for the open conversation: the team chat screen subscribes
+ * to new-message INSERTs while focused (see features/chat/useTeamChatRealtime)
+ * and merges arrivals in through applyLiveChatMessage. The database stays the
+ * source of truth — refetches on focus/foreground/reconnect fill anything the
+ * socket missed, and every path (send, realtime, refetch) merges by row id so
+ * nothing duplicates. The simulated unread counts are demo-only (real unread
+ * tracking needs a chat_reads table), so live mode simply shows no unread
+ * badges.
  *
  * Notification preferences are live too (one row per profile, upserted on
  * first change; a user with no row gets the all-on defaults client-side).
@@ -274,8 +278,10 @@ interface AppDataContextValue {
 
   // Chat — the sixth live Supabase slice, switching exactly like the earlier
   // slices: live Supabase for linked Supabase sessions, local demo data
-  // otherwise. No realtime yet — messages refresh on sign-in, screen open,
-  // send, and manual refresh. Live messages are session-only, never persisted.
+  // otherwise. The open chat screen additionally subscribes to realtime
+  // inserts and feeds them in via applyLiveChatMessage; every write path
+  // merges by row id so send responses, realtime events, and refetches never
+  // duplicate. Live messages are session-only, never persisted.
   /** True when chat messages come from live Supabase rather than local demo data. */
   chatLive: boolean;
   /** True while live chat messages are being (re)loaded. Always false in demo mode. */
@@ -284,6 +290,8 @@ interface AppDataContextValue {
   chatError: string | null;
   /** Reload live chat messages (no-op in demo mode). */
   refreshChat: () => Promise<void>;
+  /** Merge one realtime-delivered live message into chat state (no-op in demo mode). */
+  applyLiveChatMessage: (message: ChatMessage) => void;
   /** Async in both modes; rejects with a friendly message on live failures. */
   sendChatMessage: (teamId: string, senderId: string, body: string) => Promise<void>;
   markTeamChatRead: (teamId: string) => void;
@@ -318,6 +326,23 @@ const AppDataContext = createContext<AppDataContextValue | undefined>(undefined)
 // Live mode has no unread simulation (see markTeamChatRead); stable reference
 // so the context value doesn't churn.
 const NO_UNREAD: Record<string, number> = {};
+
+/**
+ * Dedupe-merge live chat messages by row id (incoming rows win) into
+ * (created_at, id) order. Chat rows are immutable and never deleted in V1, so
+ * refetches merge instead of replacing the list — a realtime insert that
+ * lands while a refetch is in flight can never be dropped, and the same row
+ * arriving via send response, realtime, and refetch appears exactly once.
+ */
+function mergeChatMessages(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  if (incoming.length === 0) return prev;
+  const byId = new Map<string, ChatMessage>();
+  for (const message of prev) byId.set(message.id, message);
+  for (const message of incoming) byId.set(message.id, message);
+  return [...byId.values()].sort(
+    (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
+  );
+}
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // Live-vs-local mode for the wired slices:
@@ -1284,7 +1309,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setLiveChatMessages(list);
+        setLiveChatMessages((prev) => mergeChatMessages(prev, list));
       }
     } catch (error) {
       if (
@@ -1320,7 +1345,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [chatLive, refreshChat]);
 
   // After a live send succeeds, quietly re-sync in the background so messages
-  // other people sent since the last load appear too (no realtime yet).
+  // other people sent since the last load appear even when realtime is down.
   const resyncLiveChat = useCallback(() => {
     const requestProfileId = supabaseProfileIdRef.current;
     if (!requestProfileId) return;
@@ -1331,18 +1356,29 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           liveDataEnabledRef.current &&
           supabaseProfileIdRef.current === requestProfileId
         ) {
-          setLiveChatMessages(list);
+          setLiveChatMessages((prev) => mergeChatMessages(prev, list));
         }
       })
       .catch((error) => console.warn('[appData] chat re-sync failed', error));
   }, []);
+
+  // Realtime inserts from the open chat's subscription land here. Merging by
+  // id makes it safe for the sender's own message to arrive twice (send
+  // response + realtime event) and for events to race refetches.
+  const applyLiveChatMessage: AppDataContextValue['applyLiveChatMessage'] = useCallback(
+    (message) => {
+      if (!liveDataEnabledRef.current) return;
+      setLiveChatMessages((prev) => mergeChatMessages(prev, [message]));
+    },
+    [],
+  );
 
   const sendChatMessage: AppDataContextValue['sendChatMessage'] = useCallback(
     async (teamId, senderId, body) => {
       if (chatLive && supabaseProfileId) {
         // RLS only accepts the caller's own profile as sender.
         const sent = await chatService.sendChatMessage(teamId, body, supabaseProfileId);
-        setLiveChatMessages((prev) => [...prev, sent]);
+        setLiveChatMessages((prev) => mergeChatMessages(prev, [sent]));
         resyncLiveChat();
         return;
       }
@@ -1507,6 +1543,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       chatLoading,
       chatError,
       refreshChat,
+      applyLiveChatMessage,
       addAnnouncement,
       updateAnnouncement,
       deleteAnnouncement,
@@ -1576,6 +1613,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       chatLoading,
       chatError,
       refreshChat,
+      applyLiveChatMessage,
       addAnnouncement,
       updateAnnouncement,
       deleteAnnouncement,

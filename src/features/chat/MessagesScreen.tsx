@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import React from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { colors, spacing } from '../../../constants/theme';
@@ -14,11 +14,32 @@ import { useAppData } from '../../lib/appData/AppDataContext';
 import { lastMessageForTeam, userName, visibleTeams } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { formatRelative } from '../../utils/dates';
+import { useOnAppForeground } from '../../utils/useAppForeground';
 
 export default function MessagesScreen() {
   const router = useRouter();
   const user = useRequiredUser();
   const data = useAppData();
+
+  // Keep live previews reasonably fresh without unread tracking: refetch when
+  // the tab gains focus and when the app foregrounds while it's showing.
+  // Demo previews are local state and need neither (refreshChat no-ops).
+  const focusedRef = useRef(false);
+  const { chatLive, refreshChat } = data;
+  useFocusEffect(
+    useCallback(() => {
+      focusedRef.current = true;
+      if (chatLive) void refreshChat();
+      return () => {
+        focusedRef.current = false;
+      };
+    }, [chatLive, refreshChat]),
+  );
+  useOnAppForeground(
+    useCallback(() => {
+      if (focusedRef.current && chatLive) void refreshChat();
+    }, [chatLive, refreshChat]),
+  );
 
   const teams = visibleTeams(user, data.teams);
   // Live mode: the directory loads after sign-in — show calm loading/error

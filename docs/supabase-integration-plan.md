@@ -13,12 +13,12 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is aligned through the pushed notification-preferences grants migration; the Auth/profile auto-link migration is currently local-only pending approval.
+- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is fully aligned — every local migration, through the chat realtime publication migration, is pushed.
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006` and the pushed events, rota, songs, chat, and notification-preferences grants migrations. The new `20260709233705_link_auth_users_to_existing_profiles.sql` migration is intentionally local-only pending an explicitly approved `supabase db push`. Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006`, the events/rota/songs/chat/notification-preferences grants migrations, the Auth/profile auto-link migration (`20260709233705`), and the chat realtime publication migration (`20260710020944`) — no local-only migrations remain. Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ### 2. Auth + profiles ✅ (app done; auto-link migration pending push)
 
@@ -35,7 +35,7 @@ This infrastructure pass adds safe linking without adding signup or onboarding:
 - A unique expression index on `lower(profiles.email)` prevents ambiguous matches. The existing unique constraint on `profiles.auth_user_id` already prevents one Auth user being linked to multiple profiles, so no redundant auth-link index is added.
 - No profile, organisation role, team membership, organisation, or invitation is created. A missing match or a profile already linked to a different Auth user is left unchanged.
 - There is no email-update trigger and no automatic backfill. Auth users created before this migration may need the one-time manual link in `supabase/seed/README.md`.
-- The migration is local-only until an explicit `supabase db push` approval. Before that push, the remote project keeps the previous manual-link behaviour.
+- The migration has since been pushed with explicit approval and passed manual QA — newly created Auth users link automatically on the dev project.
 
 ### 3. Organisations & roles ✅ (done with step 6)
 
@@ -117,12 +117,23 @@ Text-only V1, same pattern as the earlier slices. What shipped:
 
 1. `src/lib/supabase/services/chat.ts` — `listChatMessages()` (one RLS-scoped fetch of every message the caller can see, oldest first) and `sendChatMessage(teamId, body, liveProfileId)` (trims the text, rejects empty/whitespace-only messages, refuses mock ids, always sends as the caller's live profile — RLS enforces that server-side too). DB fields stay isolated in the service; `created_at` is DB-owned.
 2. `AppDataContext` keeps two chat stores (persisted local/demo + session-only live), switching on the same condition as the other slices. `sendChatMessage` is async in both modes; a live send appends the server row then quietly re-syncs (which also picks up other people's new messages). Live chat is never persisted to AsyncStorage and clears on sign-out/user switch.
-3. **No realtime yet** (deliberately deferred): live messages refresh at sign-in, when a chat screen opens, after each send, and via a visible "Check for new messages" bar on the chat screen. The team chat screen gained loading, error+retry, sending, and inline failed-send states (the draft is kept so nothing is lost).
+3. ~~**No realtime yet**~~ ✅ realtime shipped in step 9b below (2026-07-10). The team chat screen keeps its loading, error+retry, sending, and inline failed-send states (the draft is kept so nothing is lost).
 4. **Unread badges are demo-only now**: the simulated counts made no sense against live data, so live mode shows none — real unread tracking is a `chat_reads` schema addition for later. Attachments stay a "coming soon" placeholder in both modes until the Storage slice (step 10); there is no edit/delete (no RLS policies for either, matching the UI).
 5. The temporary demo bridge (`src/lib/appData/demoBridge.ts`) existed only to re-key still-local chat onto live ids — chat going live made it dead code, so it is **deleted**. Demo mode runs on pure mock ids; live mode is real UUIDs end-to-end (only event categories remain name-bridged).
 6. Read-only introspection confirmed the RLS policies exist but authenticated Data API grants were missing. A grants migration (`20260709205903_grant_authenticated_chat_api_privileges.sql`) grants `authenticated` **select, insert** on `chat_messages` only (no update/delete, nothing on `chat_attachments`, nothing to anon). It has since been **pushed and verified remotely** (2026-07-09; grants confirmed via read-only introspection).
 
-Verify RLS from the app: Daniel (admin) reads/sends in every team chat; Hannah sends in Choir; Ruth (no teams) sees no team chats, and a hand-crafted insert (or a send with a forged sender) fails server-side. Later: enable **Realtime** on `chat_messages` (add it to the `supabase_realtime` publication) and subscribe per open chat.
+Verify RLS from the app: Daniel (admin) reads/sends in every team chat; Hannah sends in Choir; Ruth (no teams) sees no team chats, and a hand-crafted insert (or a send with a forged sender) fails server-side.
+
+### 9b. Realtime team chat ✅ (done 2026-07-10)
+
+The open team chat now updates automatically while the app is active; the database stays canonical and realtime is an enhancement over it. What shipped:
+
+1. `20260710020944_enable_realtime_for_chat_messages.sql` (pushed and verified) adds `public.chat_messages` to the previously **empty** `supabase_realtime` publication — the one DB change realtime needed. Delivery is still authorized per subscriber against the existing RLS SELECT policy, so nobody receives a row they couldn't query; no grants changed and nothing was exposed to `anon`.
+2. `subscribeToTeamChatMessages(teamId, handlers)` in the chat service streams `INSERT` events for one team (`filter: team_id=eq.<uuid>`, channel `team-chat:<teamId>`), maps complete payloads into `ChatMessage`, asks for a refetch on anything incomplete, and reports a friendly status (`connecting`/`connected`/`reconnecting`/`disconnected`). The unsubscribe function silences every handler before removing the channel.
+3. `useTeamChatRealtime(teamId)` (features/chat) owns the lifecycle: subscribe while the chat screen is **focused** in a linked Supabase session, tear down on blur/leave/team switch/sign-out/user switch. Catch-up refetches run on focus, on every (re)join of the channel, and when the app returns to the foreground — realtime has no replay, so the fetch is what guarantees nothing is missed. Only the open chat subscribes; background teams wait for the push-notification slice.
+4. Duplicates are impossible by construction: `AppDataContext` merges every path (send response, realtime insert, refetch) by row id into `(created_at, id)` order — chat rows are immutable and never deleted in V1, so refetches merge rather than replace and a message can never flicker out mid-race.
+5. The old always-visible "Check for new messages" bar is demoted to a fallback: hidden while realtime is healthy, a subtle "Connecting…" note if joining drags on, and a tappable "…check for new messages" bar only while the channel is reconnecting/disconnected. Messages-tab previews refresh on tab focus and app foreground instead of subscribing to every team. Demo/local chat is untouched (no subscription, no realtime UI).
+6. Still deferred (unchanged): unread/read tracking, push notifications, attachments/storage, typing indicators, edit/delete.
 
 ### 10. Storage & uploads
 
@@ -178,7 +189,6 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
 - **Unread badges** — demo-only simulation; live mode shows none until a `chat_reads` table exists.
-- **Chat realtime** — live messages refresh on screen open/send/manual refresh only, until `chat_messages` joins the `supabase_realtime` publication.
 - **Notification delivery** — preferences persist to the table now (step 11, first half), but no push token is registered and nothing pushes until a development build + Edge Function pass.
 - **Images & attachments** — placeholders until step 10 (Storage).
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
@@ -195,7 +205,8 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 5. ✅ **Done (2026-07-09):** **step 8 — songs & song selection**, including the pushed and verified `20260709171613_grant_authenticated_songs_api_privileges.sql` migration; choir songs passed manual QA.
 6. ✅ **Done (2026-07-09):** **step 9 — chat** (text-only, no realtime), retiring `demoBridge.ts`, including the pushed and verified `20260709205903_grant_authenticated_chat_api_privileges.sql` migration.
 7. ✅ **Done (2026-07-09):** **step 11, first half — notification preferences** persist to `notification_preferences`, including the pushed and verified `20260709220528_grant_authenticated_notification_prefs_api_privileges.sql` migration. Push token registration/delivery stays deferred (needs a development build with `expo-notifications` + an EAS project id).
-8. **Current local-only migration:** `20260709233705_link_auth_users_to_existing_profiles.sql` safely links newly created Auth users to existing matching profiles. Push and QA it only after explicit approval; it does not implement signup or create profile/role/membership rows.
-9. Later slice candidates remain **Realtime on `chat_messages`** or **Storage** (step 10); neither is part of the Auth-linking pass.
+8. ✅ **Done (pushed + manual QA):** `20260709233705_link_auth_users_to_existing_profiles.sql` safely links newly created Auth users to existing matching profiles; it does not implement signup or create profile/role/membership rows.
+9. ✅ **Done (2026-07-10):** **step 9b — realtime team chat**, including the pushed and verified `20260710020944_enable_realtime_for_chat_messages.sql` publication migration.
+10. The next slice candidate is **Storage** (step 10); push tokens/delivery and unread tracking remain separate future slices.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

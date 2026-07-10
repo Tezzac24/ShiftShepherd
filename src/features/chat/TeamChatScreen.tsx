@@ -23,12 +23,14 @@ import { useAppData } from '../../lib/appData/AppDataContext';
 import { messagesForTeam, userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canViewTeamChat } from '../../lib/permissions';
+import { useTeamChatRealtime } from './useTeamChatRealtime';
 
 /**
  * Simple WhatsApp-style team chat. Live Supabase messages for linked Supabase
- * sessions, local demo data otherwise. There is no realtime yet, so live mode
- * refreshes when the screen opens, after each send, and via the visible
- * "Check for new messages" bar.
+ * sessions, local demo data otherwise. In live mode the open chat streams new
+ * messages over Supabase Realtime (see useTeamChatRealtime) and refetches on
+ * focus/foreground/reconnect; the manual "check for new messages" bar only
+ * appears as a fallback while realtime is unhealthy. Demo chat is unchanged.
  */
 export default function TeamChatScreen() {
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
@@ -36,6 +38,9 @@ export default function TeamChatScreen() {
   const data = useAppData();
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList>(null);
+  // Whether the reader is at (or near) the newest message — arrivals only
+  // auto-scroll then, so realtime can't yank someone reading older messages.
+  const nearBottomRef = useRef(true);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -43,17 +48,33 @@ export default function TeamChatScreen() {
   const team = data.teams.find((t) => t.id === teamId);
   const teamKey = team?.id;
   const chatLive = data.chatLive;
+  const canView = !!team && canViewTeamChat(user, team.id);
 
-  // Opening the chat clears the simulated unread badge (demo mode) and, in
-  // live mode, fetches the latest messages (no realtime yet).
+  // Live mode: while this screen is focused, stream this team's new messages
+  // and catch up from the database on focus/foreground/reconnect. Demo mode
+  // stays 'idle' — no realtime UI at all.
+  const connection = useTeamChatRealtime(canView ? teamKey : undefined);
+
+  // A briefly-connecting socket shouldn't flash UI at people; only mention it
+  // when connecting drags on.
+  const [showConnecting, setShowConnecting] = useState(false);
   useEffect(() => {
-    if (!teamKey) return;
-    data.markTeamChatRead(teamKey);
-    if (chatLive) void data.refreshChat();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamKey, chatLive]);
+    if (connection !== 'connecting') {
+      setShowConnecting(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowConnecting(true), 1200);
+    return () => clearTimeout(timer);
+  }, [connection]);
 
-  if (!team || !canViewTeamChat(user, team.id)) {
+  // Opening the chat clears the simulated unread badge (demo mode only —
+  // live refreshes are handled by useTeamChatRealtime).
+  const markTeamChatRead = data.markTeamChatRead;
+  useEffect(() => {
+    if (teamKey) markTeamChatRead(teamKey);
+  }, [teamKey, markTeamChatRead]);
+
+  if (!team || !canView) {
     return (
       <Screen>
         <Stack.Screen options={{ title: 'Chat' }} />
@@ -78,6 +99,8 @@ export default function TeamChatScreen() {
     try {
       await data.sendChatMessage(team.id, user.profile.id, body);
       setDraft('');
+      // Senders always jump to their own message, wherever they'd scrolled.
+      nearBottomRef.current = true;
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     } catch (error) {
       // The draft stays in the box so nothing is lost — fix and try again.
@@ -106,23 +129,37 @@ export default function TeamChatScreen() {
       <Stack.Screen options={{ title: `${team.name} Chat` }} />
 
       {chatLive && !showLoading && !showLoadError ? (
-        // No realtime yet — give people an obvious, labelled way to update.
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Check for new messages"
-          onPress={() => void data.refreshChat()}
-          disabled={data.chatLoading}
-          style={styles.refreshBar}
-        >
-          {data.chatLoading ? (
-            <ActivityIndicator size="small" color={colors.accent} />
-          ) : (
-            <Ionicons name="refresh-outline" size={18} color={colors.accent} />
-          )}
-          <AppText variant="label" style={{ color: colors.accent }}>
-            {data.chatLoading ? 'Checking…' : 'Check for new messages'}
-          </AppText>
-        </Pressable>
+        connection === 'reconnecting' || connection === 'disconnected' ? (
+          // Realtime is unhealthy — fall back to an obvious, labelled manual
+          // check until the channel recovers (it retries by itself).
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Check for new messages"
+            onPress={() => void data.refreshChat()}
+            disabled={data.chatLoading}
+            style={styles.statusBar}
+          >
+            {data.chatLoading ? (
+              <ActivityIndicator size="small" color={colors.accent} />
+            ) : (
+              <Ionicons name="refresh-outline" size={18} color={colors.accent} />
+            )}
+            <AppText variant="label" style={styles.statusBarAction}>
+              {data.chatLoading
+                ? 'Checking…'
+                : connection === 'reconnecting'
+                  ? 'Connection is slow. Tap to check for new messages.'
+                  : 'Live updates are paused. Tap to check for new messages.'}
+            </AppText>
+          </Pressable>
+        ) : connection === 'connecting' && showConnecting ? (
+          <View style={styles.statusBar}>
+            <ActivityIndicator size="small" color={colors.textMuted} />
+            <AppText variant="label" tone="muted">
+              Connecting…
+            </AppText>
+          </View>
+        ) : null
       ) : null}
 
       {showLoading ? (
@@ -150,7 +187,17 @@ export default function TeamChatScreen() {
           data={messages}
           keyExtractor={(m) => m.id}
           contentContainerStyle={styles.list}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          onScroll={({ nativeEvent }) => {
+            const { contentOffset, layoutMeasurement, contentSize } = nativeEvent;
+            nearBottomRef.current =
+              contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+          }}
+          scrollEventThrottle={100}
+          onContentSizeChange={() => {
+            // Keep readers pinned to the newest message unless they've
+            // deliberately scrolled up into history.
+            if (nearBottomRef.current) listRef.current?.scrollToEnd({ animated: false });
+          }}
           renderItem={({ item }) => (
             <MessageBubble
               body={item.body}
@@ -222,16 +269,19 @@ const styles = StyleSheet.create({
   list: { padding: spacing.lg, paddingBottom: spacing.xl },
   emptyWrap: { flex: 1, justifyContent: 'center' },
   centerWrap: { flex: 1, justifyContent: 'center', gap: spacing.md, padding: spacing.lg },
-  refreshBar: {
+  statusBar: {
     minHeight: touchTarget - 4,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  statusBarAction: { color: colors.accent, flexShrink: 1, textAlign: 'center' },
   sendErrorBar: {
     flexDirection: 'row',
     alignItems: 'center',

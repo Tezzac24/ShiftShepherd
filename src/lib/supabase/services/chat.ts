@@ -8,17 +8,25 @@
  *  - only team members/admins can send, and only as themselves
  *    (sender_id must be the caller's own profile).
  *
- * V1 chat is deliberately text-only with no realtime: messages are fetched on
- * sign-in, when a chat screen opens, after each send, and on manual refresh.
- * There is no editing or deleting (no RLS policies exist for either), and
- * chat_attachments stays untouched until the Storage slice.
+ * V1 chat is text-only with realtime for the open conversation:
+ * `subscribeToTeamChatMessages` streams new-message INSERTs for one team
+ * (Realtime authorizes each delivered row against the same RLS SELECT
+ * policy), while list/send stay ordinary RLS-scoped queries and the database
+ * remains the source of truth — missed messages are always caught up by a
+ * refetch, never replayed by the socket. There is no editing or deleting (no
+ * RLS policies exist for either), and chat_attachments stays untouched until
+ * the Storage slice.
  *
  * This service needs the grants migration
- * `20260709205903_grant_authenticated_chat_api_privileges.sql` (pushed and
- * verified 2026-07-09). If the grants are ever missing, live chat screens
- * show a friendly load/send error; demo mode is unaffected.
+ * `20260709205903_grant_authenticated_chat_api_privileges.sql` and the
+ * realtime publication migration
+ * `20260710020944_enable_realtime_for_chat_messages.sql` (both pushed and
+ * verified). If the grants are ever missing, live chat screens show a
+ * friendly load/send error; if the publication entry is missing, realtime
+ * reports unhealthy and the screen falls back to manual checking. Demo mode
+ * is unaffected either way.
  */
-import { SupabaseClient } from '@supabase/supabase-js';
+import { REALTIME_SUBSCRIBE_STATES, SupabaseClient } from '@supabase/supabase-js';
 
 import { ChatMessage } from '../../../types';
 import { getSupabase } from '../client';
@@ -165,4 +173,79 @@ export async function sendChatMessage(
   } catch (error) {
     fail('send', error, SEND_FAIL);
   }
+}
+
+/**
+ * Health of the open chat's realtime subscription. 'reconnecting' means the
+ * channel dropped and is retrying by itself; 'disconnected' means it never
+ * connected (or was closed) — either way the caller should offer a manual
+ * check, and a refetch on recovery fills whatever the socket missed.
+ */
+export type ChatRealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+
+interface ChatRealtimeHandlers {
+  /** A complete new message for the subscribed team arrived. */
+  onMessage: (message: ChatMessage) => void;
+  onStatus: (status: ChatRealtimeStatus) => void;
+  /** A payload arrived that can't be trusted as-is — refetch the list. */
+  onResyncNeeded: () => void;
+}
+
+/**
+ * Stream new-message INSERTs for one team over Supabase Realtime. Delivery is
+ * still RLS-scoped per subscriber (the SELECT policy on chat_messages), so no
+ * one receives rows they couldn't query. Returns an unsubscribe function; no
+ * handler fires after it runs. Demo mode / mock team ids never connect.
+ */
+export function subscribeToTeamChatMessages(
+  teamId: string,
+  handlers: ChatRealtimeHandlers,
+): () => void {
+  const supabase = getSupabase();
+  if (!supabase || teamId.startsWith('team-')) {
+    handlers.onStatus('disconnected');
+    return () => {};
+  }
+
+  let stopped = false;
+  let hasConnected = false;
+
+  const channel = supabase
+    .channel(`team-chat:${teamId}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `team_id=eq.${teamId}` },
+      (payload) => {
+        if (stopped) return;
+        const row = payload.new as Partial<ChatMessageRow>;
+        // The server-side filter should guarantee this; drop strays anyway so
+        // a misdelivered row can never land in the wrong conversation.
+        if (row.team_id !== teamId) return;
+        if (row.id && row.organisation_id && row.sender_id && row.created_at && typeof row.body === 'string') {
+          handlers.onMessage(row as ChatMessage);
+        } else {
+          handlers.onResyncNeeded();
+        }
+      },
+    )
+    .subscribe((status) => {
+      if (stopped) return;
+      if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
+        hasConnected = true;
+        handlers.onStatus('connected');
+      } else if (status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT) {
+        handlers.onStatus('reconnecting');
+      } else if (status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR) {
+        // The channel retries by itself after a drop; a join that has never
+        // succeeded (e.g. realtime unavailable) is plain disconnected.
+        handlers.onStatus(hasConnected ? 'reconnecting' : 'disconnected');
+      } else if (status === REALTIME_SUBSCRIBE_STATES.CLOSED) {
+        handlers.onStatus('disconnected');
+      }
+    });
+
+  return () => {
+    stopped = true;
+    void supabase.removeChannel(channel);
+  };
 }

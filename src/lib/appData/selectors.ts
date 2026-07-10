@@ -331,7 +331,9 @@ export function searchSongs(songs: Song[], query: string): Song[] {
 export function messagesForTeam(teamId: string, messages: ChatMessage[]): ChatMessage[] {
   return messages
     .filter((m) => m.team_id === teamId)
-    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    // Id as tiebreak keeps same-timestamp messages in a stable order however
+    // they arrived (send response, realtime insert, or refetch).
+    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
 }
 
 export function lastMessageForTeam(

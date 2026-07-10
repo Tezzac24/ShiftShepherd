@@ -2,9 +2,10 @@
 
 **Status: aligned on 2026-07-09** against the repo-configured Supabase MCP/CLI dev project.
 This document records that completed checkpoint and the rules that keep history aligned.
-On 2026-07-10, migration `20260709233705_link_auth_users_to_existing_profiles.sql`
-was added locally and intentionally left unpushed pending explicit approval, so it is now
-the single expected local-only migration.
+Since then the timestamped migrations (the events/rota/songs/chat/notification-preferences
+grants, the Auth/profile auto-link `20260709233705`, and the chat realtime publication
+`20260710020944`) have each been pushed with explicit approval — `supabase migration list`
+currently shows **no local-only migrations**.
 
 ## Outcome (TL;DR)
 
