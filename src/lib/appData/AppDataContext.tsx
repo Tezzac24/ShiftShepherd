@@ -21,12 +21,12 @@
  * session state only: it is never written to the demo AsyncStorage snapshot
  * and Reset Demo Data does not touch it.
  *
- * Chat is realtime for the open conversation: the team chat screen subscribes
- * to new-message INSERTs while focused (see features/chat/useTeamChatRealtime)
- * and merges arrivals in through applyLiveChatMessage. The database stays the
- * source of truth — refetches on focus/foreground/reconnect fill anything the
- * socket missed, and every path (send, realtime, refetch) merges by row id so
- * nothing duplicates.
+ * Chat is realtime for the open conversation and supports one optional live
+ * image attachment. The screen subscribes to new-message INSERTs while
+ * focused (see features/chat/useTeamChatRealtime), then performs a coalesced
+ * joined refetch because realtime payloads do not include attachment rows.
+ * Every path (send, realtime, refetch) merges by message id, so nothing
+ * duplicates. Demo chat remains local and text-only.
  *
  * Unread tracking: in live mode unreadByTeam is computed from live messages
  * vs the user's private chat_read_states rows (messages from other people
@@ -99,6 +99,7 @@ import { isSupabaseConfigured } from '../supabase/client';
 import * as announcementImagesService from '../supabase/services/announcementImages';
 import * as announcementsService from '../supabase/services/announcements';
 import * as chatService from '../supabase/services/chat';
+import * as chatAttachmentsService from '../supabase/services/chatAttachments';
 import * as eventsService from '../supabase/services/events';
 import * as notificationsService from '../supabase/services/notifications';
 import * as profileAvatarsService from '../supabase/services/profileAvatars';
@@ -355,8 +356,15 @@ interface AppDataContextValue {
   refreshChat: () => Promise<void>;
   /** Merge one realtime-delivered live message into chat state (no-op in demo mode). */
   applyLiveChatMessage: (message: ChatMessage) => void;
-  /** Async in both modes; rejects with a friendly message on live failures. */
-  sendChatMessage: (teamId: string, senderId: string, body: string) => Promise<void>;
+  /** Signed private image URL in live mode; undefined for text/demo messages. */
+  getChatAttachmentUri: (message: ChatMessage | undefined | null) => string | undefined;
+  /** Async in both modes; optional images are accepted only in live mode. */
+  sendChatMessage: (
+    teamId: string,
+    senderId: string,
+    body: string,
+    image?: chatAttachmentsService.PickedChatImage,
+  ) => Promise<void>;
   /**
    * Reload the caller's live chat read states (no-op in demo mode). Never
    * rejects: when read states can't load, unread badges just hide.
@@ -413,7 +421,17 @@ function mergeChatMessages(prev: ChatMessage[], incoming: ChatMessage[]): ChatMe
   if (incoming.length === 0) return prev;
   const byId = new Map<string, ChatMessage>();
   for (const message of prev) byId.set(message.id, message);
-  for (const message of incoming) byId.set(message.id, message);
+  for (const message of incoming) {
+    const existing = byId.get(message.id);
+    // Realtime carries only chat_messages columns. Preserve attachment
+    // metadata already learned from send/refetch until a canonical joined
+    // refetch replaces it; this also prevents the sender's own realtime event
+    // from briefly removing the image they just sent.
+    byId.set(message.id, {
+      ...message,
+      attachment: message.attachment ?? existing?.attachment ?? null,
+    });
+  }
   return [...byId.values()].sort(
     (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
   );
@@ -513,6 +531,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [songsError, setSongsError] = useState<string | null>(null);
   const [localChatMessages, setLocalChatMessages] = useState<ChatMessage[]>(mockChatMessages);
   const [liveChatMessages, setLiveChatMessages] = useState<ChatMessage[]>([]);
+  const [chatAttachmentSignedUrls, setChatAttachmentSignedUrls] = useState<
+    Record<string, string>
+  >({});
+  const chatAttachmentSignedUrlsRef = useRef<Record<string, string>>({});
+  chatAttachmentSignedUrlsRef.current = chatAttachmentSignedUrls;
+  const chatAttachmentsSignedAtRef = useRef(0);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [unreadByTeam, setUnreadByTeam] = useState<Record<string, number>>(mockUnreadByTeam);
@@ -1672,6 +1696,76 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   // --- Chat (live Supabase slice ★, with local demo fallback) ------------------
 
+  const liveChatAttachmentPaths = useMemo<string[]>(() => {
+    if (!chatLive) return [];
+    const paths = new Set<string>();
+    for (const message of liveChatMessages) {
+      const path = message.attachment?.file_url;
+      if (chatAttachmentsService.isChatAttachmentPath(path)) paths.add(path);
+    }
+    return [...paths].sort();
+  }, [chatLive, liveChatMessages]);
+  const liveChatAttachmentPathsRef = useRef<string[]>([]);
+  liveChatAttachmentPathsRef.current = liveChatAttachmentPaths;
+
+  // Sign new private attachment paths for display. A signing failure leaves a
+  // calm photo fallback; message text and the rest of chat remain readable.
+  useEffect(() => {
+    if (liveChatAttachmentPaths.length === 0) {
+      chatAttachmentsSignedAtRef.current = 0;
+      setChatAttachmentSignedUrls((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+      return;
+    }
+    const missing = liveChatAttachmentPaths.filter(
+      (path) => !chatAttachmentSignedUrlsRef.current[path],
+    );
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void chatAttachmentsService.createChatAttachmentSignedUrls(missing).then((signed) => {
+      if (cancelled || !signed || !liveDataEnabledRef.current) return;
+      chatAttachmentsSignedAtRef.current = Date.now();
+      setChatAttachmentSignedUrls((prev) => ({ ...prev, ...signed }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [liveChatAttachmentPaths]);
+
+  // Re-sign on foreground past half the one-hour TTL so long-running chats do
+  // not keep expired URLs. Focus/reconnect message refetch remains separate.
+  useEffect(() => {
+    if (!liveDataEnabled) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const paths = liveChatAttachmentPathsRef.current;
+      const halfLifeMs =
+        (chatAttachmentsService.CHAT_ATTACHMENT_SIGNED_URL_TTL_SECONDS * 1000) / 2;
+      if (
+        paths.length === 0 ||
+        Date.now() - chatAttachmentsSignedAtRef.current < halfLifeMs
+      ) {
+        return;
+      }
+      void chatAttachmentsService.createChatAttachmentSignedUrls(paths).then((signed) => {
+        if (!signed || !liveDataEnabledRef.current) return;
+        chatAttachmentsSignedAtRef.current = Date.now();
+        setChatAttachmentSignedUrls((prev) => ({ ...prev, ...signed }));
+      });
+    });
+    return () => subscription.remove();
+  }, [liveDataEnabled]);
+
+  const getChatAttachmentUri: AppDataContextValue['getChatAttachmentUri'] = useCallback(
+    (message) => {
+      if (!chatLive) return undefined;
+      const path = message?.attachment?.file_url;
+      return chatAttachmentsService.isChatAttachmentPath(path)
+        ? chatAttachmentSignedUrls[path]
+        : undefined;
+    },
+    [chatLive, chatAttachmentSignedUrls],
+  );
+
   const refreshChat: AppDataContextValue['refreshChat'] = useCallback(async () => {
     const requestProfileId = supabaseProfileIdRef.current;
     if (!liveDataEnabledRef.current || !requestProfileId) return;
@@ -1776,13 +1870,25 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendChatMessage: AppDataContextValue['sendChatMessage'] = useCallback(
-    async (teamId, senderId, body) => {
+    async (teamId, senderId, body, image) => {
       if (chatLive && supabaseProfileId) {
         // RLS only accepts the caller's own profile as sender.
-        const sent = await chatService.sendChatMessage(teamId, body, supabaseProfileId);
+        const sent = image
+          ? await chatAttachmentsService.sendChatImageMessage(
+              teamId,
+              body,
+              supabaseProfileId,
+              image,
+            )
+          : await chatService.sendChatMessage(teamId, body, supabaseProfileId);
         setLiveChatMessages((prev) => mergeChatMessages(prev, [sent]));
         resyncLiveChat();
         return;
+      }
+      if (image) {
+        // Demo UI hides the image action; keep this guard so local mode can
+        // never call Storage even if a future screen accidentally passes one.
+        throw new Error('Chat images are available when signed in with your church account.');
       }
       setLocalChatMessages((prev) => [
         ...prev,
@@ -1793,6 +1899,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           sender_id: senderId,
           body,
           created_at: now(),
+          attachment: null,
         },
       ]);
     },
@@ -2015,6 +2122,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshChat,
       refreshChatReadStates,
       applyLiveChatMessage,
+      getChatAttachmentUri,
       addAnnouncement,
       updateAnnouncement,
       deleteAnnouncement,
@@ -2093,6 +2201,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshChat,
       refreshChatReadStates,
       applyLiveChatMessage,
+      getChatAttachmentUri,
       addAnnouncement,
       updateAnnouncement,
       deleteAnnouncement,

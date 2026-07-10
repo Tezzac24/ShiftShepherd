@@ -30,7 +30,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Shift Shepherd uses your photos so you can choose a profile picture."
+          "photosPermission": "Shift Shepherd uses your photos so you can choose images for your profile, announcements, and team chats."
         }
       ],
       [

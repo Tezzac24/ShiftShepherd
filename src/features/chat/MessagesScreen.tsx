@@ -11,7 +11,12 @@ import { Card } from '../../components/Card';
 import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
 import { useAppData } from '../../lib/appData/AppDataContext';
-import { lastMessageForTeam, userName, visibleTeams } from '../../lib/appData/selectors';
+import {
+  chatMessagePreview,
+  lastMessageForTeam,
+  userName,
+  visibleTeams,
+} from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { formatRelative } from '../../utils/dates';
 import { useOnAppForeground } from '../../utils/useAppForeground';
@@ -107,7 +112,8 @@ export default function MessagesScreen() {
                   </View>
                   {last ? (
                     <AppText variant="small" tone="secondary" numberOfLines={1}>
-                      {userName(data.users, last.sender_id).split(' ')[0]}: {last.body}
+                      {userName(data.users, last.sender_id).split(' ')[0]}:{' '}
+                      {chatMessagePreview(last)}
                     </AppText>
                   ) : (
                     <AppText variant="small" tone="muted">

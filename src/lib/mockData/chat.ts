@@ -1,8 +1,8 @@
 /**
  * Mock team chat messages and simulated unread counts — demo mode only (live
- * Supabase sessions read/write the real `chat_messages` table). The unread
- * counts are a demo-only simulation; live unread tracking waits on a
- * chat_reads table. TODO: wire to Supabase — Realtime subscription later.
+ * Supabase sessions read/write the real chat tables). Demo chat stays
+ * text-only and never calls Supabase Storage. The unread counts are a
+ * demo-only simulation; live sessions use private chat_read_states rows.
  */
 import { ChatMessage } from '../../types';
 import { ORG_ID } from './people';

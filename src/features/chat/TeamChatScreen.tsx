@@ -3,9 +3,7 @@ import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -16,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing, touchTarget, type } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
+import { ChatAttachmentImage } from '../../components/ChatAttachmentImage';
 import { EmptyState } from '../../components/EmptyState';
 import { MessageBubble } from '../../components/MessageBubble';
 import { Screen } from '../../components/Screen';
@@ -23,6 +22,7 @@ import { useAppData } from '../../lib/appData/AppDataContext';
 import { lastMessageForTeam, messagesForTeam, userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canViewTeamChat } from '../../lib/permissions';
+import { useChatImageDraft } from './useChatImageDraft';
 import { useTeamChatRealtime } from './useTeamChatRealtime';
 
 /**
@@ -44,6 +44,7 @@ export default function TeamChatScreen() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const { pendingImage, picking, pickImage, removeImage } = useChatImageDraft();
 
   const team = data.teams.find((t) => t.id === teamId);
   const teamKey = team?.id;
@@ -111,12 +112,13 @@ export default function TeamChatScreen() {
 
   const handleSend = async () => {
     const body = draft.trim();
-    if (!body || sending) return;
+    if ((!body && !pendingImage) || sending) return;
     setSending(true);
     setSendError(null);
     try {
-      await data.sendChatMessage(team.id, user.profile.id, body);
+      await data.sendChatMessage(team.id, user.profile.id, body, pendingImage?.file);
       setDraft('');
+      removeImage();
       // Senders always jump to their own message, wherever they'd scrolled.
       nearBottomRef.current = true;
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
@@ -129,16 +131,6 @@ export default function TeamChatScreen() {
       );
     } finally {
       setSending(false);
-    }
-  };
-
-  const handleAttachment = () => {
-    const message =
-      'Attachments are coming soon. In the full app you will be able to share photos and files here.';
-    if (Platform.OS === 'web') {
-      alert(message);
-    } else {
-      Alert.alert('Coming soon', message);
     }
   };
 
@@ -222,6 +214,8 @@ export default function TeamChatScreen() {
               senderName={userName(data.users, item.sender_id)}
               createdAt={item.created_at}
               isMine={item.sender_id === user.profile.id}
+              hasImage={!!item.attachment}
+              imageUri={data.getChatAttachmentUri(item)}
             />
           )}
         />
@@ -244,40 +238,86 @@ export default function TeamChatScreen() {
         </View>
       ) : null}
 
-      <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Add attachment (coming soon)"
-          onPress={handleAttachment}
-          style={styles.attachButton}
-        >
-          <Ionicons name="add-circle-outline" size={28} color={colors.primary} />
-        </Pressable>
-        <TextInput
-          accessibilityLabel="Message"
-          placeholder="Type a message…"
-          placeholderTextColor={colors.textMuted}
-          value={draft}
-          onChangeText={(text) => {
-            setDraft(text);
-            if (sendError) setSendError(null);
-          }}
-          multiline
-          style={styles.input}
-        />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={sending ? 'Sending message' : 'Send message'}
-          onPress={() => void handleSend()}
-          disabled={!draft.trim() || sending}
-          style={[styles.sendButton, (!draft.trim() || sending) && { opacity: 0.4 }]}
-        >
-          {sending ? (
-            <ActivityIndicator size="small" color={colors.white} />
-          ) : (
-            <Ionicons name="send" size={22} color={colors.white} />
-          )}
-        </Pressable>
+      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+        {pendingImage ? (
+          <View style={styles.pendingImageRow}>
+            <ChatAttachmentImage
+              uri={pendingImage.previewUri}
+              width={132}
+              height={96}
+              accessibilityLabel="Selected chat image preview"
+            />
+            <View style={styles.pendingImageActions}>
+              <AppText variant="label">Photo ready to send</AppText>
+              <AppText variant="small" tone="muted">
+                Add a caption if you like.
+              </AppText>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Remove selected image"
+                disabled={sending}
+                onPress={removeImage}
+                style={styles.removeImageAction}
+              >
+                <Ionicons name="close-circle-outline" size={20} color={colors.danger} />
+                <AppText variant="label" style={styles.removeImageText}>
+                  Remove image
+                </AppText>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {chatLive ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={pendingImage ? 'Change image' : 'Add image'}
+            onPress={() => void pickImage()}
+            disabled={sending || picking}
+            style={[styles.attachAction, (sending || picking) && styles.actionDisabled]}
+          >
+            {picking ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Ionicons name="image-outline" size={21} color={colors.primary} />
+            )}
+            <AppText variant="label" style={styles.attachActionText}>
+              {picking ? 'Opening photos…' : pendingImage ? 'Change image' : 'Add image'}
+            </AppText>
+          </Pressable>
+        ) : null}
+
+        <View style={styles.inputBar}>
+          <TextInput
+            accessibilityLabel={pendingImage ? 'Message caption' : 'Message'}
+            placeholder={pendingImage ? 'Add a caption…' : 'Type a message…'}
+            placeholderTextColor={colors.textMuted}
+            value={draft}
+            onChangeText={(text) => {
+              setDraft(text);
+              if (sendError) setSendError(null);
+            }}
+            multiline
+            editable={!sending}
+            style={styles.input}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={sending ? 'Sending message' : 'Send message'}
+            onPress={() => void handleSend()}
+            disabled={(!draft.trim() && !pendingImage) || sending}
+            style={[
+              styles.sendButton,
+              ((!draft.trim() && !pendingImage) || sending) && styles.actionDisabled,
+            ]}
+          >
+            {sending ? (
+              <ActivityIndicator size="small" color={colors.white} />
+            ) : (
+              <Ionicons name="send" size={22} color={colors.white} />
+            )}
+          </Pressable>
+        </View>
       </View>
     </Screen>
   );
@@ -309,9 +349,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dangerSoft,
   },
   sendErrorText: { color: colors.danger, flex: 1 },
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
+  composer: {
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
@@ -319,11 +357,35 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  attachButton: {
-    height: touchTarget - 6,
-    justifyContent: 'center',
+  inputBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: spacing.sm,
+  },
+  pendingImageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  pendingImageActions: { flex: 1, gap: 2 },
+  removeImageAction: {
+    minHeight: touchTarget - 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
+  },
+  removeImageText: { color: colors.danger },
+  attachAction: {
+    minHeight: touchTarget - 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
     paddingHorizontal: spacing.xs,
   },
+  attachActionText: { color: colors.primary },
+  actionDisabled: { opacity: 0.4 },
   input: {
     flex: 1,
     minHeight: touchTarget - 6,

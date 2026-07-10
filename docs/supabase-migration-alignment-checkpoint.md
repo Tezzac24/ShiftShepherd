@@ -1,7 +1,7 @@
 # Supabase Migration Alignment
 
 **Status: aligned through `20260710114621` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
-This document records that completed checkpoint and the rules that keep history aligned.
+This document records that completed remote checkpoint, the one newer local-only migration, and the rules that keep history aligned.
 Since then the timestamped migrations (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, and the profile avatar storage
@@ -14,7 +14,7 @@ was subsequently pushed, verified, and passed manual QA.
   `001, 002, 003, 004, 005, 006`.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
-- `supabase migration list` shows every migration through `20260710114621` on **both** local and remote; there is no local-only migration at this checkpoint.
+- `supabase migration list` shows every migration through `20260710114621` on **both** local and remote. `20260710124206_add_chat_image_attachments.sql` is local-only pending explicit push approval.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -54,6 +54,11 @@ was subsequently pushed, verified, and passed manual QA.
   `announcement-images` bucket (JPEG/PNG/WebP, 5 MB), authenticated storage-object
   policies tied to announcement visibility/management, and no table change or RPC.
   `announcements.image_url` stores one optional storage path, never a signed URL.
+- `20260710124206_add_chat_image_attachments.sql` (**local-only**): reuses
+  `chat_attachments` for one image per message, adds narrow SELECT/INSERT grants,
+  private `chat-attachments` bucket policies, size/type/path enforcement, and
+  two authenticated SECURITY INVOKER RPCs for safe image-only sends. No anon,
+  message update/delete, arbitrary file, or multiple-attachment access.
 
 ## How Alignment Was Done
 
@@ -128,5 +133,7 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 ## Result
 
 The remote dev schema matches the repo migrations through `20260710114621`, migration
-history is tracked, and Announcement Images V1 passed manual QA. No chat attachments,
-multi-image galleries, or push-notification work is part of that migration.
+history is tracked, and Announcement Images V1 passed manual QA. Chat Image
+Attachments V1 is implemented locally in `20260710124206` but cannot receive live QA
+until an explicitly approved `supabase db push`; multi-image galleries, arbitrary
+files, and push-notification work remain separate.

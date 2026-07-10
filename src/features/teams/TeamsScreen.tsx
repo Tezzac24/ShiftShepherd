@@ -13,6 +13,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { Screen } from '../../components/Screen';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import {
+  chatMessagePreview,
   lastMessageForTeam,
   upcomingRotaEntriesForTeam,
   userName,
@@ -110,7 +111,8 @@ export default function TeamsScreen() {
                 <View style={styles.metaRow}>
                   <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.textSecondary} />
                   <AppText variant="small" tone="muted" numberOfLines={1} style={{ flex: 1 }}>
-                    {userName(data.users, lastMsg.sender_id).split(' ')[0]}: {lastMsg.body}
+                    {userName(data.users, lastMsg.sender_id).split(' ')[0]}:{' '}
+                    {chatMessagePreview(lastMsg)}
                   </AppText>
                 </View>
               ) : null}

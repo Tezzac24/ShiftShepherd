@@ -118,7 +118,7 @@ Text-only V1, same pattern as the earlier slices. What shipped:
 1. `src/lib/supabase/services/chat.ts` — `listChatMessages()` (one RLS-scoped fetch of every message the caller can see, oldest first) and `sendChatMessage(teamId, body, liveProfileId)` (trims the text, rejects empty/whitespace-only messages, refuses mock ids, always sends as the caller's live profile — RLS enforces that server-side too). DB fields stay isolated in the service; `created_at` is DB-owned.
 2. `AppDataContext` keeps two chat stores (persisted local/demo + session-only live), switching on the same condition as the other slices. `sendChatMessage` is async in both modes; a live send appends the server row then quietly re-syncs (which also picks up other people's new messages). Live chat is never persisted to AsyncStorage and clears on sign-out/user switch.
 3. ~~**No realtime yet**~~ ✅ realtime shipped in step 9b below (2026-07-10). The team chat screen keeps its loading, error+retry, sending, and inline failed-send states (the draft is kept so nothing is lost).
-4. ~~**Unread badges are demo-only now**~~ ✅ live unread tracking shipped in step 9c below (2026-07-10). Attachments stay a "coming soon" placeholder in both modes until the Storage slice (step 10); there is no edit/delete (no RLS policies for either, matching the UI).
+4. ~~**Unread badges are demo-only now**~~ ✅ live unread tracking shipped in step 9c below (2026-07-10). Chat images later shipped as the focused Storage slice in step 10c; there is still no message edit/delete.
 5. The temporary demo bridge (`src/lib/appData/demoBridge.ts`) existed only to re-key still-local chat onto live ids — chat going live made it dead code, so it is **deleted**. Demo mode runs on pure mock ids; live mode is real UUIDs end-to-end (only event categories remain name-bridged).
 6. Read-only introspection confirmed the RLS policies exist but authenticated Data API grants were missing. A grants migration (`20260709205903_grant_authenticated_chat_api_privileges.sql`) grants `authenticated` **select, insert** on `chat_messages` only (no update/delete, nothing on `chat_attachments`, nothing to anon). It has since been **pushed and verified remotely** (2026-07-09; grants confirmed via read-only introspection).
 
@@ -157,7 +157,7 @@ Storage starts with the smallest contained use case: **profile avatars**. What s
 3. `AppDataContext` signs every avatar path visible in the live directory (plus the session user's own), caches the URLs session-only (cleared on sign-out), re-signs on app foreground past half the TTL, and exposes `getAvatarUri` / `setOwnAvatar` / `removeOwnAvatar`; `AuthContext.applySessionAvatarUrl` patches the signed-in session so every screen updates without a reload.
 4. The Profile screen gained Add/Change/Remove Photo (via `expo-image-picker`: permission requested only on tap, images only, no cropping/camera), with loading states, a success toast, and friendly errors. `Avatar` now renders a photo when a URI resolves and falls back to initials (including when a signed URL has expired); Home's greeting and rota-detail assignment rows show photos too. Team avatars stay initials-only.
 5. Demo mode is untouched: photo controls are hidden, Storage is never called, and Reset Demo Data is unaffected. The migration is pushed and photo upload/replace/remove passed manual QA.
-6. Still deferred: chat attachments, team avatar management, image cropping, camera capture. Best-effort deletes mean a failed cleanup can orphan an object — a future cleanup job can sweep the bucket against `profiles.avatar_url`.
+6. Still deferred from the avatar slice: team avatar management, image cropping, and camera capture. Focused chat images later shipped as step 10c. Best-effort deletes mean a failed cleanup can orphan an object — a future cleanup job can sweep the bucket against `profiles.avatar_url`.
 
 ### 10b. Storage & uploads — announcement images ✅ second slice (pushed + QA'd 2026-07-10)
 
@@ -168,7 +168,19 @@ One optional image per announcement, same design language as avatars. What shipp
 3. `AppDataContext` signs every image path in the live announcements list, caches URLs session-only (cleared with live announcements on sign-out), re-signs on app foreground past half the TTL, and exposes `getAnnouncementImageUri` / `setAnnouncementImage` / `removeAnnouncementImage`. Deleting an announcement best-effort deletes its image object after the row delete.
 4. The announcement form (create + edit, live mode only) replaced the old demo "Include an image" placeholder toggle with real Add/Change/Remove image controls (`expo-image-picker`: permission requested only on tap, images only, no cropping/camera; picks validate immediately and preview locally). Nothing uploads until save: the announcement row saves first, then the image change applies — an image failure never rolls back the text, it toasts "saved, but the image…" and the person can retry from Edit. Announcement cards (list, Home, team space) show a modest preview and the detail screen a larger image; a load failure just hides the image.
 5. Demo mode has no announcement image controls and never calls Storage (the placeholder toggle is gone; demo announcements are text-only). Live uploads are active after the migration push and manual QA.
-6. Still deferred: chat attachments, multi-image galleries, document uploads, team avatars, image cropping, camera capture. Best-effort deletes mean a failed cleanup can orphan an object — a future cleanup job can sweep the bucket against `announcements.image_url`.
+6. Still deferred here: multi-image galleries, document uploads, team avatars, image cropping, and camera capture. Focused chat images are the separate step 10c. Best-effort deletes mean a failed cleanup can orphan an object — a future cleanup job can sweep the bucket against `announcements.image_url`.
+
+### 10c. Storage & uploads — chat image attachments ✅ app done 2026-07-10; migration pending push
+
+One optional image per immutable live chat message; no general file sharing. What shipped:
+
+1. `20260710124206_add_chat_image_attachments.sql` (**local-only until an explicitly approved `supabase db push`**) reuses `public.chat_attachments`, adds nullable `file_size_bytes` metadata (new inserts require it), enforces one attachment per message, restricts new rows to JPEG/PNG/WebP under 5 MB, and grants `authenticated` only SELECT/INSERT. Existing member-read and sender-insert RLS stays authoritative, with the insert policy tightened to the message/team-scoped Storage path. No update/delete table grant and nothing for anon.
+2. The migration creates a **private** `chat-attachments` bucket (5 MB; JPEG/PNG/WebP) with paths `teams/<teamId>/messages/<messageId>/<generatedFileName>`. Accessible team members may upload/read; reads require canonical attachment metadata; only the Storage-recorded uploader may delete for failed-send cleanup. There is no object update/upsert policy and no anon access.
+3. Two narrow `SECURITY INVOKER` RPCs make image-only send safe: `new_chat_message_id()` supplies the database UUID before upload, then `send_chat_image_message(...)` atomically inserts the immutable message plus its one metadata row under existing RLS. Upload failure creates no message; RPC failure rolls both inserts back and the client best-effort deletes the uploaded object.
+4. `chatAttachments.ts` validates picker data, refuses mock ids, uploads image bytes, maps setup/network/permission errors to friendly copy, signs private paths for one hour, and performs cleanup. `chat.ts` loads attachment metadata with messages but falls back to text-only queries before the migration is applied.
+5. AppData caches signed URLs session-only and re-signs on app foreground. Realtime remains scoped to `chat_messages` for the open team; each insert appears immediately, then a short coalesced refetch picks up the attachment row without duplicates. Unread tracking remains message-based.
+6. The live-only chat composer has a text-labelled Add/Change image action, permission-on-tap picker, preview, remove action, optional caption, and image-only sending. Failures preserve the draft and pending photo. Demo/local chat hides image controls, stays text-only, persists/reset as before, and never calls Storage.
+7. Still deferred: arbitrary files/documents, multiple attachments, audio/video, camera/cropping, upload progress, gallery/download manager, message edit/delete, typing indicators, visible read receipts, and push delivery.
 
 ### 11. Push notifications — preferences ✅ (done); tokens & delivery deferred
 
@@ -221,7 +233,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
 - ~~**Unread badges**~~ — live unread tracking shipped (step 9c); `20260710031212_add_chat_read_states.sql` is pushed and live badges are active.
 - **Notification delivery** — preferences persist to the table now (step 11, first half), but no push token is registered and nothing pushes until a development build + Edge Function pass.
-- **Chat attachments** — still placeholders. Announcement Images V1 is implemented, pushed, and QA'd as step 10b; multi-image galleries are out of scope.
+- **Chat images migration/QA** — app code is implemented as step 10c, but `20260710124206` remains local-only until explicitly pushed. Arbitrary files and multiple attachments remain out of scope.
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
 - **Team management UI** (create teams, assign leaders) — admin does this via the dashboard until a screen exists.
 
@@ -240,6 +252,6 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 9. ✅ **Done (2026-07-10):** **step 9b — realtime team chat**, including the pushed and verified `20260710020944_enable_realtime_for_chat_messages.sql` publication migration.
 10. ✅ **Done (2026-07-10):** **step 9c — chat unread tracking**, including the pushed and QA'd `20260710031212_add_chat_read_states.sql` migration.
 11. ✅ **Done (2026-07-10):** **step 10, first slice — profile avatar storage**, including the pushed and QA'd `20260710105140_add_profile_avatar_storage.sql` migration.
-12. Next approved slice: focused chat image attachments; push tokens/delivery remain separate future slices.
+12. ✅ **App done (2026-07-10), migration pending:** **step 10c — focused chat image attachments**, with local-only `20260710124206_add_chat_image_attachments.sql`. Next action is explicit push approval and two-user manual QA; push tokens/delivery remain separate future slices.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

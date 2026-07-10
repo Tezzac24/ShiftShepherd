@@ -40,6 +40,11 @@ export function useTeamChatRealtime(teamId: string | undefined): TeamChatConnect
   const connectionRef = useRef<TeamChatConnection>('idle');
   const focusedRef = useRef(false);
   const lastFetchAtRef = useRef(0);
+  // chat_messages realtime payloads cannot include chat_attachments. Coalesce
+  // bursts into one shortly-delayed canonical refetch after each arrival so
+  // an attachment row committed in the same transaction appears without a
+  // manual refresh.
+  const attachmentRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchLatest = useCallback(
     (options?: { force?: boolean }) => {
@@ -69,7 +74,16 @@ export function useTeamChatRealtime(teamId: string | undefined): TeamChatConnect
       connectionRef.current = 'connecting';
       setConnection('connecting');
       const unsubscribe = subscribeToTeamChatMessages(teamId, {
-        onMessage: applyLiveChatMessage,
+        onMessage: (message) => {
+          applyLiveChatMessage(message);
+          if (attachmentRefetchTimerRef.current) {
+            clearTimeout(attachmentRefetchTimerRef.current);
+          }
+          attachmentRefetchTimerRef.current = setTimeout(() => {
+            attachmentRefetchTimerRef.current = null;
+            if (focusedRef.current) fetchLatest({ force: true });
+          }, 250);
+        },
         onResyncNeeded: () => fetchLatest({ force: true }),
         onStatus: (status) => {
           const previous = connectionRef.current;
@@ -86,6 +100,10 @@ export function useTeamChatRealtime(teamId: string | undefined): TeamChatConnect
 
       return () => {
         focusedRef.current = false;
+        if (attachmentRefetchTimerRef.current) {
+          clearTimeout(attachmentRefetchTimerRef.current);
+          attachmentRefetchTimerRef.current = null;
+        }
         unsubscribe();
         connectionRef.current = 'idle';
         setConnection('idle');

@@ -4,15 +4,26 @@ import { StyleSheet, View } from 'react-native';
 import { colors, radius, spacing } from '../../constants/theme';
 import { formatTime } from '../utils/dates';
 import { AppText } from './AppText';
+import { ChatAttachmentImage } from './ChatAttachmentImage';
 
 interface MessageBubbleProps {
   body: string;
   senderName: string;
   createdAt: string;
   isMine: boolean;
+  hasImage?: boolean;
+  imageUri?: string | null;
 }
 
-export function MessageBubble({ body, senderName, createdAt, isMine }: MessageBubbleProps) {
+export function MessageBubble({
+  body,
+  senderName,
+  createdAt,
+  isMine,
+  hasImage = false,
+  imageUri,
+}: MessageBubbleProps) {
+  const caption = body.trim();
   return (
     <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}>
       <View style={[styles.bubble, isMine ? styles.mine : styles.theirs]}>
@@ -21,7 +32,10 @@ export function MessageBubble({ body, senderName, createdAt, isMine }: MessageBu
             {senderName}
           </AppText>
         ) : null}
-        <AppText style={isMine ? { color: colors.white } : undefined}>{body}</AppText>
+        {hasImage ? <ChatAttachmentImage uri={imageUri} isMine={isMine} /> : null}
+        {caption ? (
+          <AppText style={isMine ? { color: colors.white } : undefined}>{caption}</AppText>
+        ) : null}
         <AppText
           variant="small"
           style={[styles.time, isMine ? { color: '#D8E2F7' } : { color: colors.textMuted }]}

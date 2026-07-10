@@ -343,3 +343,9 @@ export function lastMessageForTeam(
   const list = messagesForTeam(teamId, messages);
   return list[list.length - 1];
 }
+
+/** Friendly one-line preview; image-only messages never appear blank. */
+export function chatMessagePreview(message: ChatMessage): string {
+  const text = message.body.trim();
+  return text || (message.attachment ? 'Photo' : 'Message');
+}

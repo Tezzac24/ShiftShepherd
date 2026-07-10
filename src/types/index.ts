@@ -260,6 +260,8 @@ export interface ChatMessage {
   sender_id: ID;
   body: string;
   created_at: string;
+  /** Live Supabase mode may include one private image attachment. */
+  attachment?: ChatAttachment | null;
 }
 
 export interface ChatAttachment {
@@ -268,6 +270,8 @@ export interface ChatAttachment {
   file_url: string;
   file_type: string;
   file_name: string;
+  /** Present for every Chat Image Attachments V1 row; null only for legacy rows. */
+  file_size_bytes: number | null;
   created_at: string;
 }
 

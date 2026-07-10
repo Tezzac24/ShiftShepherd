@@ -8,14 +8,16 @@
  *  - only team members/admins can send, and only as themselves
  *    (sender_id must be the caller's own profile).
  *
- * V1 chat is text-only with realtime for the open conversation:
+ * V1 chat supports text plus one optional image attachment. Realtime still
+ * streams only the parent chat_messages INSERT; the open-screen hook follows
+ * every arrival with a coalesced refetch so attachment metadata catches up.
  * `subscribeToTeamChatMessages` streams new-message INSERTs for one team
  * (Realtime authorizes each delivered row against the same RLS SELECT
  * policy), while list/send stay ordinary RLS-scoped queries and the database
  * remains the source of truth — missed messages are always caught up by a
  * refetch, never replayed by the socket. There is no editing or deleting (no
- * RLS policies exist for either), and chat_attachments stays untouched until
- * the Storage slice.
+ * RLS policies exist for either). Attachment Storage/upload/atomic-send logic
+ * lives in chatAttachments.ts; this service owns canonical joined reads.
  *
  * Unread tracking rides on `chat_read_states` (one private row per
  * user + team; migration `20260710031212_add_chat_read_states.sql`):
@@ -36,7 +38,7 @@
  */
 import { REALTIME_SUBSCRIBE_STATES, SupabaseClient } from '@supabase/supabase-js';
 
-import { ChatMessage, ChatReadState } from '../../../types';
+import { ChatAttachment, ChatMessage, ChatReadState } from '../../../types';
 import { getSupabase } from '../client';
 
 const LOAD_ERROR = "We couldn't load messages right now. Please try again.";
@@ -53,6 +55,57 @@ interface ChatMessageRow {
   sender_id: string;
   body: string;
   created_at: string;
+  chat_attachments?: ChatAttachmentRow[] | ChatAttachmentRow | null;
+}
+
+interface ChatAttachmentRow {
+  id: string;
+  message_id: string;
+  file_url: string;
+  file_type: string;
+  file_name: string;
+  file_size_bytes: number | null;
+  created_at: string;
+}
+
+const CHAT_MESSAGE_COLUMNS =
+  'id, organisation_id, team_id, sender_id, body, created_at';
+const CHAT_ATTACHMENT_COLUMNS =
+  'id, message_id, file_url, file_type, file_name, file_size_bytes, created_at';
+
+function mapChatMessage(row: ChatMessageRow): ChatMessage {
+  const nested = row.chat_attachments;
+  const attachmentRow = Array.isArray(nested) ? nested[0] : nested;
+  const attachment: ChatAttachment | null = attachmentRow
+    ? {
+        id: attachmentRow.id,
+        message_id: attachmentRow.message_id,
+        file_url: attachmentRow.file_url,
+        file_type: attachmentRow.file_type,
+        file_name: attachmentRow.file_name,
+        file_size_bytes: attachmentRow.file_size_bytes,
+        created_at: attachmentRow.created_at,
+      }
+    : null;
+  return {
+    id: row.id,
+    organisation_id: row.organisation_id,
+    team_id: row.team_id,
+    sender_id: row.sender_id,
+    body: row.body,
+    created_at: row.created_at,
+    attachment,
+  };
+}
+
+function isAttachmentSetupError(error: unknown): boolean {
+  const e = error as { code?: string; message?: string };
+  return (
+    e?.code === '42501' ||
+    e?.code === 'PGRST200' ||
+    e?.code === 'PGRST204' ||
+    /chat_attachments|file_size_bytes|permission denied/i.test(e?.message ?? '')
+  );
 }
 
 function requireClient(): SupabaseClient {
@@ -138,13 +191,26 @@ async function fetchOrganisationId(
 export async function listChatMessages(): Promise<ChatMessage[]> {
   const supabase = requireClient();
   try {
+    const joined = await supabase
+      .from('chat_messages')
+      .select(`${CHAT_MESSAGE_COLUMNS}, chat_attachments(${CHAT_ATTACHMENT_COLUMNS})`)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (!joined.error) {
+      return ((joined.data ?? []) as ChatMessageRow[]).map(mapChatMessage);
+    }
+    if (!isAttachmentSetupError(joined.error)) throw joined.error;
+
+    // Graceful pre-migration fallback: live text chat stays fully usable when
+    // chat_attachments grants/metadata are not available yet.
+    console.warn('[chat] attachment join unavailable; loading text messages only', joined.error);
     const { data, error } = await supabase
       .from('chat_messages')
-      .select('id, organisation_id, team_id, sender_id, body, created_at')
+      .select(CHAT_MESSAGE_COLUMNS)
       .order('created_at', { ascending: true })
       .order('id', { ascending: true });
     if (error) throw error;
-    return (data ?? []) as ChatMessageRow[];
+    return ((data ?? []) as ChatMessageRow[]).map(mapChatMessage);
   } catch (error) {
     fail('list', error, LIST_FAIL);
   }
@@ -174,10 +240,10 @@ export async function sendChatMessage(
         sender_id: senderId,
         body: trimmed,
       })
-      .select('id, organisation_id, team_id, sender_id, body, created_at')
+      .select(CHAT_MESSAGE_COLUMNS)
       .single();
     if (error) throw error;
-    return data as ChatMessageRow;
+    return mapChatMessage(data as ChatMessageRow);
   } catch (error) {
     fail('send', error, SEND_FAIL);
   }
@@ -230,7 +296,7 @@ export function subscribeToTeamChatMessages(
         // a misdelivered row can never land in the wrong conversation.
         if (row.team_id !== teamId) return;
         if (row.id && row.organisation_id && row.sender_id && row.created_at && typeof row.body === 'string') {
-          handlers.onMessage(row as ChatMessage);
+          handlers.onMessage(mapChatMessage(row as ChatMessageRow));
         } else {
           handlers.onResyncNeeded();
         }
