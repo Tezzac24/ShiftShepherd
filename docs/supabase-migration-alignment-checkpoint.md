@@ -1,7 +1,7 @@
 # Supabase Migration Alignment
 
-**Status: aligned through `20260710162415` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
-This document records that completed remote checkpoint, the one newer local-only migration (`20260710171200_add_push_token_registration.sql`, awaiting explicit push approval), and the rules that keep history aligned.
+**Status: aligned through `20260710171200` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
+This document records that completed remote checkpoint, including Push Token Registration V1, and the rules that keep history aligned.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
@@ -15,7 +15,7 @@ with explicit approval, verified, and covered by manual QA.
   `001, 002, 003, 004, 005, 006`.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
-- `supabase migration list` shows every migration through `20260710162415` on **both** local and remote. `20260710171200_add_push_token_registration.sql` is local-only pending explicit push approval.
+- `supabase migration list` shows every migration through `20260710171200` on **both** local and remote.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -65,7 +65,7 @@ with explicit approval, verified, and covered by manual QA.
   path — the original policy's unqualified `name` resolved to `teams.name` inside its
   subquery and rejected every valid message-scoped upload path. Same private bucket,
   image/path checks, and team-access predicate.
-- `20260710171200_add_push_token_registration.sql` (**local-only**): adds
+- `20260710171200_add_push_token_registration.sql` (**pushed + DB/RPC-verified**): adds
   `register_push_token(p_token, p_platform)`, a narrow SECURITY DEFINER upsert onto
   the existing `push_tokens` table keyed on its globally-unique token column
   (validates the caller's linked profile, the `ExponentPushToken[…]` shape, and the
@@ -146,13 +146,14 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 
 ## Result
 
-The remote dev schema matches the repo migrations through `20260710162415`, migration
+The remote dev schema matches the repo migrations through `20260710171200`, migration
 history is tracked, and both Announcement Images V1 and Chat Image Attachments V1
 passed manual QA (after the `20260710162415` permission fix: members can send images
 in their teams, admins in teams they administer, non-members stay blocked, and text
 chat/realtime/unread tracking still work). Chat supports exactly one optional image
 per message — no arbitrary files, audio/video, galleries, camera capture, full-screen
-viewer, or message edit/delete. **Push Token Registration V1** app code is now
-implemented; its migration `20260710171200_add_push_token_registration.sql` is
-local-only and needs an explicitly approved `supabase db push` before live token
-registration can pass QA. Real push delivery remains a separate, later slice.
+viewer, or message edit/delete. **Push Token Registration V1** and its migration
+`20260710171200_add_push_token_registration.sql` are pushed and DB/RPC-verified.
+Runtime QA is next: iOS Simulator QA on a MacBook verifies the friendly unsupported
+state, while collecting a real Expo token requires a supported physical development
+build. Real push delivery remains a separate, later slice.
