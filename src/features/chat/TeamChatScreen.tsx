@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,7 +20,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { MessageBubble } from '../../components/MessageBubble';
 import { Screen } from '../../components/Screen';
 import { useAppData } from '../../lib/appData/AppDataContext';
-import { messagesForTeam, userName } from '../../lib/appData/selectors';
+import { lastMessageForTeam, messagesForTeam, userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canViewTeamChat } from '../../lib/permissions';
 import { useTeamChatRealtime } from './useTeamChatRealtime';
@@ -67,12 +67,30 @@ export default function TeamChatScreen() {
     return () => clearTimeout(timer);
   }, [connection]);
 
-  // Opening the chat clears the simulated unread badge (demo mode only —
-  // live refreshes are handled by useTeamChatRealtime).
+  // Reading the chat marks it read: on focus, and again whenever the newest
+  // visible message changes while focused (initial load, refetch, realtime
+  // arrivals, own sends). Live mode records the read point up to that newest
+  // message in chat_read_states; demo mode clears the simulated count. Blurred
+  // screens never mark anything — a message arriving while the user is
+  // elsewhere stays unread.
   const markTeamChatRead = data.markTeamChatRead;
+  const focusedRef = useRef(false);
+  const lastVisibleMessage = teamKey
+    ? lastMessageForTeam(teamKey, data.chatMessages)
+    : undefined;
+  const lastVisibleMessageId = lastVisibleMessage?.id ?? null;
+  useFocusEffect(
+    useCallback(() => {
+      focusedRef.current = true;
+      if (teamKey && canView) markTeamChatRead(teamKey);
+      return () => {
+        focusedRef.current = false;
+      };
+    }, [teamKey, canView, markTeamChatRead]),
+  );
   useEffect(() => {
-    if (teamKey) markTeamChatRead(teamKey);
-  }, [teamKey, markTeamChatRead]);
+    if (focusedRef.current && teamKey && canView) markTeamChatRead(teamKey);
+  }, [teamKey, canView, lastVisibleMessageId, markTeamChatRead]);
 
   if (!team || !canView) {
     return (

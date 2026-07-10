@@ -13,14 +13,14 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is fully aligned — every local migration, through the chat realtime publication migration, is pushed.
+- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is aligned through the chat realtime publication migration; the chat read-states migration (`20260710031212_add_chat_read_states.sql`) is **local-only pending an approved push**.
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006`, the events/rota/songs/chat/notification-preferences grants migrations, the Auth/profile auto-link migration (`20260709233705`), and the chat realtime publication migration (`20260710020944`) — no local-only migrations remain. Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006`, the events/rota/songs/chat/notification-preferences grants migrations, the Auth/profile auto-link migration (`20260709233705`), and the chat realtime publication migration (`20260710020944`). One local-only migration awaits an approved push: `20260710031212_add_chat_read_states.sql` (chat unread tracking). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
-### 2. Auth + profiles ✅ (app done; auto-link migration pending push)
+### 2. Auth + profiles ✅ (done; auto-link migration pushed + QA'd)
 
 The single riskiest step — done in its own pass. What shipped:
 
@@ -118,7 +118,7 @@ Text-only V1, same pattern as the earlier slices. What shipped:
 1. `src/lib/supabase/services/chat.ts` — `listChatMessages()` (one RLS-scoped fetch of every message the caller can see, oldest first) and `sendChatMessage(teamId, body, liveProfileId)` (trims the text, rejects empty/whitespace-only messages, refuses mock ids, always sends as the caller's live profile — RLS enforces that server-side too). DB fields stay isolated in the service; `created_at` is DB-owned.
 2. `AppDataContext` keeps two chat stores (persisted local/demo + session-only live), switching on the same condition as the other slices. `sendChatMessage` is async in both modes; a live send appends the server row then quietly re-syncs (which also picks up other people's new messages). Live chat is never persisted to AsyncStorage and clears on sign-out/user switch.
 3. ~~**No realtime yet**~~ ✅ realtime shipped in step 9b below (2026-07-10). The team chat screen keeps its loading, error+retry, sending, and inline failed-send states (the draft is kept so nothing is lost).
-4. **Unread badges are demo-only now**: the simulated counts made no sense against live data, so live mode shows none — real unread tracking is a `chat_reads` schema addition for later. Attachments stay a "coming soon" placeholder in both modes until the Storage slice (step 10); there is no edit/delete (no RLS policies for either, matching the UI).
+4. ~~**Unread badges are demo-only now**~~ ✅ live unread tracking shipped in step 9c below (2026-07-10, app code; its migration awaits push). Attachments stay a "coming soon" placeholder in both modes until the Storage slice (step 10); there is no edit/delete (no RLS policies for either, matching the UI).
 5. The temporary demo bridge (`src/lib/appData/demoBridge.ts`) existed only to re-key still-local chat onto live ids — chat going live made it dead code, so it is **deleted**. Demo mode runs on pure mock ids; live mode is real UUIDs end-to-end (only event categories remain name-bridged).
 6. Read-only introspection confirmed the RLS policies exist but authenticated Data API grants were missing. A grants migration (`20260709205903_grant_authenticated_chat_api_privileges.sql`) grants `authenticated` **select, insert** on `chat_messages` only (no update/delete, nothing on `chat_attachments`, nothing to anon). It has since been **pushed and verified remotely** (2026-07-09; grants confirmed via read-only introspection).
 
@@ -133,7 +133,20 @@ The open team chat now updates automatically while the app is active; the databa
 3. `useTeamChatRealtime(teamId)` (features/chat) owns the lifecycle: subscribe while the chat screen is **focused** in a linked Supabase session, tear down on blur/leave/team switch/sign-out/user switch. Catch-up refetches run on focus, on every (re)join of the channel, and when the app returns to the foreground — realtime has no replay, so the fetch is what guarantees nothing is missed. Only the open chat subscribes; background teams wait for the push-notification slice.
 4. Duplicates are impossible by construction: `AppDataContext` merges every path (send response, realtime insert, refetch) by row id into `(created_at, id)` order — chat rows are immutable and never deleted in V1, so refetches merge rather than replace and a message can never flicker out mid-race.
 5. The old always-visible "Check for new messages" bar is demoted to a fallback: hidden while realtime is healthy, a subtle "Connecting…" note if joining drags on, and a tappable "…check for new messages" bar only while the channel is reconnecting/disconnected. Messages-tab previews refresh on tab focus and app foreground instead of subscribing to every team. Demo/local chat is untouched (no subscription, no realtime UI).
-6. Still deferred (unchanged): unread/read tracking, push notifications, attachments/storage, typing indicators, edit/delete.
+6. Still deferred (unchanged): push notifications, attachments/storage, typing indicators, edit/delete. Unread/read tracking shipped next, in step 9c.
+
+### 9c. Chat unread tracking ✅ (app done 2026-07-10; migration pending push)
+
+Private per-user unread badges for the Messages tab — deliberately **not** read receipts. What shipped:
+
+1. `20260710031212_add_chat_read_states.sql` (**local-only until an explicitly approved `supabase db push`**) creates `chat_read_states`: one row per user + team (`unique(user_id, team_id)`), `last_read_at timestamptz`, FKs cascading from profiles/teams, and a `set_updated_at` trigger. RLS is strictly personal — select/insert/update require `user_id = current_profile_id()`, and writes additionally require `can_access_team(team_id)`; there is no delete policy and no policy ever exposes one user's read state to another. Grants: `authenticated` gets select/insert/update only; nothing to `anon`.
+2. `src/lib/supabase/services/chat.ts` gained `fetchChatReadStates()` (the caller's own rows; returns null — never a user-facing error — when the table is missing or the load fails, so unread badges just hide) and `markChatRead(teamId, lastReadAt, liveProfileId)` (an upsert onto `unique(user_id, team_id)`; `lastReadAt` is always a DB-owned message `created_at`, so read points and messages share one clock; mock ids are refused).
+3. `AppDataContext` computes live `unreadByTeam` from messages vs read states: a message counts as unread when it is from someone else and newer than the team's `last_read_at`. A team with **no row yet** uses a conservative session baseline (set at the first successful read-state load), so pre-existing history never floods in as unread on first sign-in — only messages arriving after that. `markTeamChatRead` updates state optimistically, never moves a read point backwards (client-side guard; two-device races self-heal on the next open), and logs — never surfaces — failures. Read states are session-only, cleared on sign-out/user switch, and never persisted to AsyncStorage.
+4. Opening/focusing a team chat marks it read up to the newest visible message, and re-marks as realtime arrivals/refetches land while focused, so the open chat never accrues unread. The Messages tab only *refreshes* previews + read states on focus/foreground — looking at the list never marks anything read. There is still no per-team realtime subscription for background teams; unread refreshes by fetch (same cadence the previews already used).
+5. The existing UI lit up unchanged: the Messages tab rows' `CountBadge` and the tab bar's badge already read `unreadByTeam` (they were demo-only before). Demo mode keeps its original simulated, persisted counts and Reset Demo Data behaviour.
+6. Until the migration is pushed, live mode simply shows no unread badges (the read-state fetch reports unavailable) — chat, realtime, and everything else work as before.
+
+Verify from the app (after the push): another member's message shows a count on Sarah's Messages tab; opening the chat clears it and it stays cleared; her own sends never count for her; the open chat never shows unread for messages that stream in while she's reading.
 
 ### 10. Storage & uploads
 
@@ -188,7 +201,7 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 ## What stays mocked until later
 
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
-- **Unread badges** — demo-only simulation; live mode shows none until a `chat_reads` table exists.
+- ~~**Unread badges**~~ — live unread tracking shipped (step 9c); badges appear once `20260710031212_add_chat_read_states.sql` is pushed, and hide gracefully until then.
 - **Notification delivery** — preferences persist to the table now (step 11, first half), but no push token is registered and nothing pushes until a development build + Edge Function pass.
 - **Images & attachments** — placeholders until step 10 (Storage).
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
@@ -207,6 +220,7 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 7. ✅ **Done (2026-07-09):** **step 11, first half — notification preferences** persist to `notification_preferences`, including the pushed and verified `20260709220528_grant_authenticated_notification_prefs_api_privileges.sql` migration. Push token registration/delivery stays deferred (needs a development build with `expo-notifications` + an EAS project id).
 8. ✅ **Done (pushed + manual QA):** `20260709233705_link_auth_users_to_existing_profiles.sql` safely links newly created Auth users to existing matching profiles; it does not implement signup or create profile/role/membership rows.
 9. ✅ **Done (2026-07-10):** **step 9b — realtime team chat**, including the pushed and verified `20260710020944_enable_realtime_for_chat_messages.sql` publication migration.
-10. The next slice candidate is **Storage** (step 10); push tokens/delivery and unread tracking remain separate future slices.
+10. ✅ **App done (2026-07-10):** **step 9c — chat unread tracking**. `20260710031212_add_chat_read_states.sql` is **local-only**: live unread badges stay hidden until it is pushed with explicit approval and QA'd.
+11. The next slice candidate is **Storage** (step 10); push tokens/delivery remain separate future slices.
 
 Production-hardening follow-ups flagged by Supabase advisors (not blocking, do before launch): several SECURITY DEFINER helper functions are executable by `anon`/`authenticated` and should have EXECUTE revoked where not needed; `set_updated_at` and `validate_cross_table_consistency` need a pinned `search_path`; `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.

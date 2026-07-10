@@ -17,18 +17,26 @@
  * RLS policies exist for either), and chat_attachments stays untouched until
  * the Storage slice.
  *
+ * Unread tracking rides on `chat_read_states` (one private row per
+ * user + team; migration `20260710031212_add_chat_read_states.sql`):
+ * `fetchChatReadStates` loads the caller's own rows and `markChatRead`
+ * upserts one when a chat is opened. Read state is never shown to other
+ * users — this is unread badges, not read receipts.
+ *
  * This service needs the grants migration
  * `20260709205903_grant_authenticated_chat_api_privileges.sql` and the
  * realtime publication migration
  * `20260710020944_enable_realtime_for_chat_messages.sql` (both pushed and
  * verified). If the grants are ever missing, live chat screens show a
  * friendly load/send error; if the publication entry is missing, realtime
- * reports unhealthy and the screen falls back to manual checking. Demo mode
- * is unaffected either way.
+ * reports unhealthy and the screen falls back to manual checking. Until the
+ * chat_read_states migration is pushed, fetchChatReadStates reports
+ * "unavailable" and the app simply hides unread badges — messages themselves
+ * are unaffected. Demo mode is unaffected either way.
  */
 import { REALTIME_SUBSCRIBE_STATES, SupabaseClient } from '@supabase/supabase-js';
 
-import { ChatMessage } from '../../../types';
+import { ChatMessage, ChatReadState } from '../../../types';
 import { getSupabase } from '../client';
 
 const LOAD_ERROR = "We couldn't load messages right now. Please try again.";
@@ -248,4 +256,69 @@ export function subscribeToTeamChatMessages(
     stopped = true;
     void supabase.removeChannel(channel);
   };
+}
+
+interface ChatReadStateRow {
+  id: string;
+  user_id: string;
+  team_id: string;
+  last_read_at: string;
+}
+
+const READ_STATE_COLUMNS = 'id, user_id, team_id, last_read_at';
+
+const MARK_READ_ERROR = "We couldn't update your unread messages just now.";
+
+const MARK_READ_FAIL: FailMessages = {
+  permission: MARK_READ_ERROR,
+  network: MARK_READ_ERROR,
+  fallback: MARK_READ_ERROR,
+};
+
+/**
+ * The caller's own chat read states (RLS hides everyone else's). Returns null
+ * when unread tracking is unavailable — no client, the chat_read_states
+ * migration not applied yet, or any load failure — so callers hide unread
+ * badges instead of surfacing an error; chat itself is unaffected.
+ */
+export async function fetchChatReadStates(): Promise<ChatReadState[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const { data, error } = await supabase.from('chat_read_states').select(READ_STATE_COLUMNS);
+  if (error) {
+    console.warn('[chat] read states load failed', error);
+    return null;
+  }
+  return (data ?? []) as ChatReadStateRow[];
+}
+
+/**
+ * Record that the signed-in profile has read one team's chat up to
+ * lastReadAt (the newest visible message's created_at — a DB-owned timestamp,
+ * so read state and messages share one clock). Upserts onto
+ * unique(user_id, team_id); the saved row is returned. Callers guard against
+ * moving last_read_at backwards — the newest known state should win.
+ */
+export async function markChatRead(
+  teamId: string,
+  lastReadAt: string,
+  liveProfileId: string,
+): Promise<ChatReadState> {
+  const supabase = requireClient();
+  try {
+    const liveTeamId = requireLiveId(teamId, ['team-'], 'team');
+    const userId = requireLiveId(liveProfileId, ['user-'], 'profile');
+    const { data, error } = await supabase
+      .from('chat_read_states')
+      .upsert(
+        { user_id: userId, team_id: liveTeamId, last_read_at: lastReadAt },
+        { onConflict: 'user_id,team_id' },
+      )
+      .select(READ_STATE_COLUMNS)
+      .single();
+    if (error) throw error;
+    return data as ChatReadStateRow;
+  } catch (error) {
+    fail('mark read', error, MARK_READ_FAIL);
+  }
 }

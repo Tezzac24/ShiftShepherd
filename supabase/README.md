@@ -2,7 +2,7 @@
 
 This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + live sessions, the **announcements**, **events**, **rotas/availability**, **choir songs/song selections**, **team chat** (with realtime for the open conversation), and **notification preferences** feature slices, and the **read-only people/teams directory** (organisations, profiles, teams, team memberships) run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured). Push token registration and actual push delivery stay deferred (they need a development build with `expo-notifications` and an EAS project id). The Auth/profile auto-link migration (`20260709233705`) and the chat realtime publication migration (`20260710020944`) have both been pushed and verified, alongside the earlier grants migrations. See `docs/supabase-integration-plan.md` for the wiring order.
 
-> **Current dev-project state:** remote migration history is tracked and fully aligned — `001`–`006`, the events/rota/songs/chat/notification-preferences grants migrations, the Auth/profile auto-link migration, and the chat realtime publication migration are all pushed; no local-only migrations remain. Migrations `001`–`002` were originally applied by hand and back-filled into history; later applied migrations used `supabase db push`. **Do not rename old or timestamped migrations.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Current dev-project state:** remote migration history is tracked and aligned — `001`–`006`, the events/rota/songs/chat/notification-preferences grants migrations, the Auth/profile auto-link migration, and the chat realtime publication migration are all pushed. One migration is **local-only pending an explicitly approved push**: `20260710031212_add_chat_read_states.sql` (chat unread tracking — the app hides unread badges until it lands). Migrations `001`–`002` were originally applied by hand and back-filled into history; later applied migrations used `supabase db push`. **Do not rename old or timestamped migrations.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ## Contents
 
@@ -21,7 +21,8 @@ supabase/
 │   ├── 20260709205903_grant_authenticated_chat_api_privileges.sql # chat_messages select/insert grants for the live chat slice
 │   ├── 20260709220528_grant_authenticated_notification_prefs_api_privileges.sql # notification_preferences grants for the live settings slice
 │   ├── 20260709233705_link_auth_users_to_existing_profiles.sql # link new Auth users to matching existing profiles
-│   └── 20260710020944_enable_realtime_for_chat_messages.sql # add chat_messages to the supabase_realtime publication (live chat realtime)
+│   ├── 20260710020944_enable_realtime_for_chat_messages.sql # add chat_messages to the supabase_realtime publication (live chat realtime)
+│   └── 20260710031212_add_chat_read_states.sql # private per-user chat read states for unread badges (local-only until pushed)
 ├── seed/
 │   ├── dev_seed.sql             # mock data ported to SQL (relative dates)
 │   └── README.md                # how to seed + link Supabase Auth users
@@ -45,7 +46,7 @@ The schema mirrors `src/types/index.ts` one-to-one (snake_case, same names) so s
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
-   - **Hosted dev:** remote history is fully aligned — every migration in this folder is already applied, none are pending. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) and an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.**
+   - **Hosted dev:** remote history is aligned through `20260710020944`; `20260710031212_add_chat_read_states.sql` is the one pending local-only migration. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) and an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.**
    - **A fresh project from scratch:** `supabase db push` applies `001`–`006` and the timestamped migrations in order (numeric prefixes are accepted by the CLI); or paste each migration in version order in the dashboard SQL editor. `supabase db reset` (local stack) requires Docker.
 4. Seed dev profiles, then create Auth users with matching emails. Once migration `20260709233705` is applied, new Auth users link automatically; see `seed/README.md` for verification and the manual path for users created earlier.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).

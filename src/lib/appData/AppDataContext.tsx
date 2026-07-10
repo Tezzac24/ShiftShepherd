@@ -26,9 +26,17 @@
  * and merges arrivals in through applyLiveChatMessage. The database stays the
  * source of truth — refetches on focus/foreground/reconnect fill anything the
  * socket missed, and every path (send, realtime, refetch) merges by row id so
- * nothing duplicates. The simulated unread counts are demo-only (real unread
- * tracking needs a chat_reads table), so live mode simply shows no unread
- * badges.
+ * nothing duplicates.
+ *
+ * Unread tracking: in live mode unreadByTeam is computed from live messages
+ * vs the user's private chat_read_states rows (messages from other people
+ * newer than last_read_at; a team with no row yet counts only messages newer
+ * than the session's first read-state load, so historic seed chat never
+ * floods in as unread). Opening a team chat upserts that team's read state
+ * (see markTeamChatRead). If read states can't load — e.g. the
+ * chat_read_states migration isn't applied yet — unread badges simply hide;
+ * chat keeps working. Demo mode keeps its original simulated, persisted
+ * unread counts.
  *
  * Notification preferences are live too (one row per profile, upserted on
  * first change; a user with no row gets the all-on defaults client-side).
@@ -51,6 +59,7 @@ import {
   AvailabilityResponse,
   AvailabilityStatus,
   ChatMessage,
+  ChatReadState,
   ChoirSongSelection,
   Event,
   EventCategory,
@@ -179,6 +188,11 @@ interface AppDataContextValue {
   songs: Song[];
   songSelections: ChoirSongSelection[];
   chatMessages: ChatMessage[];
+  /**
+   * Unread message counts per team (own messages never count). Live mode
+   * computes this from chat_read_states; demo mode keeps its simulated,
+   * persisted counts. Empty whenever live read states are unavailable.
+   */
   unreadByTeam: Record<string, number>;
 
   // Announcements — the first live Supabase slice. In demo mode the actions
@@ -294,6 +308,18 @@ interface AppDataContextValue {
   applyLiveChatMessage: (message: ChatMessage) => void;
   /** Async in both modes; rejects with a friendly message on live failures. */
   sendChatMessage: (teamId: string, senderId: string, body: string) => Promise<void>;
+  /**
+   * Reload the caller's live chat read states (no-op in demo mode). Never
+   * rejects: when read states can't load, unread badges just hide.
+   */
+  refreshChatReadStates: () => Promise<void>;
+  /**
+   * Mark a team's chat read for the current user, up to the newest loaded
+   * message. Fire-and-forget: live mode updates state optimistically and
+   * upserts chat_read_states in the background (a failure is logged, never
+   * shown — the chat itself is unaffected); demo mode clears the simulated
+   * count.
+   */
   markTeamChatRead: (teamId: string) => void;
 
   // Notification preferences — the seventh live Supabase slice, switching
@@ -323,8 +349,8 @@ interface AppDataContextValue {
 
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
-// Live mode has no unread simulation (see markTeamChatRead); stable reference
-// so the context value doesn't churn.
+// "Nothing unread" (also the neutral state while live read states are
+// unavailable); stable reference so the context value doesn't churn.
 const NO_UNREAD: Record<string, number> = {};
 
 /**
@@ -342,6 +368,32 @@ function mergeChatMessages(prev: ChatMessage[], incoming: ChatMessage[]): ChatMe
   return [...byId.values()].sort(
     (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
   );
+}
+
+/** Timestamp strings arrive in mixed formats (+00:00 vs Z); compare as time. */
+function timeOf(timestamp: string): number {
+  return new Date(timestamp).getTime();
+}
+
+/**
+ * Merge chat read states by team, keeping whichever last_read_at is newest —
+ * a refetch that raced an in-flight mark-read can never move a team's read
+ * point backwards. Incoming rows win ties so a server row (real id) replaces
+ * its optimistic placeholder.
+ */
+function mergeChatReadStates(
+  prev: ChatReadState[] | null,
+  incoming: ChatReadState[],
+): ChatReadState[] {
+  const byTeam = new Map<string, ChatReadState>();
+  for (const state of prev ?? []) byTeam.set(state.team_id, state);
+  for (const state of incoming) {
+    const existing = byTeam.get(state.team_id);
+    if (!existing || timeOf(state.last_read_at) >= timeOf(existing.last_read_at)) {
+      byTeam.set(state.team_id, state);
+    }
+  }
+  return [...byTeam.values()];
 }
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
@@ -397,6 +449,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [unreadByTeam, setUnreadByTeam] = useState<Record<string, number>>(mockUnreadByTeam);
+  // Null = live read states unavailable (not loaded yet, migration not
+  // applied, or load failed) — live unread badges hide rather than guess.
+  const [liveChatReadStates, setLiveChatReadStates] = useState<ChatReadState[] | null>(null);
+  // Set once per session at the first successful read-state load: for teams
+  // with no read-state row yet, only messages newer than this count as unread
+  // (so pre-existing history never floods in the first time someone signs in).
+  const [chatReadBaseline, setChatReadBaseline] = useState<string | null>(null);
+  // Refs so markTeamChatRead (a stable callback) reads current chat state.
+  const liveChatMessagesRef = useRef<ChatMessage[]>([]);
+  liveChatMessagesRef.current = liveChatMessages;
+  const liveChatReadStatesRef = useRef<ChatReadState[] | null>(null);
+  liveChatReadStatesRef.current = liveChatReadStates;
   const [notificationPrefs, setNotificationPrefs] = useState<
     Record<string, NotificationPreferences>
   >({});
@@ -1332,17 +1396,45 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Load live chat when a Supabase session appears; clear it (and any load
-  // error) when it goes away. Local demo data is untouched either way.
+  // The caller's own read states (RLS-scoped). Never sets an error state:
+  // unread badges are an enhancement, so any failure — including the
+  // chat_read_states migration not being applied yet — just hides them until
+  // a later refresh succeeds. The baseline is pinned at the first successful
+  // load of the session (see chatReadBaseline above).
+  const refreshChatReadStates: AppDataContextValue['refreshChatReadStates'] =
+    useCallback(async () => {
+      const requestProfileId = supabaseProfileIdRef.current;
+      if (!liveDataEnabledRef.current || !requestProfileId) return;
+      const states = await chatService.fetchChatReadStates();
+      if (
+        !liveDataEnabledRef.current ||
+        supabaseProfileIdRef.current !== requestProfileId
+      ) {
+        return;
+      }
+      if (states === null) {
+        setLiveChatReadStates(null);
+        return;
+      }
+      setChatReadBaseline((prev) => prev ?? new Date().toISOString());
+      setLiveChatReadStates((prev) => mergeChatReadStates(prev, states));
+    }, []);
+
+  // Load live chat (and the user's read states) when a Supabase session
+  // appears; clear them when it goes away so no read state leaks across a
+  // user switch. Local demo data is untouched either way.
   useEffect(() => {
     if (chatLive) {
       void refreshChat();
+      void refreshChatReadStates();
     } else {
       setLiveChatMessages([]);
       setChatError(null);
       setChatLoading(false);
+      setLiveChatReadStates(null);
+      setChatReadBaseline(null);
     }
-  }, [chatLive, refreshChat]);
+  }, [chatLive, refreshChat, refreshChatReadStates]);
 
   // After a live send succeeds, quietly re-sync in the background so messages
   // other people sent since the last load appear even when realtime is down.
@@ -1398,10 +1490,71 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const markTeamChatRead = useCallback((teamId: string) => {
-    // Unread counts are a demo-only simulation (live unread tracking needs a
-    // chat_reads table); in live mode there is nothing to clear.
+    if (liveDataEnabledRef.current) {
+      const profileId = supabaseProfileIdRef.current;
+      // Nothing to record for mock ids or before any message has loaded —
+      // an empty chat has no unread to clear.
+      if (!profileId || teamId.startsWith('team-')) return;
+      const teamMessages = liveChatMessagesRef.current.filter((m) => m.team_id === teamId);
+      const latest = teamMessages[teamMessages.length - 1];
+      if (!latest) return;
+      const existing = liveChatReadStatesRef.current?.find((s) => s.team_id === teamId);
+      // Never move the read point backwards (e.g. re-opening a chat after
+      // reading further on another device).
+      if (existing && timeOf(existing.last_read_at) >= timeOf(latest.created_at)) return;
+      // Optimistic: badges clear immediately; the server row (real id)
+      // replaces this placeholder when the upsert lands. On failure the
+      // optimistic state stays for this session (unread would reappear next
+      // session) — never an error in the user's face for a bookkeeping write.
+      setLiveChatReadStates((prev) =>
+        mergeChatReadStates(prev, [
+          {
+            id: `pending:${teamId}`,
+            user_id: profileId,
+            team_id: teamId,
+            last_read_at: latest.created_at,
+          },
+        ]),
+      );
+      chatService
+        .markChatRead(teamId, latest.created_at, profileId)
+        .then((saved) => {
+          if (
+            liveDataEnabledRef.current &&
+            supabaseProfileIdRef.current === profileId
+          ) {
+            setLiveChatReadStates((prev) => mergeChatReadStates(prev, [saved]));
+          }
+        })
+        .catch((error) => console.warn('[appData] mark chat read failed', error));
+      return;
+    }
+    // Demo mode: clear the simulated, persisted count.
     setUnreadByTeam((prev) => (prev[teamId] ? { ...prev, [teamId]: 0 } : prev));
   }, []);
+
+  // Live unread counts: for each team, messages from other people newer than
+  // the user's read point (their chat_read_states row, or the session
+  // baseline for teams they haven't opened yet). Hidden entirely (empty map)
+  // while read states are unavailable. Demo mode never reaches this — it
+  // keeps its own persisted simulation.
+  const liveUnreadByTeam = useMemo<Record<string, number>>(() => {
+    if (!chatLive || !supabaseProfileId || !liveChatReadStates || !chatReadBaseline) {
+      return NO_UNREAD;
+    }
+    const lastReadByTeam = new Map(
+      liveChatReadStates.map((s) => [s.team_id, timeOf(s.last_read_at)] as const),
+    );
+    const counts: Record<string, number> = {};
+    for (const message of liveChatMessages) {
+      if (message.sender_id === supabaseProfileId) continue;
+      const readPoint = lastReadByTeam.get(message.team_id) ?? timeOf(chatReadBaseline);
+      if (timeOf(message.created_at) > readPoint) {
+        counts[message.team_id] = (counts[message.team_id] ?? 0) + 1;
+      }
+    }
+    return Object.keys(counts).length > 0 ? counts : NO_UNREAD;
+  }, [chatLive, supabaseProfileId, liveChatReadStates, chatReadBaseline, liveChatMessages]);
 
   // --- Notification preferences (live Supabase slice ★, with local demo fallback)
 
@@ -1535,14 +1688,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       songsError,
       refreshSongs,
       // Chat: live rows for linked Supabase sessions (empty while they load —
-      // screens show the chatLoading state), local demo data otherwise. The
-      // simulated unread badges are demo-only.
+      // screens show the chatLoading state), local demo data otherwise.
+      // Unread counts come from chat_read_states in live mode and from the
+      // persisted simulation in demo mode.
       chatMessages: chatLive ? liveChatMessages : localChatMessages,
-      unreadByTeam: chatLive ? NO_UNREAD : unreadByTeam,
+      unreadByTeam: chatLive ? liveUnreadByTeam : unreadByTeam,
       chatLive,
       chatLoading,
       chatError,
       refreshChat,
+      refreshChatReadStates,
       applyLiveChatMessage,
       addAnnouncement,
       updateAnnouncement,
@@ -1610,9 +1765,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       liveChatMessages,
       localChatMessages,
       unreadByTeam,
+      liveUnreadByTeam,
       chatLoading,
       chatError,
       refreshChat,
+      refreshChatReadStates,
       applyLiveChatMessage,
       addAnnouncement,
       updateAnnouncement,

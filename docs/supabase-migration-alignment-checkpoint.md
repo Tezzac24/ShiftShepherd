@@ -4,8 +4,10 @@
 This document records that completed checkpoint and the rules that keep history aligned.
 Since then the timestamped migrations (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, and the chat realtime publication
-`20260710020944`) have each been pushed with explicit approval — `supabase migration list`
-currently shows **no local-only migrations**.
+`20260710020944`) have each been pushed with explicit approval. One migration is currently
+**local-only, awaiting an explicitly approved push**:
+`20260710031212_add_chat_read_states.sql` (private chat unread tracking — the app hides
+unread badges until it lands).
 
 ## Outcome (TL;DR)
 

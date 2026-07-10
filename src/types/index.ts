@@ -260,6 +260,18 @@ export interface ChatAttachment {
   created_at: string;
 }
 
+/**
+ * How far a user has read one team's chat (one row per user + team, private
+ * to that user). Messages from other people created after last_read_at count
+ * as unread; there are no visible read receipts.
+ */
+export interface ChatReadState {
+  id: ID;
+  user_id: ID;
+  team_id: ID;
+  last_read_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Notifications
 // ---------------------------------------------------------------------------
