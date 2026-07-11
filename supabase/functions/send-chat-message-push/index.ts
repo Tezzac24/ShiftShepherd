@@ -133,7 +133,7 @@ async function markDelivery(
 ): Promise<void> {
   const { error } = await admin
     .from('push_notification_deliveries')
-    .update(patch)
+    .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', deliveryId);
   if (error) {
     // The push outcome is already decided; a ledger write failure is only

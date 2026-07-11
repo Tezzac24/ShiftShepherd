@@ -80,10 +80,6 @@ create index push_notification_deliveries_recipient_idx
 create index push_notification_deliveries_push_token_idx
   on public.push_notification_deliveries (push_token_id);
 
-create trigger push_notification_deliveries_set_updated_at
-  before update on public.push_notification_deliveries
-  for each row execute function public.set_updated_at();
-
 -- ----------------------------------------------------------------------------
 -- Access: service role only
 -- ----------------------------------------------------------------------------
