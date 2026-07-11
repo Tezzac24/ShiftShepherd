@@ -1,9 +1,9 @@
 # Supabase Migration Alignment
 
-**Status: aligned through `20260710234443` on 2026-07-11** against the repo-configured Supabase MCP/CLI dev project.
-This document records the completed remote checkpoint, including Chat Message Push Delivery V1, and the rules that keep history aligned.
+**Status: aligned through `20260711024931` on 2026-07-11** against the repo-configured Supabase MCP/CLI dev project.
+This document records the completed remote checkpoint, including Chat Message Push Delivery V1 and the security hardening pass, and the rules that keep history aligned.
 `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) is pushed and verified; the matching `send-chat-message-push` Edge Function is deployed and ACTIVE with JWT verification.
-**One migration is currently local-only:** `20260711024931_harden_security_definer_functions.sql` revokes inherited anon/default-PUBLIC execution from RLS helpers, preserves authenticated execution required by policies and the two privileged app RPCs, removes app-role execution from trigger helpers, and pins function search paths. It awaits an explicitly approved push and verification pass.
+`20260711024931_harden_security_definer_functions.sql` is also **pushed and verified**: it revokes inherited anon/default-PUBLIC execution from RLS helpers, preserves authenticated execution required by policies and the two privileged app RPCs, removes app-role execution from trigger helpers, and pins function search paths. There are currently no local-only migrations.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
@@ -130,6 +130,12 @@ and the next `supabase db push` would try to re-run everything — causing confl
 `supabase migration new <descriptive_name>` and leave the generated filename unchanged.
 Timestamped versions sort after `006`, so they interleave cleanly with the existing
 numeric files. Never edit a migration that has already been applied — add a new one.
+
+`npm run check:migrations` (also run by CI) is an **offline** guard over these rules:
+it validates that every file in `supabase/migrations/` matches the legacy `NNN_*.sql`
+or timestamped `YYYYMMDDHHMMSS_*.sql` shape with no duplicate versions. It never
+connects to Supabase and does not replace `npx supabase migration list`, which remains
+the authenticated way to verify local/remote alignment.
 
 ## Docker Requirements
 

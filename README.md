@@ -5,7 +5,7 @@ A mobile-first church coordination app for **Grace Community Church** — events
 **Status:** functional scaffold / demo MVP with optional Supabase Auth and local persistence. **Announcements, events, the people/teams directory, rotas/availability, choir songs/song selections, team chat, and notification preferences are the live Supabase data slices**: when you sign in with Supabase Auth (and your auth user is linked to a profile), announcements, calendar events, your teams/members (read-only), team rotas with availability responses, choir songs/selections, team chat messages, and your notification settings load from the live database, protected by RLS — and your session itself (profile, role, memberships) is built from live rows. **The open team chat updates in realtime** (new messages stream in over Supabase Realtime while the chat is on screen; the database stays the source of truth). Notification settings can also register this device for push (**Push Token Registration V1** — live mode, explicit button, development build required for a real token). **Chat Message Push Delivery V1 is deployed**: backend invocation and the safe no-token skip path are verified, while real Expo delivery awaits physical-device QA. The whole app — live slices included — still works fully offline in demo mode.
 Every migration through Chat Message Push Delivery V1 (`20260710234443_add_push_delivery_foundation.sql`) is pushed and verified — live unread badges, profile photo uploads, announcement images, chat image attachments, the narrow `register_push_token` RPC, and the secured push-delivery ledger are active. Chat supports exactly one optional image per message (no arbitrary files, audio/video, galleries, camera capture, full-screen viewer, or message edit/delete). iOS Simulator token-registration UI was exercised, but simulator token reliability is limited; physical iPhone development-build QA is still required before real Expo delivery is considered verified.
 
-Security review on 2026-07-11 produced local-only migration `20260711024931_harden_security_definer_functions.sql`: it removes anon/default-PUBLIC execution from RLS helpers, keeps authenticated execution where policies/RPCs require it, and pins function search paths. It is not live until an explicitly approved migration push and verification pass.
+Security review on 2026-07-11 produced migration `20260711024931_harden_security_definer_functions.sql`: it removes anon/default-PUBLIC execution from RLS helpers, keeps authenticated execution where policies/RPCs require it, and pins function search paths. It has since been **pushed and verified** — remote migration history is fully aligned through `20260711024931`.
 
 ## Current Scaffold Highlights
 
@@ -16,7 +16,7 @@ Security review on 2026-07-11 produced local-only migration `20260711024931_hard
 - **Plan the Month** lets choir leaders create a whole month of Sunday services and weekly rehearsals at once, with default leaders and per-date overrides.
 - Choir rehearsals include every choir member so each can confirm availability; rota detail shows an Available / Maybe / Unavailable / Not responded tracker.
 - Rehearsals (or services) can be **cancelled** instead of deleted: they stay visible with a Cancelled badge, drop out of responsibilities, and offer a prefilled team announcement (never auto-sent).
-- Supabase migrations are applied to the dev project with tracked history through Chat Message Push Delivery V1 (`20260710234443`; see `docs/supabase-migration-alignment-checkpoint.md`). **Auth + live sessions + announcements (including images) + events + the read-only people/teams directory + rotas/availability + choir songs/song selections + team chat (realtime for the open conversation, plus one optional image per message) + notification preferences + profile avatar storage + device push token registration + chat-message push delivery** are wired to live Supabase. The deployed chat function has verified invocation, recipient selection, preference handling, sender exclusion, and safe no-token skips; physical-device Expo ticket/banner QA remains pending.
+- Supabase migrations are applied to the dev project with tracked history through the security hardening pass (`20260711024931`; see `docs/supabase-migration-alignment-checkpoint.md`). **Auth + live sessions + announcements (including images) + events + the read-only people/teams directory + rotas/availability + choir songs/song selections + team chat (realtime for the open conversation, plus one optional image per message) + notification preferences + profile avatar storage + device push token registration + chat-message push delivery** are wired to live Supabase. The deployed chat function has verified invocation, recipient selection, preference handling, sender exclusion, and safe no-token skips; physical-device Expo ticket/banner QA remains pending.
 - Demo changes (announcements, rotas, songs, messages, notification settings...) persist locally via AsyncStorage and can be reset from **Profile -> Reset Demo Data**.
 
 ## Tech Stack
@@ -36,10 +36,34 @@ npm start          # then press a (Android), i (iOS), or w (web)
 Other commands:
 
 ```bash
-npm run lint       # ESLint
-npm run typecheck  # TypeScript check
-npx expo export    # Bundle/export sanity check
+npm run lint             # ESLint
+npm run typecheck        # TypeScript check
+npm test                 # Jest regression tests
+npm run test:watch       # Jest in watch mode
+npm run test:ci          # Jest as CI runs it (no watch, in-band)
+npm run check:migrations # Offline migration filename sanity check
+npx expo export          # Bundle/export sanity check
 ```
+
+## Testing & CI
+
+The repo has an automated regression foundation (jest-expo + React Native Testing Library) plus a check-only GitHub Actions workflow.
+
+**Tests** live in `src/**/__tests__/*.test.ts(x)` and are deterministic: Supabase, Expo Notifications/Constants/Device, and AsyncStorage are mocked, no test uses the network or real credentials, and no real push token is ever generated. The first suite guards the highest-risk recent slices: device push registration states (including the iOS-Simulator-allowed rule), the `register_push_token` RPC contract and token privacy, the fire-and-forget chat push delivery trigger, chat previews/unread counting, notification preference defaults ("no row = all on"), and demo/live separation (mock ids never reach live services).
+
+**The standard local check sequence** before pushing any slice:
+
+```bash
+npm run typecheck
+npm run lint
+npm run test:ci
+npx expo export
+git diff --check
+```
+
+**CI** (`.github/workflows/ci.yml`) runs on every push to `main`, on pull requests targeting `main`, and manually via workflow_dispatch. It runs exactly: `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run check:migrations`, `npx expo export`. It is **check-only**: it needs no secrets and no `.env` (the export intentionally runs in demo mode), and it never deploys anything — Supabase migration pushes, Edge Function deploys, and EAS builds all remain explicit, manually approved steps.
+
+**Still manual** (not covered by automated tests): physical iPhone push banner QA (recipient token, Expo ticket, banner, no self-notification, preference-off suppression), real image picker/Storage uploads on a device, release-device testing, and end-to-end user flows generally. The Edge Function (`supabase/functions/send-chat-message-push`) is Deno code and is deliberately outside the Jest run — a separate Deno test lane is a future addition. Other future candidates: Maestro E2E smoke tests (login/demo/navigation/chat), a manually approved workflow_dispatch CD lane for Supabase migrations and Edge Function deploys, and EAS build automation.
 
 ## Running the App
 
@@ -138,7 +162,7 @@ src/
     permissions/      # All role/permission checks live here
     storage/          # Versioned AsyncStorage persistence helpers
     supabase/         # Env-guarded Supabase client + live services
-    notifications/    # Stub (TODO: Expo Notifications)
+    notifications/    # Device-side Expo push registration flow
   types/              # Entity types mirroring the intended Supabase schema
   utils/              # Dates, ids
 constants/theme.ts    # Design tokens (colours, type, spacing)

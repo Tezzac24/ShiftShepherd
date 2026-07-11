@@ -1,0 +1,49 @@
+# Check-only CI: typecheck, lint, Jest regression tests, migration filename
+# sanity, and an Expo export bundle check. It needs no secrets and deploys
+# nothing — Supabase migrations, Edge Function deploys, and EAS builds all
+# remain explicit manual steps (see README "Testing & CI").
+#
+# No EXPO_PUBLIC_* variables are provided on purpose: the app is designed to
+# fall back to demo mode when they are absent, and the export must keep
+# working that way. Never add real Supabase URLs/keys here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    env:
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      # No .nvmrc/engines is declared; Node 20 matches the LTS line the app
+      # is developed on (Expo SDK 54 / Node 20).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test:ci
+
+      - name: Migration filename sanity check (offline)
+        run: npm run check:migrations
+
+      - name: Expo export (bundle check, demo mode)
+        run: npx expo export

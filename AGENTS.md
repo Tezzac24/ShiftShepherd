@@ -51,32 +51,46 @@ Do not rebuild from scratch unless explicitly asked.
 All commands run from the repository root.
 
 ```bash
-npm install          # Install dependencies
-npm start            # Start Expo dev server, then press a/i/w for platform
-npm run android      # Run on Android emulator
-npm run ios          # Run on iOS simulator
-npm run web          # Run in browser
-npm run lint         # Run ESLint
-npm run typecheck    # TypeScript check with tsc --noEmit
-npx expo export      # Bundle/export sanity check
+npm install              # Install dependencies
+npm start                # Start Expo dev server, then press a/i/w for platform
+npm run android          # Run on Android emulator
+npm run ios              # Run on iOS simulator
+npm run web              # Run in browser
+npm run lint             # Run ESLint
+npm run typecheck        # TypeScript check with tsc --noEmit
+npm test                 # Jest regression tests (jest-expo)
+npm run test:watch       # Jest watch mode
+npm run test:ci          # Jest as CI runs it (no watch, in-band)
+npm run check:migrations # Offline migration filename sanity check
+npx expo export          # Bundle/export sanity check
 ```
 
-No test runner is configured yet.
-
-After meaningful changes, run:
+After meaningful changes, run the standard check sequence:
 
 ```bash
 npm run typecheck
 npm run lint
-```
-
-Run this when routing, build config, or broad app structure changes:
-
-```bash
+npm run test:ci
 npx expo export
+git diff --check
 ```
+
+Manual QA then focuses only on the changed feature area.
 
 If a command cannot be run in the environment, explain why in the final summary.
+
+---
+
+## Testing & CI
+
+Jest runs via **jest-expo** (config in `jest.config.js`, global setup in `jest.setup.ts`) with React Native Testing Library for hook tests. Tests live in `src/**/__tests__/*.test.ts(x)` and must stay deterministic and offline:
+
+- Mock Supabase by mocking `src/lib/supabase/client` (`jest.mock('../../client')`), and mock Expo Notifications/Constants/Device where needed. AsyncStorage is mocked globally in `jest.setup.ts`.
+- Never hit the network, never use real credentials, never generate a real push token, never create live test users or persistent backend data.
+- Prefer pure helpers (`src/lib/appData/selectors.ts`), services, and hooks over full-screen renders; extract small pure helpers when logic is buried in a context/component rather than rendering the whole provider tree.
+- `supabase/functions/` is Deno code and stays outside the Jest run (tsconfig/ESLint/Jest all exclude it); a separate Deno test lane is a documented future addition.
+
+CI is `.github/workflows/ci.yml`, triggered on push to `main`, pull requests to `main`, and workflow_dispatch. It runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run check:migrations`, and `npx expo export` on Node 20. It is **check-only**: no secrets, no `.env` (the export intentionally exercises demo mode), and no deployments. Supabase migration pushes, Edge Function deploys, and EAS builds remain explicit, manually approved steps — do not add CD workflows without being asked. Future candidates (documented, not implemented): Maestro E2E smoke tests, a manually approved workflow_dispatch CD lane for Supabase migrations / Edge Function deploys, and EAS build automation.
 
 ---
 
@@ -218,7 +232,7 @@ Supabase integration code belongs in `src/lib/supabase/`. The client (`client.ts
 
 Supabase integration stays isolated in `src/lib/supabase/`. In addition to the established live slices, **chat images** use `services/chatAttachments.ts`: one JPEG/PNG/WebP under 5 MB, private `chat-attachments` path `teams/<teamId>/messages/<messageId>/<file>`, atomic message+metadata insert through narrow SECURITY INVOKER RPCs, one-hour signed URLs, and best-effort failed-send cleanup. `chat.ts` performs joined reads with a text-only pre-migration fallback; the open chat keeps its single `chat_messages` subscription and coalesces a refetch after inserts so attachments appear without duplicates. Image-only messages are supported. Demo chat stays local/text-only and never calls Storage. Profile avatars and announcement images remain unchanged. **Push tokens** use `services/pushTokens.ts`: registration-only writes through the narrow SECURITY DEFINER `register_push_token` RPC (no table-level grants; upsert keyed on the globally-unique token so re-registering refreshes `updated_at` and a shared device follows its current signed-in owner), with the device-side permission/token flow in `src/lib/notifications/` — strictly user-initiated, demo mode never calls push or Supabase APIs, and tokens are never logged or shown. **Chat push delivery** uses `services/pushDelivery.ts`: one best-effort, fire-and-forget call to the `send-chat-message-push` Edge Function with just the `messageId`, made only from the live chat send-success path (never from realtime arrivals or refetches; demo mode never calls it, and failures never block or surface on the send). The Edge Function re-validates everything server-side with the service role (sender-only, ≤5-minute recency, team access), respects `chat_notifications` (missing preferences row = the app's all-on defaults), never notifies the sender, sends a generic payload (no message text or image details), and is idempotent via the service-role-only `push_notification_deliveries` ledger. Arbitrary files, multiple attachments, chat edit/delete, visible receipts, receipts polling, cron/triggers, and push delivery beyond team chat messages remain deferred. DB↔app mapping stays centralized; live ids are real UUIDs end-to-end and demo mode uses pure mock ids.
 
-The Supabase MCP server is configured against the dev project — use it to inspect the live schema/data. Remote history is aligned through pushed/verified `20260710234443`; `20260711024931_harden_security_definer_functions.sql` is the only local-only migration and awaits a separately approved push. It revokes anon/default-PUBLIC execution from RLS helpers, preserves authenticated execution required by policies/RPCs, and pins function search paths. `send-chat-message-push` is deployed and ACTIVE with JWT verification. Backend QA verified only the invocation and no-token skip path; physical iPhone development-build QA must still verify recipient registration, Expo ticket creation, banner display, no self-notification, and preference-off suppression. Android QA remains deferred. Do not expand delivery beyond chat messages until that QA passes. Do not rename `001`–`006` or timestamped migrations; create future migrations with `supabase migration new <descriptive_name>` and keep the generated filename. Never run `supabase db push`, `supabase functions deploy`, or another remote write without explicit approval.
+The Supabase MCP server is configured against the dev project — use it to inspect the live schema/data. Remote migration history is fully aligned through pushed/verified `20260711024931_harden_security_definer_functions.sql` (revokes anon/default-PUBLIC execution from RLS helpers, preserves authenticated execution required by policies/RPCs, and pins function search paths); there are no local-only migrations. `send-chat-message-push` is deployed and ACTIVE with JWT verification. Backend QA verified only the invocation and no-token skip path; physical iPhone development-build QA must still verify recipient registration, Expo ticket creation, banner display, no self-notification, and preference-off suppression. Android QA remains deferred. Do not expand delivery beyond chat messages until that QA passes. Do not rename `001`–`006` or timestamped migrations; create future migrations with `supabase migration new <descriptive_name>` and keep the generated filename. Never run `supabase db push`, `supabase functions deploy`, or another remote write without explicit approval.
 
 Never use or request service role keys; `.env.example` stays placeholder-only.
 
