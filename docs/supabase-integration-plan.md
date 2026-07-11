@@ -13,12 +13,12 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run migrations in order. Remote history is aligned through pushed/verified `20260711063412_add_team_membership_management.sql`; only `20260711154126_refine_team_membership_governance.sql` and `20260711154134_enable_shared_live_data_realtime.sql` are local-only.
+- Run migrations in order. Remote history is aligned through pushed/verified `20260711154134_enable_shared_live_data_realtime.sql`; only `20260711173139_add_team_chat_read_cursor.sql` is local-only.
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260711063412`; Team Membership Management V1 passed manual QA. `20260711154126` and `20260711154134` are the only local-only migrations. Migrations `001`–`002` were originally run by hand and back-filled into history; later migrations used the normal controlled push workflow. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260711154134`; membership governance, Leave Team, canonical My Teams, shared Realtime, and foreground catch-up passed manual QA. `20260711173139_add_team_chat_read_cursor.sql` is the only local-only migration. Migrations `001`–`002` were originally run by hand and back-filled into history; later migrations used the normal controlled push workflow. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ### 2. Auth + profiles ✅ (done; auto-link migration pushed + QA'd)
 
@@ -139,6 +139,8 @@ The open team chat now updates automatically while the app is active; the databa
 6. Still deferred (unchanged): push notifications, attachments/storage, typing indicators, edit/delete. Unread/read tracking shipped next, in step 9c.
 
 ### 9c. Chat unread tracking ✅ (done 2026-07-10; migration pushed + QA'd)
+
+> **Superseded by step 15 (Chat Unread State & Session-Wide Messaging Freshness V1).** The original client-computed `last_read_at` timestamp with broad `chat_read_states` INSERT/UPDATE grants and screen-scoped freshness has been replaced by a server-authoritative read cursor + unread summary RPC and one session-scoped chat channel. The paragraphs below describe the original design for history; see step 15 for what is current.
 
 Private per-user unread badges for the Messages tab — deliberately **not** read receipts. What shipped:
 
@@ -277,7 +279,7 @@ Implemented 2026-07-11 behind local-only `20260711154126_refine_team_membership_
 6. One session-scoped shared channel subscribes to `announcements`, `events`, rota tables, song tables, `organisations`, `profiles`, `teams`, `team_memberships`, and `organisation_roles`. Chat tables are excluded because open chat retains its separate lifecycle. Raw events only choose scoped RLS loaders.
 7. A dependency-free 180 ms scheduler deduplicates domains, permits one in-flight refresh per domain and at most one follow-up, and clears timers on cleanup. Genuine subscription recovery and AppState background/inactive→active enqueue all shared domains. There is no polling, push expansion, Edge Function, webhook, or visible syncing flash.
 8. DELETE delivery can be limited by RLS—especially after a user loses membership—so no flow depends on receiving that event. Mandatory foreground catch-up (and reconnect catch-up when delivered) re-queries authoritative visibility.
-9. The offline regression suite is now **150 tests across 24 suites** (from 108/17), covering service boundaries/errors, canonical state, role/UI rules, Leave Team lifecycle, access loss, table-domain mapping, channel lifecycle, coalescing/in-flight follow-up, AppState behavior, and stale-session cleanup.
+9. The offline regression suite is now **184 tests across 29 suites** (from 108/17), covering service boundaries/errors, canonical state, role/UI rules, Leave Team lifecycle, access loss, table-domain mapping, channel lifecycle, coalescing/in-flight follow-up, AppState behavior, stale-session cleanup, and the step-15 chat unread service/reducer/scheduler/session-lifecycle contracts.
 
 ## Risks & edge cases
 
@@ -293,7 +295,7 @@ Implemented 2026-07-11 behind local-only `20260711154126_refine_team_membership_
 ## What stays mocked until later
 
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
-- ~~**Unread badges**~~ — live unread tracking shipped (step 9c); `20260710031212_add_chat_read_states.sql` is pushed and live badges are active.
+- ~~**Unread badges**~~ — live unread tracking shipped (step 9c) and became server-authoritative + session-wide in step 15; `20260710031212_add_chat_read_states.sql` is pushed, and the cursor/summary migration `20260711173139_add_team_chat_read_cursor.sql` is local-only pending a controlled push.
 - **Notification delivery** — preferences persist, Push Token Registration V1 stores tokens, and Chat Message Push Delivery V1 is deployed. Backend invocation and no-token skips are verified, but real Expo delivery awaits physical iPhone development-build QA for token registration, ticket creation, banner display, no self-notification, and preference-off suppression. Announcements/events/rota/availability delivery stays unimplemented.
 - ~~**Chat images migration/QA**~~ — shipped (step 10c); `20260710124206` plus the `20260710162415` permission fix are pushed and chat images passed manual QA. Arbitrary files and multiple attachments remain out of scope.
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
@@ -301,7 +303,7 @@ Implemented 2026-07-11 behind local-only `20260711154126_refine_team_membership_
 
 ## Recommended immediate next task
 
-Steps 1–14 are implemented in app code. Remote history is aligned through the QA-complete membership-management base; only the two section-14 migrations are pending locally. Next, in order of value:
+Steps 1–15 are implemented in app code. Remote history is aligned through the QA-complete Shared Live Data Realtime migration (`20260711154134`); only the section-15 chat read-cursor migration is pending locally. Next, in order of value:
 
 1. ✅ **Done (2026-07-09):** migrations `003`–`006` applied remotely with aligned history; the events grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` is pushed and verified.
 2. ✅ **Done (2026-07-09):** **step 5 — events**, including live `linked_event_id` on announcements.
@@ -325,4 +327,17 @@ Security hardening review (2026-07-11) created `20260711024931_harden_security_d
 15. ✅ **Implemented (2026-07-11; base migration pushed):** Profile Editing V1 + Team Avatars V1, including `profiles.ts`, `teamAvatars.ts`, session/directory integration, polished manager-only UI, automated regressions, and pushed `20260711041539_add_profile_editing_and_team_avatars.sql`.
 16. ✅ **Corrected, pushed, and verified (2026-07-11):** Profile editing is narrowed to full name only and team avatar controls live behind the authorised Team Settings screen (see step 12); manual QA passed.
 17. ✅ **Pushed, verified, and manual-QA complete (2026-07-11):** Organisation Directory + Team Membership Management V1 (`20260711063412`; see step 13).
-18. **Implemented (2026-07-11; two migrations local-only):** Membership Governance, Leave Team, AppData Consistency, and Shared Live Data Freshness V1 (see step 14). Exact next step: controlled push/verification of only `20260711154126` and `20260711154134`, followed by light multi-user/mobile QA. Do not begin Invite and Onboarding until this pass is live and confirmed.
+18. ✅ **Pushed, verified, and manual-QA complete (2026-07-11):** Membership Governance, Leave Team, AppData Consistency, and Shared Live Data Freshness V1 (`20260711154126` + `20260711154134`; see step 14). The two multi-admin removal branches remain deferred until a safe multi-admin fixture exists.
+19. **Implemented (2026-07-11; one migration local-only):** Chat Unread State & Session-Wide Messaging Freshness V1 (see step 15 below). Exact next step: controlled push/verification of only `20260711173139_add_team_chat_read_cursor.sql`, then light two-user/multi-device QA. Do not begin Invite and Onboarding until this slice is live and confirmed.
+
+### 15. Chat Unread State & Session-Wide Messaging Freshness V1 — implemented; one migration local-only
+
+Implemented 2026-07-11 behind local-only `20260711173139_add_team_chat_read_cursor.sql`. It fixes stale unread counts (previously only refreshed by visiting Messages) and adds authoritative multi-device read state:
+
+1. **Server-authoritative read cursor.** `chat_read_states` gains `last_read_message_id` (FK to `chat_messages`, `ON DELETE SET NULL`) so the cursor is a `(last_read_at, last_read_message_id)` tuple matching the app's `(created_at, id)` message order. The broad authenticated INSERT/UPDATE grants are **revoked** and the INSERT/UPDATE policies dropped; the owner-scoped SELECT policy/grant stays so owners read their own rows and Realtime authorizes their own read-state events. Writes now happen only through the mark RPC.
+2. **`mark_team_chat_read(p_team_id, p_message_id)`** — `SECURITY DEFINER`, `search_path=''`, authenticated-only EXECUTE. Derives the caller from `auth.uid()`, verifies team access, confirms the message belongs to the team, reads the cursor timestamp server-side, and upserts forward-only (idempotent; never moves backward). Returns `(team_id, last_read_message_id, last_read_at)`. Never accepts a profile id, caller id, or read timestamp.
+3. **`get_team_chat_unread_summary()`** — `SECURITY DEFINER`, `stable`, authenticated-only. One row per accessible team (memberships plus every org team for church admins), including zero-unread teams: `(team_id, unread_count, latest_message_id, latest_message_created_at, latest_message_sender_id, last_read_message_id, last_read_at)`. Excludes the caller's own messages; effective baseline per team is `greatest(read cursor, membership join time)`, so pre-membership messages never count and a team with neither reports zero (no admin flood). Uses the existing `(team_id, created_at)` index.
+4. **Rollout backfill (in-migration, deterministic):** existing read rows get `last_read_message_id` populated from the newest message at/before their `last_read_at`; every currently accessible member/admin+team with messages and no row is initialised to the latest message. Deployment therefore starts with zero unread — no historical flood. No fake data.
+5. **Publication:** `chat_read_states` is added to `supabase_realtime` so a read on one device reconciles the profile's other devices. Default replica identity suffices (only `payload.new` is read); no `REPLICA IDENTITY FULL`, Broadcast, trigger, webhook, or Edge Function.
+6. **Client:** `services/chatReadState.ts` wraps both RPCs (rejects demo ids, maps errors calmly, logs no message content). One session channel `chat-session:<profileId>` (`subscribeToSessionChatMessages`) streams accessible message INSERTs plus the caller's own read-state changes. `useSessionChatMessaging.ts` owns its lifecycle, the AppState foreground catch-up, and a coalescing single-flight summary reconciliation (`singleFlightScheduler.ts`). Pure reducers in `chatUnread.ts` keep one unread truth (own/duplicate/active-team guards). The open team chat registers itself active so its arrivals are marked read; the Messages list never marks read. Demo mode opens no channel and never calls the RPCs.
+7. **Push separation unchanged:** push stays an alert; it is not the unread counter, read cursor, or summary. No new push category and no native app-icon badge sync in this slice.
