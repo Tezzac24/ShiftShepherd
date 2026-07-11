@@ -3,6 +3,7 @@
 **Status: aligned through `20260710234443` on 2026-07-11** against the repo-configured Supabase MCP/CLI dev project.
 This document records the completed remote checkpoint, including Chat Message Push Delivery V1, and the rules that keep history aligned.
 `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) is pushed and verified; the matching `send-chat-message-push` Edge Function is deployed and ACTIVE with JWT verification.
+**One migration is currently local-only:** `20260711024931_harden_security_definer_functions.sql` revokes inherited anon/default-PUBLIC execution from RLS helpers, preserves authenticated execution required by policies and the two privileged app RPCs, removes app-role execution from trigger helpers, and pins function search paths. It awaits an explicitly approved push and verification pass.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
