@@ -1,9 +1,9 @@
 # Supabase Migration Alignment
 
-**Remote status: aligned through `20260711050344` on 2026-07-11. Local status: one pending migration.**
-This document records the completed remote checkpoint through the name-only profile correction, plus the local-only Team Membership Management V1 migration and the rules that keep history aligned.
+**Remote status: aligned through `20260711063412` on 2026-07-11. Local status: two pending migrations.**
+This document records the completed remote checkpoint through the pushed/verified, manual-QA-complete Team Membership Management V1 migration, plus two local-only governance/freshness migrations.
 `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) is pushed and verified; the matching `send-chat-message-push` Edge Function is deployed and ACTIVE with JWT verification.
-`20260711024931_harden_security_definer_functions.sql`, `20260711041539_add_profile_editing_and_team_avatars.sql`, and `20260711050344_restrict_profile_editing_to_name.sql` are **pushed and verified**; the one-argument profile function and corrected Team Settings/avatar UX passed verification/manual QA. `20260711063412_add_team_membership_management.sql` is local-only and must not be treated as live until an explicitly approved push and verification pass.
+`20260711024931_harden_security_definer_functions.sql`, `20260711041539_add_profile_editing_and_team_avatars.sql`, `20260711050344_restrict_profile_editing_to_name.sql`, and `20260711063412_add_team_membership_management.sql` are **pushed and verified**; the original membership flow passed manual QA. `20260711154126_refine_team_membership_governance.sql` and `20260711154134_enable_shared_live_data_realtime.sql` are local-only and must not be treated as live before an explicitly approved push/verification pass.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
@@ -17,7 +17,7 @@ with explicit approval, verified, and covered by manual QA.
   `001, 002, 003, 004, 005, 006`.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
-- `supabase migration list` shows local/remote alignment through `20260711050344`, plus local-only `20260711063412`.
+- `supabase migration list` showed local/remote alignment through `20260711063412` before this task; it should now show only `20260711154126` and `20260711154134` as local-only.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -77,7 +77,9 @@ with explicit approval, verified, and covered by manual QA.
   granted to authenticated only. No delivery, Edge Functions, or receipts.
 - `20260711041539_add_profile_editing_and_team_avatars.sql` (**pushed + verified**): adds narrow authenticated-only `update_own_profile` and `set_team_avatar_path` SECURITY DEFINER RPCs, nullable constrained `teams.avatar_url`, and private 5 MB JPEG/PNG/WebP `team-avatars` policies. Team-avatar reads require team access and writes require team management. No anon or broad table write grants.
 - `20260711050344_restrict_profile_editing_to_name.sql` (**pushed + verified**): drops the two-argument `update_own_profile(text, text)` and creates the name-only `update_own_profile(text)` (SECURITY DEFINER, empty search_path, authenticated-only EXECUTE). Phone remains read-only, stored values are untouched, and no phone-auth configuration changed.
-- `20260711063412_add_team_membership_management.sql` (**local-only; push/QA pending**): adds authenticated-only `add_team_member(uuid, uuid)` and `remove_team_member(uuid, uuid)` SECURITY DEFINER RPCs with empty search paths. They derive caller/organisation authority from `auth.uid()`, require `can_manage_team`, restrict adds to linked same-organisation profiles with the fixed `member` role, use the existing `(team_id,user_id)` unique constraint idempotently, and block leader/self removal. No table privilege, RLS policy, constraint, index, data, invite, role-edit, notification, or anon access change.
+- `20260711063412_add_team_membership_management.sql` (**pushed + verified + manual QA complete**): introduced authenticated-only `add_team_member(uuid, uuid)` and `remove_team_member(uuid, uuid)` with caller/organisation authority derived server-side and no direct membership writes.
+- `20260711154126_refine_team_membership_governance.sql` (**local-only**): replaces `remove_team_member(uuid, uuid)` and adds `leave_team(uuid)` with identical canonical membership return fields. Target protection uses team role, church admins may remove only non-final team admins, team admins cannot remove peer admins, self-removal routes to Leave Team, and both leader-removal paths lock the team row before membership/count/delete. It explicitly narrows `team_memberships` to authenticated SELECT only and grants both RPCs to authenticated only.
+- `20260711154134_enable_shared_live_data_realtime.sql` (**local-only**): adds the 13 user-visible shared-data tables for announcements, events, rotas, songs, and directory/session access to `supabase_realtime`. `chat_messages` stays separately published by its earlier migration; no chat duplication, replica-identity change, grant, policy, webhook, function, or data change is included.
 
 ## iOS Simulator registration QA correction
 
@@ -163,9 +165,9 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 
 ## Result
 
-The remote dev schema matches the repo through `20260711050344`; migration history is
-tracked. Local-only `20260711063412` (Team Membership Management V1 RPCs) awaits
-explicit push approval and verification.
+The remote dev schema matches the repo through `20260711063412`; migration history is
+tracked and the original membership slice is QA-complete. Local-only `20260711154126`
+and `20260711154134` await explicit controlled push approval and verification.
 Both Announcement Images V1 and Chat Image Attachments V1
 passed manual QA (after the `20260710162415` permission fix: members can send images
 in their teams, admins in teams they administer, non-members stay blocked, and text

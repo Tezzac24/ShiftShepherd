@@ -13,12 +13,12 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run migrations in order. Remote history is aligned through pushed/verified `20260711050344_restrict_profile_editing_to_name.sql`; `20260711063412_add_team_membership_management.sql` is the only local-only migration.
+- Run migrations in order. Remote history is aligned through pushed/verified `20260711063412_add_team_membership_management.sql`; only `20260711154126_refine_team_membership_governance.sql` and `20260711154134_enable_shared_live_data_realtime.sql` are local-only.
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260711050344` (the pushed/verified name-only profile correction). `20260711063412_add_team_membership_management.sql` is the only local-only migration. Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260711063412`; Team Membership Management V1 passed manual QA. `20260711154126` and `20260711154134` are the only local-only migrations. Migrations `001`–`002` were originally run by hand and back-filled into history; later migrations used the normal controlled push workflow. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ### 2. Auth + profiles ✅ (done; auto-link migration pushed + QA'd)
 
@@ -67,19 +67,19 @@ Same pattern as announcements (`events` + read-only `event_categories`). What sh
 
 Verify RLS from the app: Joseph (event manager) full CRUD; Daniel (admin) full CRUD; Ruth/Sarah read-only (no New Event button, and a hand-crafted insert fails server-side).
 
-### 6. Teams directory ✅; membership management implemented (new migration local-only)
+### 6. Teams directory + original membership management ✅ (live and QA-complete)
 
 Fetch-only, as planned (the app has no team-management screens; admins manage teams in the dashboard). What shipped:
 
-1. `src/lib/supabase/services/teams.ts` — `fetchTeamsDirectory()` returns the caller's organisation, visible profiles, visible teams, and those teams' memberships in one parallel fetch. RLS does the filtering (same-organisation profiles; members see their teams; church admins see all); migration 006's SELECT grants cover every table and there are deliberately no direct membership write grants.
+1. `src/lib/supabase/services/teams.ts` — `fetchTeamsDirectory(currentProfileId)` returns the caller's organisation, visible profiles, visible teams, memberships, and the current profile's organisation role in one parallel fetch. RLS does the filtering; authenticated keeps read-only directory/membership table access.
 2. `AuthContext` now builds Supabase sessions entirely from live rows (profile + org role + own memberships) — the email→mock-identity bridge is gone. All ids in a live session are real UUIDs.
 3. `AppDataContext` gained a third live slice (`teamsLive`/`teamsLoading`/`teamsError`/`refreshTeams`): `organisation`, `users`, `teams`, and `memberships` come from the live directory for linked Supabase sessions and stay mock in demo mode. Live directory data is session-only (never persisted; cleared on sign-out).
 4. The announcements/events services dropped their profile/team id bridges — live rows keep real UUIDs end-to-end and screens resolve names against the live directory. Only the **event-category name bridge** remains (categories are still mock in the app).
 5. ~~**Temporary demo bridge** (`src/lib/appData/demoBridge.ts`)~~ ✅ deleted in step 9: it existed to re-key still-local chat onto live team/profile UUIDs, and chat going live made it dead code. Demo mode runs on pure mock ids; live mode is real UUIDs end-to-end.
 6. Teams tab, team space, Messages tab, and the Home team sections show calm loading/error+retry states while the directory loads.
 7. Organisation Directory + Team Membership Management V1 adds `teamMemberships.ts` and dedicated `/teams/[teamId]/settings/members` plus `/add` routes. Live team leaders/admins browse only Auth-linked same-organisation profiles not already on the team, search by name/email, add with the fixed `member` role, and remove ordinary non-self members after confirmation. The normal Team screen stays read-only; demo mode shows no live management actions.
-8. AppData applies the server-returned membership immediately (deduped by id and team/profile), removes successful deletes immediately, then quietly calls the existing `refreshTeams()` so member rows/counts/candidates reconcile without a restart or competing store. No membership realtime subscription was added.
-9. `20260711063412_add_team_membership_management.sql` (**local-only**) adds authenticated-only SECURITY DEFINER `add_team_member(uuid, uuid)` and `remove_team_member(uuid, uuid)` with empty search paths. Both derive the caller from `auth.uid()`, restrict the team to the caller's organisation, require `can_manage_team`, and return the canonical membership row. Adds require a linked same-org profile, always use `member`, and are idempotent on the existing unique `(team_id,user_id)` constraint. Removes block self and every `team_leader` membership because leave-team and leadership reassignment are separate out-of-scope flows. No table grant, RLS policy, index, or constraint changed.
+8. The original AppData pass applied server-returned rows to the directory and quietly refreshed it; Governance/Consistency V1 (section 14) now also updates the current session-derived membership snapshot and coalesces that refresh.
+9. `20260711063412_add_team_membership_management.sql` is **pushed, verified, and manually QA-complete**. It introduced authenticated-only SECURITY DEFINER `add_team_member(uuid, uuid)` and `remove_team_member(uuid, uuid)` with empty search paths and no direct membership writes. Its original leader/self block is refined only by the new local migration in section 14.
 
 Note the **team-name edge case** under Risks below — still open, and now user-visible: a non-member viewing a church-wide event linked to a team cannot resolve that team's name (RLS hides the team row), so the detail screen simply omits it.
 
@@ -254,16 +254,30 @@ Implemented 2026-07-11 behind `20260711041539_add_profile_editing_and_team_avata
 
 Still out of scope: phone/OTP sign-in, invites/signup/account creation, team or organisation-role editing, leader reassignment, team name/description editing, arbitrary files, and any push delivery expansion.
 
-### 13. Organisation Directory + Team Membership Management V1 — implemented; migration local-only
+### 13. Organisation Directory + Team Membership Management V1 — live and QA-complete
 
-Implemented 2026-07-11 behind local-only `20260711063412_add_team_membership_management.sql`:
+Implemented, pushed, verified, and manually QA-tested 2026-07-11 behind `20260711063412_add_team_membership_management.sql`:
 
 1. Managers enter through a subtle **Manage members** row in Team Settings. A dedicated member screen shows a calm alphabetic list, count, avatars/initials, names, email disambiguation, protected leader/self rows, quiet remove actions, confirmation, progress, success toast, and stable inline errors. A separate keyboard-aware add screen provides browse/search, clear no-match/all-added states, and disabled pending actions. Ordinary members see no settings action; direct routes show a friendly locked state.
 2. `eligibleTeamProfiles()` uses the existing RLS-scoped organisation directory, filters to `auth_user_id`-linked profiles in the team's organisation, excludes/deduplicates current members, searches trimmed name/email case-insensitively, and sorts stably. There is no extra read RPC because the safe directory already contains the required data.
 3. `teamMemberships.ts` accepts only `{ teamId, profileId }`, refuses demo/non-UUID ids before creating a client, calls one RPC, validates the returned row, and maps permission/team/ineligible/duplicate/missing/leader/self/network/setup/unexpected failures to calm copy without leaking cross-organisation existence or raw PostgREST detail.
 4. The RPCs retain SELECT-only `team_memberships` app grants, derive caller/organisation authority server-side, and add no anon access. There is no role input, invite/account creation, organisation-role mutation, notification, realtime, or profile/Auth deletion path.
-5. Automated regression coverage is now **108 tests across 17 suites**. New coverage makes most deterministic manual checks unnecessary: RPC payload/identity boundaries, mock-id refusal, safe errors, selector eligibility/search/sorting/deduplication, leader/admin permission gates, direct-route locks, no-candidate states, confirmation cancel/confirm, double-submit prevention, rendered refreshes, failure stability, and demo isolation.
-6. Remaining manual QA starts only after an explicitly approved migration push: one live leader/admin add + reopen, duplicate/cross-org/ineligible protection, confirmed remove + reopen, ordinary-member invisibility, and small-iPhone usability.
+5. The original regression coverage plus its live manual QA proved narrow payloads, mock-id refusal, safe errors, selector eligibility, permissions, confirmations, rendered refreshes, demo isolation, and persistence after reopen.
+6. The governance/leave/freshness correction below intentionally builds on this live base rather than editing its pushed migration.
+
+### 14. Membership Governance, Leave Team, canonical AppData, and shared freshness — implemented; two migrations local-only
+
+Implemented 2026-07-11 behind local-only `20260711154126_refine_team_membership_governance.sql` and `20260711154134_enable_shared_live_data_realtime.sql`:
+
+1. Organisation role and team role are explicit separate dimensions. Ordinary team membership is removable even when the target is a church admin. Team admins remove ordinary members but not peer admins; church admins may remove a non-self team admin only when another remains. Promotion/demotion and leadership transfer remain deferred.
+2. `remove_team_member(p_team_id uuid, p_profile_id uuid)` is replaced without changing its signature/return shape. New `leave_team(p_team_id uuid)` returns the same canonical membership fields. Both derive caller/profile/organisation/role authority server-side, use `SECURITY DEFINER` with `search_path=''`, expose authenticated EXECUTE only, and change only one membership row.
+3. Both admin-removal paths lock the same in-organisation `teams` row `FOR UPDATE` before the membership row/count. Concurrent admin removal/leave operations serialize, so the second transaction sees the first deletion and cannot remove the final admin. Authenticated retains only SELECT on `team_memberships`; anon gets no table access.
+4. Every current team member gets a restrained Leave Team action on the normal team page. Confirmation distinguishes ordinary access, church-admin residual authority, and leadership consequences; the final admin receives clear appointment guidance. Success patches state then navigates to Teams.
+5. `liveDirectory.memberships` is the canonical shared collection. Add/remove/leave immutably patch it after server success, update the current `SessionUser` mirror only when relevant, and enqueue one quiet directory refresh. Full directory refresh also reconciles the current profile, organisation role, and own memberships, with profile-id guards against account-switch races.
+6. One session-scoped shared channel subscribes to `announcements`, `events`, rota tables, song tables, `organisations`, `profiles`, `teams`, `team_memberships`, and `organisation_roles`. Chat tables are excluded because open chat retains its separate lifecycle. Raw events only choose scoped RLS loaders.
+7. A dependency-free 180 ms scheduler deduplicates domains, permits one in-flight refresh per domain and at most one follow-up, and clears timers on cleanup. Genuine subscription recovery and AppState background/inactive→active enqueue all shared domains. There is no polling, push expansion, Edge Function, webhook, or visible syncing flash.
+8. DELETE delivery can be limited by RLS—especially after a user loses membership—so no flow depends on receiving that event. Mandatory foreground catch-up (and reconnect catch-up when delivered) re-queries authoritative visibility.
+9. The offline regression suite is now **150 tests across 24 suites** (from 108/17), covering service boundaries/errors, canonical state, role/UI rules, Leave Team lifecycle, access loss, table-domain mapping, channel lifecycle, coalescing/in-flight follow-up, AppState behavior, and stale-session cleanup.
 
 ## Risks & edge cases
 
@@ -287,7 +301,7 @@ Implemented 2026-07-11 behind local-only `20260711063412_add_team_membership_man
 
 ## Recommended immediate next task
 
-Steps 1–13 are implemented in app code. Remote history is aligned through the name-only profile correction; Team Membership Management V1 is the single pending local migration. Next, in order of value:
+Steps 1–14 are implemented in app code. Remote history is aligned through the QA-complete membership-management base; only the two section-14 migrations are pending locally. Next, in order of value:
 
 1. ✅ **Done (2026-07-09):** migrations `003`–`006` applied remotely with aligned history; the events grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` is pushed and verified.
 2. ✅ **Done (2026-07-09):** **step 5 — events**, including live `linked_event_id` on announcements.
@@ -310,4 +324,5 @@ Security hardening review (2026-07-11) created `20260711024931_harden_security_d
 
 15. ✅ **Implemented (2026-07-11; base migration pushed):** Profile Editing V1 + Team Avatars V1, including `profiles.ts`, `teamAvatars.ts`, session/directory integration, polished manager-only UI, automated regressions, and pushed `20260711041539_add_profile_editing_and_team_avatars.sql`.
 16. ✅ **Corrected, pushed, and verified (2026-07-11):** Profile editing is narrowed to full name only and team avatar controls live behind the authorised Team Settings screen (see step 12); manual QA passed.
-17. **Implemented (2026-07-11; migration local-only):** Organisation Directory + Team Membership Management V1 (see step 13). Exact next step: explicitly approve/push only `20260711063412_add_team_membership_management.sql`, verify both function definitions/signatures, authenticated-only EXECUTE, empty search paths, same-organisation/link/management/leader/self safeguards, unchanged SELECT-only table grants, and migration alignment; then run the light live QA. Do not start invite/onboarding until this slice is confirmed.
+17. ✅ **Pushed, verified, and manual-QA complete (2026-07-11):** Organisation Directory + Team Membership Management V1 (`20260711063412`; see step 13).
+18. **Implemented (2026-07-11; two migrations local-only):** Membership Governance, Leave Team, AppData Consistency, and Shared Live Data Freshness V1 (see step 14). Exact next step: controlled push/verification of only `20260711154126` and `20260711154134`, followed by light multi-user/mobile QA. Do not begin Invite and Onboarding until this pass is live and confirmed.

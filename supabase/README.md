@@ -1,8 +1,8 @@
 # Supabase Backend Foundation
 
-This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + live sessions, announcements, events, rotas/availability, choir songs/song selections, team chat, notification preferences, and the people/teams directory run live when `EXPO_PUBLIC_SUPABASE_*` is configured. Organisation Directory + Team Membership Management V1 is implemented in app code: live team leaders/admins can browse linked same-organisation profiles and add/remove ordinary members from dedicated Team Settings screens once its local-only migration is approved and pushed. Push Token Registration V1 is live, and Chat Message Push Delivery V1 remains deployed/ACTIVE with physical-iPhone delivery QA pending. Announcement/event/rota/availability push delivery is not implemented. See `docs/supabase-integration-plan.md` for the detailed wiring order and security model.
+This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth/live sessions, announcements, events, rotas/availability, choir songs/selections, team chat, notification preferences, and the people/teams directory run live when `EXPO_PUBLIC_SUPABASE_*` is configured. Organisation Directory + Team Membership Management V1 is pushed/verified and manual-QA complete. The app now also implements governed admin removal, caller-owned Leave Team, canonical membership consistency, and shared-data Realtime invalidation/foreground catch-up behind two new local-only migrations. Push Token Registration V1 is live, while Chat Message Push Delivery V1 remains deployed/ACTIVE with physical-iPhone delivery QA pending; push is not used for shared-data synchronization.
 
-> **Current dev-project state:** remote migration history is aligned through pushed/verified `20260711050344_restrict_profile_editing_to_name.sql`; name-only editing is live, phone stays read-only, and the Team Settings/avatar correction passed manual QA. `20260711063412_add_team_membership_management.sql` is the only local-only migration. It adds two narrow authenticated RPCs without broad table writes or anon access and awaits explicit push approval plus live QA. `send-chat-message-push` remains ACTIVE with physical-iPhone delivery QA pending. **Do not rename old or timestamped migrations.**
+> **Current dev-project state:** remote migration history is aligned through pushed/verified `20260711063412_add_team_membership_management.sql`, and its original membership flow passed manual QA. Only `20260711154126_refine_team_membership_governance.sql` and `20260711154134_enable_shared_live_data_realtime.sql` are local-only. `send-chat-message-push` remains ACTIVE with physical-iPhone delivery QA pending. **Do not rename old or timestamped migrations.**
 
 ## Contents
 
@@ -32,7 +32,9 @@ supabase/
 │   ├── 20260711024931_harden_security_definer_functions.sql # pushed: revoke anon/PUBLIC helper execution, pin search paths
 │   ├── 20260711041539_add_profile_editing_and_team_avatars.sql # pushed: narrow RPCs + private team-avatar bucket
 │   ├── 20260711050344_restrict_profile_editing_to_name.sql # pushed: drop two-arg update_own_profile, add name-only RPC
-│   └── 20260711063412_add_team_membership_management.sql # local-only: narrow add/remove membership RPCs
+│   ├── 20260711063412_add_team_membership_management.sql # pushed: narrow add/remove membership RPCs
+│   ├── 20260711154126_refine_team_membership_governance.sql # local-only: governed removal + Leave Team
+│   └── 20260711154134_enable_shared_live_data_realtime.sql # local-only: shared-domain publication tables
 ├── functions/
 │   └── send-chat-message-push/  # Edge Function (deployed, JWT verified): chat push delivery
 ├── seed/
@@ -55,18 +57,20 @@ The schema mirrors `src/types/index.ts` one-to-one (snake_case, same names) so s
 
 ## Getting started (when you're ready)
 
-### Pending Team Membership Management V1 migration
+### Pending Membership Governance + Shared Live Data migrations
 
-`20260711050344_restrict_profile_editing_to_name.sql` is pushed and verified: only `update_own_profile(text)` remains, phone is unchanged/read-only, and Team Settings/avatar QA passed.
+`20260711063412_add_team_membership_management.sql` is already pushed, verified, and manually QA-complete. It remains unchanged.
 
-`20260711063412_add_team_membership_management.sql` is local-only. It adds `add_team_member(p_team_id uuid, p_profile_id uuid)` and `remove_team_member(p_team_id uuid, p_profile_id uuid)` as SECURITY DEFINER functions with empty `search_path`; EXECUTE is revoked from public/anon and granted only to authenticated. Both derive the linked caller and organisation from `auth.uid()`, require `can_manage_team`, and return only the canonical membership row. Adds require an Auth-linked same-organisation profile, force role `member`, and are idempotent through the existing unique `(team_id,user_id)` constraint. Removes affect only the requested membership and block self/team-leader rows. No direct membership table write grant, RLS change, index/constraint, profile/Auth delete, role edit, invitation, notification, or test data is included.
+`20260711154126_refine_team_membership_governance.sql` replaces `remove_team_member(p_team_id uuid, p_profile_id uuid)` and adds `leave_team(p_team_id uuid)`. Both return `(membership_id, team_id, profile_id, role, created_at)`, derive identity/organisation/roles server-side, use `SECURITY DEFINER` with `search_path=''`, and expose authenticated EXECUTE only. Organisation role never protects an ordinary target team membership. Team admins cannot remove peer admins; church admins may remove a non-self team admin only when another remains. Both leader-removal paths lock the same team row before membership/count/delete, preventing concurrent final-admin loss. The migration explicitly leaves authenticated with SELECT-only `team_memberships` access and no anon table access. It changes no profile, Auth user, organisation role, other team membership, data row, invite, or role assignment.
 
-After an explicitly approved push, verify both membership functions/signatures/definitions, authenticated-only execution, empty search paths, unchanged SELECT-only `team_memberships` grants, same-organisation/linked-profile/management checks, duplicate idempotency, leader/self safeguards, and migration alignment. Then run one light leader/admin add/remove QA pass plus ordinary-member/cross-organisation/small-iPhone checks.
+`20260711154134_enable_shared_live_data_realtime.sql` adds exactly the 13 existing tables used by the shared announcements/events/rotas/songs/directory loaders to `supabase_realtime`. It does not republish chat tables, set `REPLICA IDENTITY FULL`, alter RLS/grants, create a webhook/Edge Function, or add data. Events are invalidation signals; AppData re-runs RLS-scoped loaders. AppState foreground catch-up is mandatory because a removed member may not receive the membership DELETE after RLS access is lost.
+
+After an explicitly approved controlled push, verify both migration versions, RPC signatures/definitions/EXECUTE grants/search paths, SELECT-only membership privileges, team-row lock order/final-admin behavior, organisation/team-role separation, Leave Team return behavior, and publication membership. Then run the light multi-user/mobile QA in the integration plan.
 
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
-   - **Hosted dev:** remote history is aligned through `20260711050344`; `20260711063412` is local-only. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
+   - **Hosted dev:** remote history is aligned through `20260711063412`; only `20260711154126` and `20260711154134` are local-only. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
    - **A fresh project from scratch:** `supabase db push` applies `001`–`006` and the timestamped migrations in order (numeric prefixes are accepted by the CLI); or paste each migration in version order in the dashboard SQL editor. `supabase db reset` (local stack) requires Docker.
 4. Seed dev profiles, then create Auth users with matching emails. Once migration `20260709233705` is applied, new Auth users link automatically; see `seed/README.md` for verification and the manual path for users created earlier.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).
