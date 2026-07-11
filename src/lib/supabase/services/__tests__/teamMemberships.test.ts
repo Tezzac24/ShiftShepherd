@@ -1,10 +1,13 @@
 import { getSupabase } from '../../client';
 import {
   addTeamMember,
+  leaveTeam,
   removeTeamMember,
   TEAM_MEMBERSHIP_ALREADY_MEMBER_ERROR,
   TEAM_MEMBERSHIP_DEMO_ERROR,
+  TEAM_MEMBERSHIP_FINAL_ADMIN_ERROR,
   TEAM_MEMBERSHIP_LEADER_ERROR,
+  TEAM_MEMBERSHIP_LEAVE_FINAL_ADMIN_ERROR,
   TEAM_MEMBERSHIP_NOT_FOUND_ERROR,
   TEAM_MEMBERSHIP_OFFLINE_ERROR,
   TEAM_MEMBERSHIP_PERMISSION_ERROR,
@@ -127,8 +130,9 @@ describe('removeTeamMember', () => {
 
   it.each([
     ['MEMBERSHIP_NOT_FOUND', TEAM_MEMBERSHIP_NOT_FOUND_ERROR],
-    ['TEAM_LEADER_REMOVAL_BLOCKED', TEAM_MEMBERSHIP_LEADER_ERROR],
-    ['SELF_REMOVAL_BLOCKED', TEAM_MEMBERSHIP_SELF_REMOVAL_ERROR],
+    ['PEER_TEAM_ADMIN_REMOVAL_BLOCKED', TEAM_MEMBERSHIP_LEADER_ERROR],
+    ['FINAL_TEAM_ADMIN_REMOVAL_BLOCKED', TEAM_MEMBERSHIP_FINAL_ADMIN_ERROR],
+    ['SELF_REMOVAL_USE_LEAVE_TEAM', TEAM_MEMBERSHIP_SELF_REMOVAL_ERROR],
     ['NOT_AUTHORISED', TEAM_MEMBERSHIP_PERMISSION_ERROR],
   ])('maps %s to calm safe copy', async (serverMessage, friendlyMessage) => {
     mockClient({ error: { code: 'P0001', message: serverMessage } });
@@ -146,6 +150,50 @@ describe('removeTeamMember', () => {
     mockClient({ error: { message: 'delete from profiles failed with secret detail' } });
     await expect(removeTeamMember({ teamId: TEAM_ID, profileId: PROFILE_ID })).rejects.toThrow(
       "We couldn't remove this person right now. Please try again.",
+    );
+  });
+});
+
+describe('leaveTeam', () => {
+  it('calls leave_team exactly once with only the team id', async () => {
+    const { rpc, from, auth } = mockClient();
+    await expect(leaveTeam({ teamId: TEAM_ID })).resolves.toEqual(
+      expect.objectContaining({ team_id: TEAM_ID, user_id: PROFILE_ID }),
+    );
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('leave_team', { p_team_id: TEAM_ID });
+    expect(Object.keys(rpc.mock.calls[0][1])).toEqual(['p_team_id']);
+    expect(from).not.toHaveBeenCalled();
+    expect(auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('refuses demo ids before obtaining a Supabase client', async () => {
+    const { rpc } = mockClient();
+    await expect(leaveTeam({ teamId: 'team-choir' })).rejects.toThrow(
+      TEAM_MEMBERSHIP_DEMO_ERROR,
+    );
+    expect(mockGetSupabase).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['FINAL_TEAM_ADMIN_LEAVE_BLOCKED', TEAM_MEMBERSHIP_LEAVE_FINAL_ADMIN_ERROR],
+    ['MEMBERSHIP_NOT_FOUND', TEAM_MEMBERSHIP_NOT_FOUND_ERROR],
+    ['NOT_AUTHORISED', TEAM_MEMBERSHIP_PERMISSION_ERROR],
+  ])('maps %s to stable friendly copy', async (serverMessage, friendlyMessage) => {
+    mockClient({ error: { code: 'P0001', message: serverMessage } });
+    await expect(leaveTeam({ teamId: TEAM_ID })).rejects.toThrow(friendlyMessage);
+  });
+
+  it('keeps network and generic failures friendly', async () => {
+    mockClient({ error: { message: 'Network request timed out' } });
+    await expect(leaveTeam({ teamId: TEAM_ID })).rejects.toThrow(
+      TEAM_MEMBERSHIP_OFFLINE_ERROR,
+    );
+
+    mockClient({ error: { message: 'sensitive internal role detail' } });
+    await expect(leaveTeam({ teamId: TEAM_ID })).rejects.toThrow(
+      "We couldn't leave this team right now. Please try again.",
     );
   });
 });

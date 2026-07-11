@@ -118,6 +118,41 @@ describe('TeamMembersScreen', () => {
     expect(screen.getByLabelText('Remove Hannah Adeyemi from team')).toBeTruthy();
   });
 
+  it('blocks peer team-admin removal for a team admin', () => {
+    const peerAdmin = { ...MEMBERSHIPS[1]!, role: 'team_leader' as const };
+    mockUseAppData.mockReturnValue(makeData({ memberships: [MEMBERSHIPS[0], peerAdmin] }));
+    const screen = render(<TeamMembersScreen />);
+    expect(screen.queryByLabelText('Remove Hannah Adeyemi from team')).toBeNull();
+    expect(
+      screen.getByText('Team admins cannot remove another team admin in this version.'),
+    ).toBeTruthy();
+  });
+
+  it('lets a church admin remove a non-final team admin', () => {
+    const peerAdmin = { ...MEMBERSHIPS[1]!, role: 'team_leader' as const };
+    mockUseRequiredUser.mockReturnValue({ ...LEADER_SESSION, orgRole: 'church_admin' });
+    mockUseAppData.mockReturnValue(makeData({ memberships: [MEMBERSHIPS[0], peerAdmin] }));
+    const screen = render(<TeamMembersScreen />);
+    expect(screen.getByLabelText('Remove Hannah Adeyemi from team')).toBeTruthy();
+  });
+
+  it('shows final-admin guidance to a church admin', () => {
+    const finalAdmin = { ...MEMBERSHIPS[1]!, role: 'team_leader' as const };
+    mockUseRequiredUser.mockReturnValue({
+      ...LEADER_SESSION,
+      orgRole: 'church_admin',
+      memberships: [],
+    });
+    mockUseAppData.mockReturnValue(makeData({ memberships: [finalAdmin] }));
+    const screen = render(<TeamMembersScreen />);
+    expect(screen.queryByLabelText('Remove Hannah Adeyemi from team')).toBeNull();
+    expect(
+      screen.getByText(
+        'Another team admin must be appointed before this person can be removed.',
+      ),
+    ).toBeTruthy();
+  });
+
   it('shows a friendly locked state for an unauthorised direct route', () => {
     mockUseRequiredUser.mockReturnValue({ ...LEADER_SESSION, memberships: [] });
     const screen = render(<TeamMembersScreen />);

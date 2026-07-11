@@ -53,6 +53,7 @@ beforeEach(() => {
   });
   mockUseAppData.mockReturnValue({
     teams: [],
+    memberships: [],
     updateOwnProfile: jest.fn(),
     resetDemoData: jest.fn(),
   });
@@ -115,7 +116,12 @@ describe('ProfileScreen edit presentation', () => {
 
   it('saves only the full name through updateOwnProfile', async () => {
     const updateOwnProfile = jest.fn().mockResolvedValue(undefined);
-    mockUseAppData.mockReturnValue({ teams: [], updateOwnProfile, resetDemoData: jest.fn() });
+    mockUseAppData.mockReturnValue({
+      teams: [],
+      memberships: [],
+      updateOwnProfile,
+      resetDemoData: jest.fn(),
+    });
     const screen = render(<ProfileScreen />);
     fireEvent.press(screen.getByTestId('edit-profile-action'));
     fireEvent.changeText(screen.getByTestId('profile-full-name-input'), 'Sarah W.');
