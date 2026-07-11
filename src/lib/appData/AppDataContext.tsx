@@ -104,8 +104,10 @@ import { requestChatMessagePushDelivery } from '../supabase/services/pushDeliver
 import * as eventsService from '../supabase/services/events';
 import * as notificationsService from '../supabase/services/notifications';
 import * as profileAvatarsService from '../supabase/services/profileAvatars';
+import * as profilesService from '../supabase/services/profiles';
 import * as rotasService from '../supabase/services/rotas';
 import * as songsService from '../supabase/services/songs';
+import * as teamAvatarsService from '../supabase/services/teamAvatars';
 import * as teamsService from '../supabase/services/teams';
 import { countUnreadByTeam } from './selectors';
 
@@ -203,6 +205,17 @@ interface AppDataContextValue {
   setOwnAvatar: (file: profileAvatarsService.PickedAvatarFile) => Promise<void>;
   /** Remove the signed-in user's own profile photo (live sessions only). */
   removeOwnAvatar: () => Promise<void>;
+  /** Save the signed-in live user's safe self-owned profile fields. */
+  updateOwnProfile: (input: profilesService.ProfileEditInput) => Promise<void>;
+
+  // Team avatars use a separate private bucket and the same session-only
+  // signed-URL lifecycle as profile avatars.
+  getTeamAvatarUri: (team: Team | undefined | null) => string | undefined;
+  setTeamAvatar: (
+    teamId: string,
+    file: teamAvatarsService.PickedTeamAvatarFile,
+  ) => Promise<void>;
+  removeTeamAvatar: (teamId: string) => Promise<void>;
 
   // Mutable collections
   announcements: Announcement[];
@@ -469,7 +482,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // Live-vs-local mode for the wired slices:
   // Supabase session + configured client + linked profile ⇒ live; demo mode
   // or missing env vars ⇒ local/mock.
-  const { user, authMode, applySessionAvatarUrl } = useAuth();
+  const { user, authMode, applySessionAvatarUrl, applySessionProfile } = useAuth();
   const supabaseProfileId =
     authMode === 'supabase' ? (user?.supabaseProfileId ?? null) : null;
   const liveDataEnabled = isSupabaseConfigured && supabaseProfileId !== null;
@@ -508,6 +521,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [liveDirectory, setLiveDirectory] = useState<teamsService.TeamsDirectory | null>(null);
+  const liveDirectoryRef = useRef<teamsService.TeamsDirectory | null>(null);
+  liveDirectoryRef.current = liveDirectory;
   const [teamsLoading, setTeamsLoading] = useState(false);
   const [teamsError, setTeamsError] = useState<string | null>(null);
   // Signed display URLs for live avatar paths (private bucket). Session-only:
@@ -516,6 +531,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const avatarSignedUrlsRef = useRef<Record<string, string>>({});
   avatarSignedUrlsRef.current = avatarSignedUrls;
   const avatarsSignedAtRef = useRef(0);
+  const [teamAvatarSignedUrls, setTeamAvatarSignedUrls] = useState<Record<string, string>>({});
+  const teamAvatarSignedUrlsRef = useRef<Record<string, string>>({});
+  teamAvatarSignedUrlsRef.current = teamAvatarSignedUrls;
+  const teamAvatarsSignedAtRef = useRef(0);
   const [localRotaEntries, setLocalRotaEntries] = useState<RotaEntry[]>(mockRotaEntries);
   const [localRotaAssignments, setLocalRotaAssignments] =
     useState<RotaAssignment[]>(mockRotaAssignments);
@@ -1126,16 +1145,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [liveDataEnabled, avatarSignedUrls],
   );
 
-  // Keep the live directory's copy of a profile in step with an avatar change
-  // so lists showing that person update without a full (flickering) reload.
-  const patchLiveDirectoryAvatar = useCallback(
-    (profileId: string, avatarPath: string | null) => {
+  // Keep the live directory's profile copy in step with self edits so every
+  // screen updates without a full (flickering) reload.
+  const patchLiveDirectoryProfile = useCallback(
+    (
+      profileId: string,
+      patch: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'avatar_url'>>,
+    ) => {
       setLiveDirectory((prev) =>
         prev
           ? {
               ...prev,
               users: prev.users.map((person) =>
-                person.id === profileId ? { ...person, avatar_url: avatarPath } : person,
+                person.id === profileId ? { ...person, ...patch } : person,
               ),
             }
           : prev,
@@ -1159,9 +1181,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       );
       // The path-set effect above signs the new path for display.
       applySessionAvatarUrl(newPath);
-      patchLiveDirectoryAvatar(supabaseProfileId, newPath);
+      patchLiveDirectoryProfile(supabaseProfileId, { avatar_url: newPath });
     },
-    [liveDataEnabled, supabaseProfileId, user, applySessionAvatarUrl, patchLiveDirectoryAvatar],
+    [liveDataEnabled, supabaseProfileId, user, applySessionAvatarUrl, patchLiveDirectoryProfile],
   );
 
   const removeOwnAvatar: AppDataContextValue['removeOwnAvatar'] = useCallback(async () => {
@@ -1171,8 +1193,132 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     const currentPath = user?.profile.avatar_url ?? null;
     await profileAvatarsService.removeOwnProfileAvatar(supabaseProfileId, currentPath);
     applySessionAvatarUrl(null);
-    patchLiveDirectoryAvatar(supabaseProfileId, null);
-  }, [liveDataEnabled, supabaseProfileId, user, applySessionAvatarUrl, patchLiveDirectoryAvatar]);
+    patchLiveDirectoryProfile(supabaseProfileId, { avatar_url: null });
+  }, [liveDataEnabled, supabaseProfileId, user, applySessionAvatarUrl, patchLiveDirectoryProfile]);
+
+  const updateOwnProfile: AppDataContextValue['updateOwnProfile'] = useCallback(
+    async (input) => {
+      if (!liveDataEnabled || !supabaseProfileId) {
+        throw new Error('Profile editing is available with your church account.');
+      }
+      const updated = await profilesService.updateOwnProfile(supabaseProfileId, input);
+      const patch = { full_name: updated.full_name, phone: updated.phone };
+      applySessionProfile(patch);
+      patchLiveDirectoryProfile(supabaseProfileId, patch);
+    },
+    [liveDataEnabled, supabaseProfileId, applySessionProfile, patchLiveDirectoryProfile],
+  );
+
+  // --- Team avatars (private Storage, leaders/admins manage) -------------------
+
+  const liveTeamAvatarPaths = useMemo<string[]>(() => {
+    if (!teamsLive) return [];
+    return [
+      ...new Set(
+        (liveDirectory?.teams ?? []).flatMap((team) =>
+          team.avatar_url ? [team.avatar_url] : [],
+        ),
+      ),
+    ].sort();
+  }, [teamsLive, liveDirectory]);
+  const liveTeamAvatarPathsRef = useRef<string[]>([]);
+  liveTeamAvatarPathsRef.current = liveTeamAvatarPaths;
+
+  useEffect(() => {
+    if (liveTeamAvatarPaths.length === 0) {
+      teamAvatarsSignedAtRef.current = 0;
+      setTeamAvatarSignedUrls((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+      return;
+    }
+    const missing = liveTeamAvatarPaths.filter(
+      (path) => !teamAvatarSignedUrlsRef.current[path],
+    );
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void teamAvatarsService.createTeamAvatarSignedUrls(missing).then((signed) => {
+      if (cancelled || !signed || !liveDataEnabledRef.current) return;
+      teamAvatarsSignedAtRef.current = Date.now();
+      setTeamAvatarSignedUrls((prev) => ({ ...prev, ...signed }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [liveTeamAvatarPaths]);
+
+  useEffect(() => {
+    if (!liveDataEnabled) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const paths = liveTeamAvatarPathsRef.current;
+      const halfLifeMs =
+        (teamAvatarsService.TEAM_AVATAR_SIGNED_URL_TTL_SECONDS * 1000) / 2;
+      if (
+        paths.length === 0 ||
+        Date.now() - teamAvatarsSignedAtRef.current < halfLifeMs
+      ) {
+        return;
+      }
+      void teamAvatarsService.createTeamAvatarSignedUrls(paths).then((signed) => {
+        if (!signed || !liveDataEnabledRef.current) return;
+        teamAvatarsSignedAtRef.current = Date.now();
+        setTeamAvatarSignedUrls((prev) => ({ ...prev, ...signed }));
+      });
+    });
+    return () => subscription.remove();
+  }, [liveDataEnabled]);
+
+  const getTeamAvatarUri: AppDataContextValue['getTeamAvatarUri'] = useCallback(
+    (team) => {
+      const path = team?.avatar_url;
+      if (!path) return undefined;
+      if (liveDataEnabled) return teamAvatarSignedUrls[path];
+      return /^https?:\/\//.test(path) ? path : undefined;
+    },
+    [liveDataEnabled, teamAvatarSignedUrls],
+  );
+
+  const patchLiveTeamAvatar = useCallback((teamId: string, avatarPath: string | null) => {
+    setLiveDirectory((prev) =>
+      prev
+        ? {
+            ...prev,
+            teams: prev.teams.map((team) =>
+              team.id === teamId ? { ...team, avatar_url: avatarPath } : team,
+            ),
+          }
+        : prev,
+    );
+  }, []);
+
+  const setTeamAvatar: AppDataContextValue['setTeamAvatar'] = useCallback(
+    async (teamId, file) => {
+      if (!liveDataEnabled || teamId.startsWith('team-')) {
+        throw new Error('Team photos are available with your church account.');
+      }
+      const team = liveDirectoryRef.current?.teams.find((candidate) => candidate.id === teamId);
+      if (!team) throw new Error("We couldn't find that team right now.");
+      const newPath = await teamAvatarsService.uploadTeamAvatar(
+        teamId,
+        team.avatar_url,
+        file,
+      );
+      patchLiveTeamAvatar(teamId, newPath);
+    },
+    [liveDataEnabled, patchLiveTeamAvatar],
+  );
+
+  const removeTeamAvatar: AppDataContextValue['removeTeamAvatar'] = useCallback(
+    async (teamId) => {
+      if (!liveDataEnabled || teamId.startsWith('team-')) {
+        throw new Error('Team photos are available with your church account.');
+      }
+      const team = liveDirectoryRef.current?.teams.find((candidate) => candidate.id === teamId);
+      if (!team) throw new Error("We couldn't find that team right now.");
+      await teamAvatarsService.removeTeamAvatar(teamId, team.avatar_url);
+      patchLiveTeamAvatar(teamId, null);
+    },
+    [liveDataEnabled, patchLiveTeamAvatar],
+  );
 
   // --- Rotas (live Supabase slice ★, with local demo fallback) -----------------
 
@@ -2080,6 +2226,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       getAvatarUri,
       setOwnAvatar,
       removeOwnAvatar,
+      updateOwnProfile,
+      getTeamAvatarUri,
+      setTeamAvatar,
+      removeTeamAvatar,
       announcements: announcementsLive ? liveAnnouncements : localAnnouncements,
       announcementsLive,
       announcementsLoading,
@@ -2162,6 +2312,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       getAvatarUri,
       setOwnAvatar,
       removeOwnAvatar,
+      updateOwnProfile,
+      getTeamAvatarUri,
+      setTeamAvatar,
+      removeTeamAvatar,
       announcementsLive,
       liveAnnouncements,
       localAnnouncements,

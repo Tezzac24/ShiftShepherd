@@ -5,6 +5,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { colors, spacing } from '../../../constants/theme';
 import { AnnouncementCard } from '../../components/AnnouncementCard';
 import { AppText } from '../../components/AppText';
+import { Avatar } from '../../components/Avatar';
 import { Badge, CountBadge } from '../../components/Badge';
 import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
@@ -28,6 +29,47 @@ import {
   canManageTeamRota,
   canViewTeam,
 } from '../../lib/permissions';
+import { Team } from '../../types';
+import { useTeamAvatar } from './useTeamAvatar';
+
+export function TeamIdentityHeader({ team }: { team: Team }) {
+  const { canManage, hasPhoto, avatarUri, busy, changePhoto, removePhoto } =
+    useTeamAvatar(team);
+
+  return (
+    <View style={styles.identityHeader}>
+      <Avatar name={team.name} uri={avatarUri} size={72} />
+      <View style={styles.identityCopy}>
+        <AppText variant="title">{team.name}</AppText>
+        <AppText tone="secondary">{team.description}</AppText>
+        {canManage ? (
+          <View style={styles.avatarActions} testID="team-avatar-management-controls">
+            <Button
+              title={hasPhoto ? 'Change team photo' : 'Add team photo'}
+              variant="ghost"
+              icon="image-outline"
+              onPress={changePhoto}
+              loading={busy === 'uploading'}
+              disabled={busy !== null}
+              accessibilityHint={`Choose a photo for ${team.name}`}
+            />
+            {hasPhoto ? (
+              <Button
+                title="Remove photo"
+                variant="destructive"
+                icon="trash-outline"
+                onPress={removePhoto}
+                loading={busy === 'removing'}
+                disabled={busy !== null}
+                accessibilityHint={`Remove the photo for ${team.name}`}
+              />
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
 
 /**
  * Generic team space. The Choir team gets extra choir tools (song database,
@@ -108,8 +150,7 @@ export default function TeamSpaceScreen() {
       <Stack.Screen options={{ title: team.name }} />
 
       <View style={styles.header}>
-        <AppText variant="title">{team.name}</AppText>
-        <AppText tone="secondary">{team.description}</AppText>
+        <TeamIdentityHeader team={team} />
         <View style={styles.memberRow}>
           {members.map(({ profile, membership }) => (
             <Badge
@@ -303,6 +344,13 @@ export default function TeamSpaceScreen() {
 const styles = StyleSheet.create({
   loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
   header: { gap: spacing.xs },
+  identityHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  identityCopy: { flex: 1, gap: spacing.xs },
+  avatarActions: {
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
   memberRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
   shortcuts: { gap: spacing.sm },
   actions: { gap: spacing.sm },

@@ -86,7 +86,7 @@ export default function TeamsScreen() {
               accessibilityLabel={`Open ${team.name} team space`}
             >
               <View style={styles.headerRow}>
-                <Avatar name={team.name} size={44} />
+                <Avatar name={team.name} uri={data.getTeamAvatarUri(team)} size={44} />
                 <View style={{ flex: 1 }}>
                   <AppText variant="subheading">{team.name}</AppText>
                   <View style={styles.badgeRow}>

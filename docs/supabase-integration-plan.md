@@ -13,7 +13,7 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run the migrations in order (see `supabase/README.md` for the CLI vs dashboard workflow). Remote history is fully aligned through pushed/verified `20260711024931_harden_security_definer_functions.sql`.
+- Run migrations in order. Remote history is aligned through pushed/verified `20260711024931_harden_security_definer_functions.sql`; `20260711041539_add_profile_editing_and_team_avatars.sql` is local-only.
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
@@ -238,6 +238,19 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ---
 
+### 12. Profile Editing V1 + Team Avatars V1 — implemented, migration local-only
+
+Implemented 2026-07-11 behind `20260711041539_add_profile_editing_and_team_avatars.sql` (not pushed):
+
+1. `update_own_profile(p_full_name, p_phone)` is a narrow SECURITY DEFINER RPC with empty `search_path`. It resolves the caller's linked profile from `auth.uid()`, validates/updates only `full_name` and `phone`, returns only those fields plus the profile id, revokes public/anon execution, and grants authenticated only. The app retains no `profiles` UPDATE grant; email, Auth linkage, organisation, roles, and memberships remain outside the API.
+2. `profiles.ts` runtime-allow-lists the same two fields, validates calm length limits, rejects demo ids, maps server/network failures to friendly copy, and verifies the returned profile id before patching the Auth session and live directory.
+3. `teams.avatar_url` stores a constrained private object path. The `team-avatars` bucket is private, JPEG/PNG/WebP-only, and capped at 5 MB. Authenticated SELECT requires `can_access_team`; INSERT/DELETE and `set_team_avatar_path` require `can_manage_team`. No anon policy, public bucket, broad teams UPDATE grant, or Storage UPDATE policy exists; generated names use `upsert: false`.
+4. `teamAvatars.ts` validates before upload, uses `teams/<teamId>/avatar-<timestamp>.<ext>`, signs URLs for one hour, refuses demo ids, atomically repoints through the RPC, and treats old-object cleanup failure as non-fatal. AppData keeps signed URLs/session state separate from demo data and refreshes URLs on foreground.
+5. UI: Profile view mode uses a quiet top-right edit action; edit mode has name/phone inputs, read-only email guidance, clear Save/Cancel, inline errors, keyboard-safe scrolling, and existing photo controls. Team cards/details show signed team photos with initials fallback; add/change/remove controls are hidden unless a live user is the team leader or church admin.
+6. Automated coverage adds profile payload/RPC/validation/session-shape contracts, team-avatar path/type/size/cleanup/signing, leader/admin permission rules, and focused view/edit/control visibility tests. Manual QA remains after migration push: live profile persistence/cancel/read-only fields; leader/admin add/change/remove; ordinary-member denial; invalid image; demo fallback; small-iPhone layout.
+
+Still out of scope: admin member management, invites/signup, role/organisation changes, team name/description editing, arbitrary files, and any push delivery expansion.
+
 ## Risks & edge cases
 
 - **Team-name visibility**: RLS hides teams you don't belong to (per spec), but event detail shows a related team's name to everyone. Once teams are wired, a non-member's event query returns `team_id` they can't resolve. Options: (a) drop the team name from event detail for non-members, or (b) relax the `teams` SELECT policy to all org members (names/descriptions aren't sensitive; memberships, rotas, and chat stay protected). **Recommendation: (b)**, as a small follow-up migration, documented as a deliberate deviation.
@@ -280,3 +293,5 @@ Steps 1–9 are done in app code (auth + live sessions + organisations/roles + a
 Security hardening review (2026-07-11) created `20260711024931_harden_security_definer_functions.sql`, since **pushed and verified**: revoke inherited `PUBLIC`/anon execution from the RLS helpers while retaining the authenticated execution their policies require, remove direct app-role execution from trigger/event-trigger helpers, and pin mutable/privileged function search paths. The advisor's authenticated SECURITY DEFINER notices for RLS helpers and the two intentional authenticated RPCs remain expected because those callers require EXECUTE; the migration removes their anon exposure. Separate performance follow-up remains: `announcements.created_by` and `announcements.linked_event_id` foreign keys are unindexed.
 
 **Automated Regression Foundation V1 (2026-07-11):** the repo now has a jest-expo test suite (`src/**/__tests__`) and a check-only GitHub Actions CI workflow (typecheck, lint, `test:ci`, `check:migrations`, `expo export` on pushes/PRs to `main`). The tests mock the Supabase client entirely — no test touches a live project, creates backend data, or generates a push token — and they pin the service-boundary contracts documented above (RPC shapes, demo/live separation, friendly error mapping, fire-and-forget delivery). CI needs no secrets and never deploys: migration pushes and Edge Function deploys remain explicitly approved manual steps, and a Deno test lane for the Edge Function plus Maestro E2E smoke tests are documented future additions.
+
+15. ✅ **Implemented locally (2026-07-11; push/QA pending):** Profile Editing V1 + Team Avatars V1, including `profiles.ts`, `teamAvatars.ts`, session/directory integration, polished manager-only UI, automated regressions, and local-only `20260711041539_add_profile_editing_and_team_avatars.sql`. Exact next step: explicitly approve/push that migration, verify its grants/policies/bucket, then run the light manual QA above.

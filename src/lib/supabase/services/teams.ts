@@ -65,6 +65,7 @@ interface TeamRow {
   name: string;
   description: string;
   type: TeamType;
+  avatar_url: string | null;
   created_at: string;
 }
 
@@ -135,7 +136,7 @@ export async function fetchTeamsDirectory(): Promise<TeamsDirectory> {
         .order('full_name', { ascending: true }),
       supabase
         .from('teams')
-        .select('id, organisation_id, name, description, type, created_at')
+        .select('id, organisation_id, name, description, type, avatar_url, created_at')
         .order('name', { ascending: true }),
       supabase
         .from('team_memberships')

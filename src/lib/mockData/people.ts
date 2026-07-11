@@ -67,6 +67,7 @@ export const mockTeams: Team[] = [
     name: 'Choir',
     description: 'Leading the congregation in worship every Sunday.',
     type: 'choir',
+    avatar_url: null,
     created_at: iso(daysAgo(110)),
   },
   {
@@ -75,6 +76,7 @@ export const mockTeams: Team[] = [
     name: 'Media',
     description: 'Sound, cameras, slides and livestream for services.',
     type: 'media',
+    avatar_url: null,
     created_at: iso(daysAgo(110)),
   },
   {
@@ -83,6 +85,7 @@ export const mockTeams: Team[] = [
     name: 'Ushers',
     description: 'Welcoming people and helping services run smoothly.',
     type: 'generic',
+    avatar_url: null,
     created_at: iso(daysAgo(110)),
   },
   {
@@ -91,6 +94,7 @@ export const mockTeams: Team[] = [
     name: 'Youth Team',
     description: 'Serving our young people on Friday evenings and Sundays.',
     type: 'generic',
+    avatar_url: null,
     created_at: iso(daysAgo(110)),
   },
 ];

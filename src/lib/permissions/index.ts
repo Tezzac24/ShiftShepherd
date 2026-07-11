@@ -36,6 +36,11 @@ export function canViewTeamChat(user: SessionUser, teamId: string): boolean {
   return canViewTeam(user, teamId);
 }
 
+/** Team profile/photo management follows the existing leader/admin boundary. */
+export function canManageTeamAvatar(user: SessionUser, teamId: string): boolean {
+  return isChurchAdmin(user) || isTeamLeader(user, teamId);
+}
+
 // ---------------------------------------------------------------------------
 // Announcements
 // ---------------------------------------------------------------------------

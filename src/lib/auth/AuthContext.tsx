@@ -60,6 +60,10 @@ interface AuthContextValue {
    * profile avatars service's job.
    */
   applySessionAvatarUrl: (avatarUrl: string | null) => void;
+  /** Patch safe, already-persisted profile fields into the current session. */
+  applySessionProfile: (
+    patch: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'avatar_url'>>,
+  ) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -253,11 +257,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [applySession, signInAsTestUser],
   );
 
-  const applySessionAvatarUrl = useCallback((avatarUrl: string | null) => {
+  const applySessionProfile = useCallback((patch: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'avatar_url'>>) => {
     setUser((prev) =>
-      prev ? { ...prev, profile: { ...prev.profile, avatar_url: avatarUrl } } : prev,
+      prev ? { ...prev, profile: { ...prev.profile, ...patch } } : prev,
     );
   }, []);
+
+  const applySessionAvatarUrl = useCallback(
+    (avatarUrl: string | null) => applySessionProfile({ avatar_url: avatarUrl }),
+    [applySessionProfile],
+  );
 
   const signOut = useCallback(async () => {
     const mode = authModeRef.current;
@@ -284,8 +293,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithEmail,
       signOut,
       applySessionAvatarUrl,
+      applySessionProfile,
     }),
-    [user, isLoading, authMode, signInAsTestUser, signInWithEmail, signOut, applySessionAvatarUrl],
+    [
+      user,
+      isLoading,
+      authMode,
+      signInAsTestUser,
+      signInWithEmail,
+      signOut,
+      applySessionAvatarUrl,
+      applySessionProfile,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

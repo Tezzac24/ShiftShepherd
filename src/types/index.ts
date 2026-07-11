@@ -44,6 +44,8 @@ export interface Team {
   name: string;
   description: string;
   type: TeamType;
+  /** Private team-avatars storage path in live mode; null in demo mode. */
+  avatar_url: string | null;
   created_at: string;
 }
 
