@@ -1,9 +1,9 @@
 # Supabase Migration Alignment
 
-**Remote status: aligned through `20260711024931` on 2026-07-11. Local status: one pending migration.**
-This document records the completed remote checkpoint, including Chat Message Push Delivery V1 and the security hardening pass, and the rules that keep history aligned.
+**Remote status: aligned through `20260711041539` on 2026-07-11. Local status: one pending migration.**
+This document records the completed remote checkpoint, including Chat Message Push Delivery V1, the security hardening pass, and Profile Editing V1 + Team Avatars V1, and the rules that keep history aligned.
 `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) is pushed and verified; the matching `send-chat-message-push` Edge Function is deployed and ACTIVE with JWT verification.
-`20260711024931_harden_security_definer_functions.sql` is **pushed and verified**. `20260711041539_add_profile_editing_and_team_avatars.sql` is local-only and must not be treated as live until an explicitly approved push and verification pass.
+`20260711024931_harden_security_definer_functions.sql` and `20260711041539_add_profile_editing_and_team_avatars.sql` are **pushed and verified**. `20260711050344_restrict_profile_editing_to_name.sql` is local-only and must not be treated as live until an explicitly approved push and verification pass.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
@@ -17,7 +17,7 @@ with explicit approval, verified, and covered by manual QA.
   `001, 002, 003, 004, 005, 006`.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
-- `supabase migration list` shows local/remote alignment through `20260711024931`, plus local-only `20260711041539`.
+- `supabase migration list` shows local/remote alignment through `20260711041539`, plus local-only `20260711050344`.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -75,7 +75,8 @@ with explicit approval, verified, and covered by manual QA.
   signed-in owner). Deliberately **no table-level grants** — the RPC is the only
   write path, RLS (002) stays authoritative, EXECUTE is revoked from public/anon and
   granted to authenticated only. No delivery, Edge Functions, or receipts.
-- `20260711041539_add_profile_editing_and_team_avatars.sql` (**local-only; push/QA pending**): adds narrow authenticated-only `update_own_profile` and `set_team_avatar_path` SECURITY DEFINER RPCs, nullable constrained `teams.avatar_url`, and private 5 MB JPEG/PNG/WebP `team-avatars` policies. Profile editing is self-only/name+phone; team-avatar reads require team access and writes require team management. No anon or broad table write grants.
+- `20260711041539_add_profile_editing_and_team_avatars.sql` (**pushed + verified**): adds narrow authenticated-only `update_own_profile` and `set_team_avatar_path` SECURITY DEFINER RPCs, nullable constrained `teams.avatar_url`, and private 5 MB JPEG/PNG/WebP `team-avatars` policies. Team-avatar reads require team access and writes require team management. No anon or broad table write grants.
+- `20260711050344_restrict_profile_editing_to_name.sql` (**local-only; push/QA pending**): drops the two-argument `update_own_profile(text, text)` and creates the name-only `update_own_profile(text)` (SECURITY DEFINER, empty search_path, authenticated-only EXECUTE). Phone is deliberately not user-editable — it is reserved for a future verified account flow; stored phone values are untouched and no phone-auth columns or verification state are added.
 
 ## iOS Simulator registration QA correction
 
@@ -161,8 +162,9 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 
 ## Result
 
-The remote dev schema matches the repo through `20260711024931`; migration history is
-tracked. Local-only `20260711041539` awaits explicit push approval and verification.
+The remote dev schema matches the repo through `20260711041539`; migration history is
+tracked. Local-only `20260711050344` (name-only profile editing) awaits explicit push
+approval and verification.
 Both Announcement Images V1 and Chat Image Attachments V1
 passed manual QA (after the `20260710162415` permission fix: members can send images
 in their teams, admins in teams they administer, non-members stay blocked, and text

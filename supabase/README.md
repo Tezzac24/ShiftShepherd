@@ -2,7 +2,7 @@
 
 This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + live sessions, the **announcements**, **events**, **rotas/availability**, **choir songs/song selections**, **team chat** (with realtime for the open conversation and one optional private image per message), and **notification preferences** feature slices, and the **read-only people/teams directory** (organisations, profiles, teams, team memberships) run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured). Push Token Registration V1 is implemented in the app (`expo-notifications` and the EAS project id are configured; a development build is needed — Expo Go cannot register), and its migration `20260710171200_add_push_token_registration.sql` is **pushed and DB/RPC-verified**; iOS Simulator registration UI was exercised, but simulator token reliability is limited. **Chat Message Push Delivery V1** is deployed: the `send-chat-message-push` Edge Function is ACTIVE with JWT verification and `20260710234443_add_push_delivery_foundation.sql` is pushed/verified. Backend QA confirmed invocation, sender exclusion, recipient/team selection, preference handling, and safe `no_push_token` skips with no token/message leakage. Real Expo delivery still requires physical iPhone development-build QA. Announcement/event/rota/availability push delivery is not implemented. The Auth/profile auto-link migration (`20260709233705`) and the chat realtime publication migration (`20260710020944`) have both been pushed and verified, alongside the earlier grants migrations. See `docs/supabase-integration-plan.md` for the wiring order.
 
-> **Current dev-project state:** remote migration history is aligned through pushed/verified `20260711024931_harden_security_definer_functions.sql`. `20260711041539_add_profile_editing_and_team_avatars.sql` is local-only and awaits explicit push approval plus live QA. It adds self-only name/phone editing and private manager-controlled team avatars; no anon/broad table grants. `send-chat-message-push` remains ACTIVE with physical-iPhone delivery QA pending. **Do not rename old or timestamped migrations.**
+> **Current dev-project state:** remote migration history is aligned through pushed/verified `20260711041539_add_profile_editing_and_team_avatars.sql` (self-only profile editing and private manager-controlled team avatars; no anon/broad table grants). `20260711050344_restrict_profile_editing_to_name.sql` is local-only and awaits explicit push approval plus live QA: it narrows profile editing to `full_name` only by dropping `update_own_profile(text, text)` and creating the name-only `update_own_profile(text)` — phone is reserved for a future verified account flow and stored values are untouched. `send-chat-message-push` remains ACTIVE with physical-iPhone delivery QA pending. **Do not rename old or timestamped migrations.**
 
 ## Contents
 
@@ -30,7 +30,8 @@ supabase/
 │   ├── 20260710171200_add_push_token_registration.sql # pushed: register_push_token RPC (no table grants)
 │   ├── 20260710234443_add_push_delivery_foundation.sql # pushed: push_notification_deliveries ledger + service_role grants
 │   ├── 20260711024931_harden_security_definer_functions.sql # pushed: revoke anon/PUBLIC helper execution, pin search paths
-│   └── 20260711041539_add_profile_editing_and_team_avatars.sql # local-only: narrow RPCs + private team-avatar bucket
+│   ├── 20260711041539_add_profile_editing_and_team_avatars.sql # pushed: narrow RPCs + private team-avatar bucket
+│   └── 20260711050344_restrict_profile_editing_to_name.sql # local-only: drop two-arg update_own_profile, add name-only RPC
 ├── functions/
 │   └── send-chat-message-push/  # Edge Function (deployed, JWT verified): chat push delivery
 ├── seed/
@@ -53,16 +54,16 @@ The schema mirrors `src/types/index.ts` one-to-one (snake_case, same names) so s
 
 ## Getting started (when you're ready)
 
-### Pending Profile Editing V1 + Team Avatars V1 migration
+### Pending name-only profile editing correction
 
-`20260711041539_add_profile_editing_and_team_avatars.sql` is local-only. It adds `update_own_profile(text, text)` (caller-only `full_name`/`phone`), `teams.avatar_url`, private `team-avatars` (5 MB JPEG/PNG/WebP), and `set_team_avatar_path(uuid, text)`. Both RPCs use SECURITY DEFINER with empty `search_path`, revoke public/anon execution, and grant authenticated only. Team image SELECT requires `can_access_team`; INSERT/DELETE and path changes require `can_manage_team`. Authenticated retains no broad UPDATE grant on profiles or teams. No test data is created.
+`20260711050344_restrict_profile_editing_to_name.sql` is local-only. It drops `update_own_profile(text, text)` (the original name+phone signature from the pushed `20260711041539`) and creates `update_own_profile(text)`, which validates and updates only the caller's `full_name` (2–100 characters) and returns the profile id, name, and unchanged stored phone. SECURITY DEFINER with empty `search_path`; EXECUTE revoked from public/anon and granted to authenticated only. Phone is deliberately read-only in the app — reserved for a future verified account flow — and this migration does not touch stored phone values, add phone-auth columns, or change Supabase Auth configuration. Team-avatar RPCs, bucket, and policies from `20260711041539` are unchanged.
 
-After an explicitly approved push, verify the function grants/search paths, bucket privacy/limits, storage policies, linked-user profile save, leader/admin avatar management, ordinary-member denial, signed display URLs, and demo isolation.
+After an explicitly approved push, verify the two-argument function no longer exists, the one-argument function is authenticated-only with an empty search path, a linked user's name save persists, and their phone value is unchanged.
 
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
-   - **Hosted dev:** remote history is aligned through `20260711024931`; `20260711041539` is local-only. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
+   - **Hosted dev:** remote history is aligned through `20260711041539`; `20260711050344` is local-only. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
    - **A fresh project from scratch:** `supabase db push` applies `001`–`006` and the timestamped migrations in order (numeric prefixes are accepted by the CLI); or paste each migration in version order in the dashboard SQL editor. `supabase db reset` (local stack) requires Docker.
 4. Seed dev profiles, then create Auth users with matching emails. Once migration `20260709233705` is applied, new Auth users link automatically; see `seed/README.md` for verification and the manual path for users created earlier.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).

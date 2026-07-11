@@ -2,10 +2,10 @@
 
 A mobile-first church coordination app for **Grace Community Church** — events, announcements, team rotas, choir song management, and team chat, all in one calm place. Built to reduce reliance on WhatsApp.
 
-**Status:** functional scaffold / demo MVP with optional Supabase Auth and local persistence. Established live slices cover announcements, events, people/teams, rotas, choir songs, chat, and notification preferences. **Profile Editing V1** now lets linked users change only their own name and phone; **Team Avatars V1** lets team leaders/admins manage one private team photo. Both new paths remain unavailable to demo mode and require the local-only migration below before live QA. Chat Message Push Delivery V1 remains deployed with physical-device delivery QA pending.
+**Status:** functional scaffold / demo MVP with optional Supabase Auth and local persistence. Established live slices cover announcements, events, people/teams, rotas, choir songs, chat, and notification preferences. **Profile Editing V1** lets linked users change only their own full name — phone is read-only, reserved for a future verified account flow; **Team Avatars V1** lets team leaders/admins manage one private team photo from a dedicated Team Settings screen. Both paths remain unavailable to demo mode. Chat Message Push Delivery V1 remains deployed with physical-device delivery QA pending.
 Every migration through Chat Message Push Delivery V1 (`20260710234443_add_push_delivery_foundation.sql`) is pushed and verified — live unread badges, profile photo uploads, announcement images, chat image attachments, the narrow `register_push_token` RPC, and the secured push-delivery ledger are active. Chat supports exactly one optional image per message (no arbitrary files, audio/video, galleries, camera capture, full-screen viewer, or message edit/delete). iOS Simulator token-registration UI was exercised, but simulator token reliability is limited; physical iPhone development-build QA is still required before real Expo delivery is considered verified.
 
-Security hardening migration `20260711024931_harden_security_definer_functions.sql` is **pushed and verified**. Profile Editing V1 + Team Avatars V1 adds local-only `20260711041539_add_profile_editing_and_team_avatars.sql`; it has not been pushed. Remote history remains aligned through `20260711024931`.
+The Profile Editing V1 + Team Avatars V1 migration `20260711041539_add_profile_editing_and_team_avatars.sql` is **pushed and verified**. A corrective migration, `20260711050344_restrict_profile_editing_to_name.sql`, is **local-only**: it drops the two-argument `update_own_profile(text, text)` and replaces it with a name-only `update_own_profile(text)` so phone can never be changed through ordinary profile editing (stored phone values are untouched). Remote history remains aligned through `20260711041539`.
 
 ## Current Scaffold Highlights
 
@@ -16,9 +16,9 @@ Security hardening migration `20260711024931_harden_security_definer_functions.s
 - **Plan the Month** lets choir leaders create a whole month of Sunday services and weekly rehearsals at once, with default leaders and per-date overrides.
 - Choir rehearsals include every choir member so each can confirm availability; rota detail shows an Available / Maybe / Unavailable / Not responded tracker.
 - Rehearsals (or services) can be **cancelled** instead of deleted: they stay visible with a Cancelled badge, drop out of responsibilities, and offer a prefilled team announcement (never auto-sent).
-- Profile Editing V1 uses a quiet card action and lets linked users edit only `full_name` and optional `phone`; email, role, organisation, and memberships remain read-only.
-- Team Avatars V1 displays private signed photos on team cards/details; only team leaders or church admins see add/change/remove controls. JPEG/PNG/WebP uploads are limited to 5 MB and demo teams retain initials.
-- Remote Supabase migrations are applied through `20260711024931`; the new profile/team-avatar migration is local-only. Established live slices remain wired, while the two new paths await push/QA. The deployed chat function remains unchanged and physical-device Expo ticket/banner QA is pending.
+- Profile Editing V1 uses a quiet card action and lets linked users edit only `full_name`; phone is displayed read-only (changes arrive through a future verified account flow), and email, role, organisation, and memberships remain read-only.
+- Team Avatars V1 displays private signed photos on team cards/details. The normal team screen shows no management controls; team leaders/church admins reach add/change/remove through a subtle **Team settings** action. JPEG/PNG/WebP uploads are limited to 5 MB and demo teams retain initials.
+- Remote Supabase migrations are applied through `20260711041539`; the corrective name-only profile-editing migration is local-only and awaits explicit push/QA. The deployed chat function remains unchanged and physical-device Expo ticket/banner QA is pending.
 - Demo changes (announcements, rotas, songs, messages, notification settings...) persist locally via AsyncStorage and can be reset from **Profile -> Reset Demo Data**.
 
 ## Tech Stack
@@ -65,7 +65,7 @@ git diff --check
 
 **CI** (`.github/workflows/ci.yml`) runs on every push to `main`, on pull requests targeting `main`, and manually via workflow_dispatch. It runs exactly: `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run check:migrations`, `npx expo export`. It is **check-only**: it needs no secrets and no `.env` (the export intentionally runs in demo mode), and it never deploys anything — Supabase migration pushes, Edge Function deploys, and EAS builds all remain explicit, manually approved steps.
 
-**Still manual:** after the local migration is explicitly pushed, verify live profile save/cancel/persistence and leader/admin team-photo add/change/remove versus an ordinary member; also check the compact layouts on a small iPhone. Physical-iPhone push banner QA remains pending. The Edge Function remains outside Jest.
+**Still manual:** after the corrective migration is explicitly pushed, verify live name save/cancel/persistence with phone/email staying read-only, and leader/admin team-photo add/change/remove inside Team Settings versus an ordinary member (no settings entry, no controls); also check the compact layouts on a small iPhone. Physical-iPhone push banner QA remains pending. The Edge Function remains outside Jest.
 
 ## Running the App
 
