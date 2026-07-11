@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 
 import { Team } from '../../../types';
 import { TeamIdentityHeader } from '../TeamSpaceScreen';
@@ -6,7 +6,16 @@ import { useTeamAvatar } from '../useTeamAvatar';
 
 jest.mock('../useTeamAvatar', () => ({ useTeamAvatar: jest.fn() }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
-jest.mock('expo-router', () => ({ Stack: { Screen: () => null } }));
+jest.mock('expo-router', () => ({
+  Stack: { Screen: () => null },
+  useRouter: () => ({ push: jest.fn() }),
+  useLocalSearchParams: () => ({}),
+}));
+jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
+jest.mock('../../../lib/auth/AuthContext', () => ({
+  useAuth: jest.fn(),
+  useRequiredUser: jest.fn(),
+}));
 
 const mockUseTeamAvatar = useTeamAvatar as jest.Mock;
 const TEAM: Team = {
@@ -30,17 +39,27 @@ function avatarState(canManage: boolean) {
   };
 }
 
-describe('TeamIdentityHeader avatar controls', () => {
-  it('hides management controls from ordinary members', () => {
-    mockUseTeamAvatar.mockReturnValue(avatarState(false));
-    const screen = render(<TeamIdentityHeader team={TEAM} />);
+describe('TeamIdentityHeader', () => {
+  it('never shows avatar management controls in normal view', () => {
+    mockUseTeamAvatar.mockReturnValue(avatarState(true));
+    const screen = render(<TeamIdentityHeader team={TEAM} onOpenSettings={jest.fn()} />);
     expect(screen.queryByTestId('team-avatar-management-controls')).toBeNull();
+    expect(screen.queryByText('Add team photo')).toBeNull();
+    expect(screen.queryByText('Change team photo')).toBeNull();
+    expect(screen.queryByText('Remove photo')).toBeNull();
   });
 
-  it('shows management controls to authorised leaders/admins', () => {
+  it('hides the settings action from ordinary members', () => {
+    mockUseTeamAvatar.mockReturnValue(avatarState(false));
+    const screen = render(<TeamIdentityHeader team={TEAM} onOpenSettings={jest.fn()} />);
+    expect(screen.queryByTestId('team-settings-action')).toBeNull();
+  });
+
+  it('shows a subtle settings action to authorised leaders/admins', () => {
     mockUseTeamAvatar.mockReturnValue(avatarState(true));
-    const screen = render(<TeamIdentityHeader team={TEAM} />);
-    expect(screen.getByTestId('team-avatar-management-controls')).toBeTruthy();
-    expect(screen.getByText('Add team photo')).toBeTruthy();
+    const onOpenSettings = jest.fn();
+    const screen = render(<TeamIdentityHeader team={TEAM} onOpenSettings={onOpenSettings} />);
+    fireEvent.press(screen.getByTestId('team-settings-action'));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 });

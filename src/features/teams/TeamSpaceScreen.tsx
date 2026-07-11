@@ -1,8 +1,9 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
+import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
 import { AnnouncementCard } from '../../components/AnnouncementCard';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
@@ -32,40 +33,47 @@ import {
 import { Team } from '../../types';
 import { useTeamAvatar } from './useTeamAvatar';
 
-export function TeamIdentityHeader({ team }: { team: Team }) {
-  const { canManage, hasPhoto, avatarUri, busy, changePhoto, removePhoto } =
-    useTeamAvatar(team);
+/**
+ * Team identity only — no management controls. Authorised leaders/admins get
+ * a quiet Team settings action that opens the dedicated settings screen.
+ */
+export function TeamIdentityHeader({
+  team,
+  onOpenSettings,
+}: {
+  team: Team;
+  onOpenSettings?: () => void;
+}) {
+  const { canManage, avatarUri } = useTeamAvatar(team);
 
   return (
-    <View style={styles.identityHeader}>
-      <Avatar name={team.name} uri={avatarUri} size={72} />
-      <View style={styles.identityCopy}>
-        <AppText variant="title">{team.name}</AppText>
-        <AppText tone="secondary">{team.description}</AppText>
-        {canManage ? (
-          <View style={styles.avatarActions} testID="team-avatar-management-controls">
-            <Button
-              title={hasPhoto ? 'Change team photo' : 'Add team photo'}
-              variant="ghost"
-              icon="image-outline"
-              onPress={changePhoto}
-              loading={busy === 'uploading'}
-              disabled={busy !== null}
-              accessibilityHint={`Choose a photo for ${team.name}`}
-            />
-            {hasPhoto ? (
-              <Button
-                title="Remove photo"
-                variant="destructive"
-                icon="trash-outline"
-                onPress={removePhoto}
-                loading={busy === 'removing'}
-                disabled={busy !== null}
-                accessibilityHint={`Remove the photo for ${team.name}`}
-              />
-            ) : null}
-          </View>
-        ) : null}
+    <View style={styles.identityBlock}>
+      {canManage && onOpenSettings ? (
+        <View style={styles.settingsActionRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Team settings"
+            accessibilityHint={`Manage the photo for ${team.name}`}
+            onPress={onOpenSettings}
+            style={({ pressed }) => [
+              styles.settingsAction,
+              pressed && styles.settingsActionPressed,
+            ]}
+            testID="team-settings-action"
+          >
+            <Ionicons name="settings-outline" size={18} color={colors.primary} />
+            <AppText variant="label" tone="primary">
+              Team settings
+            </AppText>
+          </Pressable>
+        </View>
+      ) : null}
+      <View style={styles.identityHeader}>
+        <Avatar name={team.name} uri={avatarUri} size={72} />
+        <View style={styles.identityCopy}>
+          <AppText variant="title">{team.name}</AppText>
+          <AppText tone="secondary">{team.description}</AppText>
+        </View>
       </View>
     </View>
   );
@@ -150,7 +158,12 @@ export default function TeamSpaceScreen() {
       <Stack.Screen options={{ title: team.name }} />
 
       <View style={styles.header}>
-        <TeamIdentityHeader team={team} />
+        <TeamIdentityHeader
+          team={team}
+          onOpenSettings={() =>
+            router.push({ pathname: '/teams/[teamId]/settings', params: { teamId: team.id } })
+          }
+        />
         <View style={styles.memberRow}>
           {members.map(({ profile, membership }) => (
             <Badge
@@ -344,13 +357,19 @@ export default function TeamSpaceScreen() {
 const styles = StyleSheet.create({
   loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
   header: { gap: spacing.xs },
+  identityBlock: { gap: spacing.xs },
+  settingsActionRow: { alignItems: 'flex-end', marginBottom: -spacing.xs },
+  settingsAction: {
+    minHeight: touchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  settingsActionPressed: { backgroundColor: colors.primarySoft },
   identityHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   identityCopy: { flex: 1, gap: spacing.xs },
-  avatarActions: {
-    alignItems: 'flex-start',
-    gap: spacing.xs,
-    marginTop: spacing.xs,
-  },
   memberRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
   shortcuts: { gap: spacing.sm },
   actions: { gap: spacing.sm },
