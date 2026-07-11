@@ -1,126 +1,62 @@
-import { REALTIME_SUBSCRIBE_STATES } from '@supabase/supabase-js';
-
 import { getSupabase } from '../../client';
-import { subscribeToSessionChatMessages } from '../chat';
+import { fetchChatMessageById } from '../chat';
 
 jest.mock('../../client', () => ({ getSupabase: jest.fn() }));
 
 const mockGetSupabase = getSupabase as jest.Mock;
-const PROFILE_ID = '10000000-0000-4000-a000-000000000005';
 const TEAM_ID = '30000000-0000-4000-a000-000000000001';
+const MESSAGE_ID = 'aa11bb22-10b1-4a10-89a9-bedaffcf8857';
 
-interface Filter {
-  event: string;
-  table: string;
-}
-
-function realtimeClient() {
-  const callbacks = new Map<string, (payload: unknown) => void>();
-  let statusCallback: ((status: string) => void) | undefined;
-  const channel: { on: jest.Mock; subscribe: jest.Mock } = {
-    on: jest.fn((_kind: string, filter: Filter, callback: (payload: unknown) => void) => {
-      callbacks.set(`${filter.table}:${filter.event}`, callback);
-      return channel;
-    }),
-    subscribe: jest.fn((callback: (status: string) => void) => {
-      statusCallback = callback;
-      return channel;
-    }),
-  };
-  const client = {
-    channel: jest.fn(() => channel),
-    removeChannel: jest.fn().mockResolvedValue(undefined),
-  };
-  mockGetSupabase.mockReturnValue(client);
-  return { callbacks, channel, client, status: (v: string) => statusCallback?.(v) };
-}
-
-function validRow() {
+function messageRow() {
   return {
-    id: 'aa11bb22-10b1-4a10-89a9-bedaffcf8857',
+    id: MESSAGE_ID,
     organisation_id: 'a0000000-0000-4000-a000-000000000001',
     team_id: TEAM_ID,
     sender_id: '10000000-0000-4000-a000-000000000009',
     body: 'hello team',
     created_at: '2026-07-11T10:00:00.000Z',
+    chat_attachments: [],
   };
 }
 
-const handlers = () => ({
-  onMessage: jest.fn(),
-  onReadStateChanged: jest.fn(),
-  onReconnect: jest.fn(),
-  onStatus: jest.fn(),
-});
+function exactMessageClient(result: { data: unknown; error: unknown }) {
+  const maybeSingle = jest.fn().mockResolvedValue(result);
+  const secondEq = jest.fn(() => ({ maybeSingle }));
+  const firstEq = jest.fn(() => ({ eq: secondEq }));
+  const select = jest.fn(() => ({ eq: firstEq }));
+  const from = jest.fn(() => ({ select }));
+  const client = { from };
+  mockGetSupabase.mockReturnValue(client);
+  return { client, select, firstEq, secondEq, maybeSingle };
+}
 
 beforeEach(() => jest.clearAllMocks());
 
-describe('subscribeToSessionChatMessages', () => {
-  it('creates no channel for a demo/mock or missing profile id', () => {
-    const h = handlers();
-    mockGetSupabase.mockReturnValue({ channel: jest.fn(), removeChannel: jest.fn() });
-    subscribeToSessionChatMessages('user-demo', h);
-    expect(h.onStatus).toHaveBeenCalledWith('disconnected');
-    expect((mockGetSupabase.mock.results[0].value as { channel: jest.Mock }).channel)
-      .not.toHaveBeenCalled();
-  });
+describe('fetchChatMessageById', () => {
+  it('fetches exactly one authoritative row constrained by team and message id', async () => {
+    const query = exactMessageClient({ data: messageRow(), error: null });
 
-  it('opens one session channel with message and read-state listeners', () => {
-    const { client, channel, callbacks } = realtimeClient();
-    subscribeToSessionChatMessages(PROFILE_ID, handlers());
-    expect(client.channel).toHaveBeenCalledTimes(1);
-    expect(client.channel).toHaveBeenCalledWith(`chat-session:${PROFILE_ID}`);
-    expect(channel.on).toHaveBeenCalledTimes(3);
-    expect(new Set(callbacks.keys())).toEqual(
-      new Set(['chat_messages:INSERT', 'chat_read_states:INSERT', 'chat_read_states:UPDATE']),
+    await expect(fetchChatMessageById({ teamId: TEAM_ID, messageId: MESSAGE_ID })).resolves.toEqual(
+      expect.objectContaining({ id: MESSAGE_ID, team_id: TEAM_ID, attachment: null }),
     );
+    expect(query.client.from).toHaveBeenCalledWith('chat_messages');
+    expect(query.firstEq).toHaveBeenCalledWith('team_id', TEAM_ID);
+    expect(query.secondEq).toHaveBeenCalledWith('id', MESSAGE_ID);
+    expect(query.maybeSingle).toHaveBeenCalledTimes(1);
   });
 
-  it('delivers a well-formed message once and ignores malformed payloads', () => {
-    const h = handlers();
-    const { callbacks } = realtimeClient();
-    subscribeToSessionChatMessages(PROFILE_ID, h);
-
-    callbacks.get('chat_messages:INSERT')?.({ new: validRow() });
-    expect(h.onMessage).toHaveBeenCalledTimes(1);
-    expect(h.onMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ id: validRow().id, team_id: TEAM_ID, attachment: null }),
-    );
-
-    callbacks.get('chat_messages:INSERT')?.({ new: { id: 'x' } }); // missing fields
-    expect(h.onMessage).toHaveBeenCalledTimes(1);
+  it('returns null when RLS or access changes make the exact row unavailable', async () => {
+    exactMessageClient({ data: null, error: null });
+    await expect(fetchChatMessageById({ teamId: TEAM_ID, messageId: MESSAGE_ID })).resolves.toBeNull();
   });
 
-  it('signals a read-state change on the caller’s own INSERT or UPDATE', () => {
-    const h = handlers();
-    const { callbacks } = realtimeClient();
-    subscribeToSessionChatMessages(PROFILE_ID, h);
-    callbacks.get('chat_read_states:INSERT')?.({ new: {} });
-    callbacks.get('chat_read_states:UPDATE')?.({ new: {} });
-    expect(h.onReadStateChanged).toHaveBeenCalledTimes(2);
-  });
-
-  it('requests catch-up only after a genuine reconnect', () => {
-    const h = handlers();
-    const realtime = realtimeClient();
-    subscribeToSessionChatMessages(PROFILE_ID, h);
-    realtime.status(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
-    expect(h.onReconnect).not.toHaveBeenCalled();
-    realtime.status(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR);
-    expect(h.onStatus).toHaveBeenLastCalledWith('reconnecting');
-    realtime.status(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
-    expect(h.onReconnect).toHaveBeenCalledTimes(1);
-  });
-
-  it('removes the channel and ignores stale callbacks after unsubscribe', () => {
-    const h = handlers();
-    const realtime = realtimeClient();
-    const unsubscribe = subscribeToSessionChatMessages(PROFILE_ID, h);
-    unsubscribe();
-    realtime.callbacks.get('chat_messages:INSERT')?.({ new: validRow() });
-    realtime.callbacks.get('chat_read_states:UPDATE')?.({ new: {} });
-    expect(h.onMessage).not.toHaveBeenCalled();
-    expect(h.onReadStateChanged).not.toHaveBeenCalled();
-    expect(realtime.client.removeChannel).toHaveBeenCalledWith(realtime.channel);
+  it('rejects malformed or demo ids before creating a Supabase client', async () => {
+    await expect(
+      fetchChatMessageById({ teamId: 'team-demo', messageId: MESSAGE_ID }),
+    ).rejects.toThrow("We couldn't load messages right now");
+    await expect(
+      fetchChatMessageById({ teamId: TEAM_ID, messageId: 'not-a-uuid' }),
+    ).rejects.toThrow("We couldn't load messages right now");
+    expect(mockGetSupabase).not.toHaveBeenCalled();
   });
 });

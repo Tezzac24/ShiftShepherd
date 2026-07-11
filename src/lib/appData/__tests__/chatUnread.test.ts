@@ -2,8 +2,9 @@
  * Pure unread-reducer tests — the single source of truth for the live per-team
  * unread map. Offline, deterministic, no mocks.
  */
-import { ChatMessage, TeamChatUnreadEntry } from '../../../types';
+import { ChatMessage, SessionUser, Team, TeamChatUnreadEntry } from '../../../types';
 import {
+  accessibleChatTeamIds,
   applyIncomingMessage,
   clearTeamUnread,
   pruneUnread,
@@ -12,6 +13,31 @@ import {
 } from '../chatUnread';
 
 const ME = 'profile-me';
+
+function session(orgRole: SessionUser['orgRole']): SessionUser {
+  return {
+    profile: {
+      id: ME,
+      auth_user_id: 'auth-me',
+      organisation_id: 'org-1',
+      full_name: 'Test Person',
+      email: 'test@example.com',
+      phone: null,
+      avatar_url: null,
+      created_at: '2026-07-11T00:00:00.000Z',
+    },
+    orgRole,
+    memberships: [
+      { id: 'm1', team_id: 'team-a', user_id: ME, role: 'member', created_at: '' },
+    ],
+  };
+}
+
+const teams = [
+  { id: 'team-a', organisation_id: 'org-1' },
+  { id: 'team-b', organisation_id: 'org-1' },
+  { id: 'other-org-team', organisation_id: 'org-2' },
+] as Team[];
 
 function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
@@ -37,6 +63,18 @@ function entry(overrides: Partial<TeamChatUnreadEntry>): TeamChatUnreadEntry {
     ...overrides,
   };
 }
+
+describe('accessibleChatTeamIds', () => {
+  it('uses ordinary memberships and deduplicates deterministically', () => {
+    const user = session('general_member');
+    user.memberships.push({ ...user.memberships[0], id: 'm2' });
+    expect(accessibleChatTeamIds(user, teams)).toEqual(['team-a']);
+  });
+
+  it('gives church admins every own-organisation team, never another organisation', () => {
+    expect(accessibleChatTeamIds(session('church_admin'), teams)).toEqual(['team-a', 'team-b']);
+  });
+});
 
 describe('unreadFromSummary', () => {
   it('keeps positive counts and omits zero-unread teams (sparse map)', () => {
