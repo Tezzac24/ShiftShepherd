@@ -93,13 +93,12 @@ import {
   mockUsers,
   ORG_ID,
 } from '../mockData';
-import { isChurchAdmin } from '../permissions';
 import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../storage/persistence';
 import { isSupabaseConfigured } from '../supabase/client';
 import * as announcementImagesService from '../supabase/services/announcementImages';
 import * as announcementsService from '../supabase/services/announcements';
 import * as chatService from '../supabase/services/chat';
-import type { ChatRealtimeStatus } from '../supabase/services/chat';
+import type { ChatRealtimeStatus } from '../supabase/services/chatBroadcast';
 import * as chatAttachmentsService from '../supabase/services/chatAttachments';
 import * as chatReadStateService from '../supabase/services/chatReadState';
 import { requestChatMessagePushDelivery } from '../supabase/services/pushDelivery';
@@ -113,6 +112,7 @@ import * as teamAvatarsService from '../supabase/services/teamAvatars';
 import * as teamMembershipsService from '../supabase/services/teamMemberships';
 import * as teamsService from '../supabase/services/teams';
 import {
+  accessibleChatTeamIds,
   applyIncomingMessage,
   clearTeamUnread,
   pruneUnread,
@@ -385,9 +385,9 @@ interface AppDataContextValue {
 
   // Chat — the sixth live Supabase slice, switching exactly like the earlier
   // slices: live Supabase for linked Supabase sessions, local demo data
-  // otherwise. In live mode ONE session-scoped Realtime channel (see
-  // useSessionChatMessaging) streams every accessible message INSERT and the
-  // caller's own read-state changes into central state, so previews, per-team
+  // otherwise. In live mode one session-owned private Broadcast manager (see
+  // useSessionChatMessaging) maintains one channel per accessible team plus an
+  // owner-only read-state channel, so previews, per-team
   // badges, and the Messages-tab badge stay fresh from anywhere in the app —
   // not only on the Messages screen. Every write path merges by row id so send
   // responses, realtime events, and refetches never duplicate. Live messages
@@ -579,7 +579,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // summary (get_team_chat_unread_summary), with bounded Realtime deltas
   // between reconciliations. Sparse — a team with zero unread has no key.
   const [liveUnreadByTeam, setLiveUnreadByTeam] = useState<UnreadByTeam>({});
-  // Health of the one session chat Realtime channel; 'idle' when not live.
+  // Combined health of the session's private chat channels; idle when not live.
   const [chatRealtimeStatus, setChatRealtimeStatus] =
     useState<'idle' | ChatRealtimeStatus>('idle');
   // Refs so stable callbacks (mark-read, incoming-message handling) read
@@ -594,8 +594,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // Newest message id already marked read per team, so repeated focus/latest
   // recomputation never fires a redundant mark-read RPC.
   const lastMarkedMessageByTeamRef = useRef<Record<string, string>>({});
-  // Coalesces the attachment catch-up refetch for the active team.
-  const activeTeamRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notificationPrefs, setNotificationPrefs] = useState<
     Record<string, NotificationPreferences>
   >({});
@@ -2060,20 +2058,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setLiveChatMessages((prev) => mergeChatMessages(prev, [message]));
   }, []);
 
-  // chat_messages Realtime payloads never include attachment metadata. When a
-  // message lands for the team currently being viewed, coalesce a short-delayed
-  // canonical refetch so an image committed in the same transaction appears.
-  const scheduleActiveTeamAttachmentRefetch = useCallback(() => {
-    if (activeTeamRefetchTimerRef.current) {
-      clearTimeout(activeTeamRefetchTimerRef.current);
-    }
-    activeTeamRefetchTimerRef.current = setTimeout(() => {
-      activeTeamRefetchTimerRef.current = null;
-      if (liveDataEnabledRef.current && activeTeamChatRef.current) void refreshChat();
-    }, 250);
-  }, [refreshChat]);
-
-  // A message arrived on the session channel. Always merge it (fast preview
+  // A message arrived through its authorized team topic. Always merge it (fast preview
   // update). Then, for a genuinely new message from someone else in a team the
   // user is NOT actively viewing, bump that team's unread immediately; the
   // authoritative summary reconciles afterwards. The actively-viewed team is
@@ -2087,7 +2072,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (!isNew) return;
       const activeTeam =
         AppState.currentState === 'active' ? activeTeamChatRef.current : null;
-      if (message.team_id === activeTeam) scheduleActiveTeamAttachmentRefetch();
       setLiveUnreadByTeam((prev) =>
         applyIncomingMessage(prev, {
           message,
@@ -2097,8 +2081,17 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         }),
       );
     },
-    [applyLiveChatMessage, scheduleActiveTeamAttachmentRefetch],
+    [applyLiveChatMessage],
   );
+
+  // Canonical desired private team topics. Church admins can access every
+  // visible organisation team; other users use their canonical memberships.
+  // Sorted/deduplicated ids keep channel reconciliation set-based and stable.
+  const accessibleTeamIds = useMemo(() => {
+    if (!chatLive || !user) return [];
+    return accessibleChatTeamIds(user, liveDirectory?.teams ?? []);
+  }, [chatLive, user, liveDirectory]);
+  const accessibleTeamKey = accessibleTeamIds.join(',');
 
   // One session-scoped messaging lifecycle: the chat channel + AppState
   // foreground catch-up + the coalescing unread reconciliation scheduler. Only
@@ -2107,6 +2100,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const { reconcileNow } = useSessionChatMessaging({
     enabled: liveDataEnabled,
     profileId: supabaseProfileId,
+    teamIds: accessibleTeamIds,
     onIncomingMessage: handleIncomingChatMessage,
     reconcile: reconcileUnreadSummary,
     onStatus: setChatRealtimeStatus,
@@ -2140,10 +2134,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setChatRealtimeStatus('idle');
       activeTeamChatRef.current = null;
       lastMarkedMessageByTeamRef.current = {};
-      if (activeTeamRefetchTimerRef.current) {
-        clearTimeout(activeTeamRefetchTimerRef.current);
-        activeTeamRefetchTimerRef.current = null;
-      }
     }
   }, [chatLive, refreshChat]);
 
@@ -2250,13 +2240,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // Prune/refresh live unread when the set of teams the caller can access
   // changes (membership added/removed). The authoritative summary reconciles
   // the exact counts; the immediate prune keeps a removed team from lingering.
-  const accessibleTeamKey = useMemo(() => {
-    if (!chatLive || !user) return '';
-    const ids = isChurchAdmin(user)
-      ? (liveDirectory?.teams.map((t) => t.id) ?? [])
-      : user.memberships.map((m) => m.team_id);
-    return [...new Set(ids)].sort().join(',');
-  }, [chatLive, user, liveDirectory]);
   useEffect(() => {
     if (!chatLive) return;
     const accessible = new Set(accessibleTeamKey ? accessibleTeamKey.split(',') : []);

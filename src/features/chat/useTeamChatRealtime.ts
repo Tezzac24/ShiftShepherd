@@ -1,7 +1,7 @@
 /**
  * Active-conversation companion for the open team chat screen.
  *
- * Message delivery is owned by the single session-scoped chat channel in
+ * Message delivery is owned by the session-scoped private Broadcast manager in
  * AppDataContext (see useSessionChatMessaging), so this hook no longer opens
  * its own subscription. While the screen is focused it:
  *   - registers the team as the actively-viewed conversation, so an incoming
@@ -10,7 +10,7 @@
  *     channel handles live arrivals and its own reconnect catch-up).
  * On blur/leave/team-switch it unregisters the active conversation.
  *
- * The returned status mirrors the session channel's health for the screen's
+ * The returned status mirrors the session channel set's health for the screen's
  * connection UI. Demo/local chat stays 'idle' — no realtime UI at all.
  */
 import { useFocusEffect } from 'expo-router';

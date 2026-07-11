@@ -8,9 +8,25 @@
  * zero, counts never go negative, and inaccessible teams are pruned. The map is
  * sparse: a team with zero unread has no key (callers read `map[teamId] ?? 0`).
  */
-import { ChatMessage, TeamChatUnreadEntry } from '../../types';
+import { ChatMessage, SessionUser, Team, TeamChatUnreadEntry } from '../../types';
 
 export type UnreadByTeam = Record<string, number>;
+
+/**
+ * Canonical team-topic set for chat Broadcast. Ordinary users use their own
+ * membership snapshot. Church admins use every loaded team in their own
+ * organisation, matching public.can_access_team while failing closed if an
+ * unexpected cross-organisation directory row ever appears.
+ */
+export function accessibleChatTeamIds(user: SessionUser, teams: Team[]): string[] {
+  const ids =
+    user.orgRole === 'church_admin'
+      ? teams
+          .filter((team) => team.organisation_id === user.profile.organisation_id)
+          .map((team) => team.id)
+      : user.memberships.map((membership) => membership.team_id);
+  return [...new Set(ids)].sort();
+}
 
 /**
  * Authoritative per-team unread from a summary. The actively-viewed team is

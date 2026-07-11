@@ -8,15 +8,13 @@
  *  - only team members/admins can send, and only as themselves
  *    (sender_id must be the caller's own profile).
  *
- * V1 chat supports text plus one optional image attachment. Realtime still
- * streams only the parent chat_messages INSERT; consumers follow arrivals with
- * a coalesced refetch so attachment metadata catches up.
- * `subscribeToSessionChatMessages` opens ONE session-scoped channel per linked
- * profile that streams every accessible new-message INSERT (Realtime authorizes
- * each delivered row against the same RLS SELECT policy) plus the caller's own
- * read-state changes for cross-device reconciliation. list/send stay ordinary
- * RLS-scoped queries and the database remains the source of truth — missed
- * messages are always caught up by a refetch, never replayed by the socket.
+ * V1 chat supports text plus one optional image attachment. Private Broadcast
+ * delivery lives in chatBroadcast.ts. Broadcast events are minimal signals;
+ * this service fetches the exact signalled message (team + id constrained)
+ * through the existing RLS policy and canonical attachment-aware decoder.
+ * list/send stay ordinary RLS-scoped queries and the database remains the
+ * source of truth — missed messages are caught up by reconciliation/refetch,
+ * never trusted from the socket payload.
  * There is no editing or deleting (no RLS policies exist for either).
  * Attachment Storage/upload/atomic-send logic lives in chatAttachments.ts; this
  * service owns canonical joined reads.
@@ -27,13 +25,12 @@
  *
  * This service needs the grants migration
  * `20260709205903_grant_authenticated_chat_api_privileges.sql` and the realtime
- * publication migrations `20260710020944_enable_realtime_for_chat_messages.sql`
- * and `20260711173139_add_team_chat_read_cursor.sql` (chat_read_states). If the
- * grants are ever missing, live chat screens show a friendly load/send error;
- * if a publication entry is missing, realtime reports unhealthy and the app
- * falls back to reconciliation catch-up. Demo mode is unaffected either way.
+ * historical migrations through `20260711173139_add_team_chat_read_cursor.sql`,
+ * plus the forward private-Broadcast corrective migration. If grants are ever
+ * missing, live chat screens show a friendly load/send error. Demo mode is
+ * unaffected.
  */
-import { REALTIME_SUBSCRIBE_STATES, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 import { ChatAttachment, ChatMessage } from '../../../types';
 import { getSupabase } from '../client';
@@ -171,6 +168,13 @@ function requireLiveId(id: string, mockPrefixes: string[], what: string): string
   return id;
 }
 
+function requireUuid(id: string): string {
+  if (!UUID_PATTERN.test(id)) {
+    throw new Error(LOAD_ERROR);
+  }
+  return id;
+}
+
 async function fetchOrganisationId(
   supabase: SupabaseClient,
   liveProfileId: string,
@@ -216,6 +220,51 @@ export async function listChatMessages(): Promise<ChatMessage[]> {
   }
 }
 
+export interface FetchChatMessageByIdInput {
+  teamId: string;
+  messageId: string;
+}
+
+/**
+ * Fetch one authoritative message after a validated Broadcast signal. Both the
+ * team and message id constrain the query as defense in depth; RLS remains the
+ * final access check. Returns null when the row is no longer visible/available.
+ * The attachment join is bounded to this one row and uses the same decoder as
+ * listChatMessages, so caption/Photo/Message previews remain canonical.
+ */
+export async function fetchChatMessageById({
+  teamId,
+  messageId,
+}: FetchChatMessageByIdInput): Promise<ChatMessage | null> {
+  const liveTeamId = requireUuid(teamId);
+  const liveMessageId = requireUuid(messageId);
+  const supabase = requireClient();
+
+  try {
+    const joined = await supabase
+      .from('chat_messages')
+      .select(`${CHAT_MESSAGE_COLUMNS}, chat_attachments(${CHAT_ATTACHMENT_COLUMNS})`)
+      .eq('team_id', liveTeamId)
+      .eq('id', liveMessageId)
+      .maybeSingle();
+    if (!joined.error) {
+      return joined.data ? mapChatMessage(joined.data as ChatMessageRow) : null;
+    }
+    if (!isAttachmentSetupError(joined.error)) throw joined.error;
+
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select(CHAT_MESSAGE_COLUMNS)
+      .eq('team_id', liveTeamId)
+      .eq('id', liveMessageId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapChatMessage(data as ChatMessageRow) : null;
+  } catch (error) {
+    fail('fetch by id', error, LIST_FAIL);
+  }
+}
+
 /**
  * Send a text message to a live team as the signed-in profile. The database
  * owns id and created_at; the saved row is returned for immediate display.
@@ -247,109 +296,4 @@ export async function sendChatMessage(
   } catch (error) {
     fail('send', error, SEND_FAIL);
   }
-}
-
-/**
- * Health of the open chat's realtime subscription. 'reconnecting' means the
- * channel dropped and is retrying by itself; 'disconnected' means it never
- * connected (or was closed) — either way the caller should offer a manual
- * check, and a refetch on recovery fills whatever the socket missed.
- */
-export type ChatRealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
-
-export interface SessionChatHandlers {
-  /** A complete new accessible message arrived (any team the caller can see). */
-  onMessage: (message: ChatMessage) => void;
-  /** The caller's own read state changed (this or another device). */
-  onReadStateChanged: () => void;
-  /** The channel recovered after a drop — do an authoritative catch-up. */
-  onReconnect: () => void;
-  onStatus: (status: ChatRealtimeStatus) => void;
-}
-
-/**
- * One session-scoped chat channel for a linked live profile. It streams every
- * accessible chat_messages INSERT (no team filter — Realtime authorizes each
- * delivered row against the chat_messages SELECT policy, so the caller only
- * receives messages for teams they can access) plus the caller's own
- * chat_read_states INSERT/UPDATE (owner-scoped SELECT policy), so a read on one
- * device reconciles the same profile's other devices.
- *
- * Returns an unsubscribe function; no handler fires after it runs. Demo mode /
- * mock or missing profile ids never connect. onReconnect fires only after a
- * genuine drop-and-recover, never on the first subscribe.
- */
-export function subscribeToSessionChatMessages(
-  profileId: string,
-  handlers: SessionChatHandlers,
-): () => void {
-  const supabase = getSupabase();
-  if (!supabase || !UUID_PATTERN.test(profileId)) {
-    handlers.onStatus('disconnected');
-    return () => {};
-  }
-
-  let stopped = false;
-  let hadConnectionIssue = false;
-
-  const channel = supabase
-    .channel(`chat-session:${profileId}`)
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'chat_messages' },
-      (payload) => {
-        if (stopped) return;
-        const row = payload.new as Partial<ChatMessageRow>;
-        if (
-          row.id &&
-          row.team_id &&
-          row.organisation_id &&
-          row.sender_id &&
-          row.created_at &&
-          typeof row.body === 'string'
-        ) {
-          handlers.onMessage(mapChatMessage(row as ChatMessageRow));
-        }
-        // A malformed payload is ignored on the fast path; the next
-        // reconciliation still corrects previews and counts authoritatively.
-      },
-    )
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'chat_read_states' },
-      () => {
-        if (!stopped) handlers.onReadStateChanged();
-      },
-    )
-    .on(
-      'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'chat_read_states' },
-      () => {
-        if (!stopped) handlers.onReadStateChanged();
-      },
-    )
-    .subscribe((status) => {
-      if (stopped) return;
-      if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
-        handlers.onStatus('connected');
-        if (hadConnectionIssue) {
-          hadConnectionIssue = false;
-          handlers.onReconnect();
-        }
-      } else if (
-        status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT ||
-        status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR
-      ) {
-        hadConnectionIssue = true;
-        handlers.onStatus('reconnecting');
-      } else if (status === REALTIME_SUBSCRIBE_STATES.CLOSED) {
-        hadConnectionIssue = true;
-        handlers.onStatus('disconnected');
-      }
-    });
-
-  return () => {
-    stopped = true;
-    void supabase.removeChannel(channel);
-  };
 }
