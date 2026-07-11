@@ -1,8 +1,8 @@
 # Supabase Backend Foundation
 
-This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth/live sessions, announcements, events, rotas/availability, choir songs/selections, team chat, notification preferences, and the people/teams directory run live when `EXPO_PUBLIC_SUPABASE_*` is configured. Organisation Directory + Team Membership Management V1 and Membership Governance + Leave Team + Shared Live Data Realtime V1 are pushed/verified and manual-QA complete. Chat Unread State & Session-Wide Messaging Freshness V1 — a server-authoritative per-team read cursor + unread summary, one session-scoped chat Realtime channel, and multi-device read reconciliation — is implemented behind one new local-only migration. Push Token Registration V1 is live, while Chat Message Push Delivery V1 remains deployed/ACTIVE with physical-iPhone delivery QA pending; push is an alert only and is not used for shared-data or unread synchronization.
+This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth/live sessions, announcements, events, rotas/availability, choir songs/selections, team chat, notification preferences, and the people/teams directory run live when `EXPO_PUBLIC_SUPABASE_*` is configured. Organisation Directory + Team Membership Management V1 and Membership Governance + Leave Team + Shared Live Data Realtime V1 are pushed/verified and manual-QA complete. The server-authoritative chat read cursor and unread summary are also live. The client now receives chat freshness through secure private Broadcast, backed by exactly one new local-only corrective migration. Push Token Registration V1 is live, while Chat Message Push Delivery V1 remains deployed/ACTIVE with physical-iPhone delivery QA pending; push is an alert only and is not used for shared-data or unread synchronization.
 
-> **Current dev-project state:** remote migration history is aligned through pushed/verified `20260711154134_enable_shared_live_data_realtime.sql`; membership management/governance, Leave Team, canonical My Teams, shared Realtime, and foreground catch-up passed manual QA. Only `20260711173139_add_team_chat_read_cursor.sql` is local-only. `send-chat-message-push` remains ACTIVE with physical-iPhone delivery QA pending. **Do not rename old or timestamped migrations.**
+> **Current dev-project state:** remote migration history is aligned through applied immutable `20260711173139_add_team_chat_read_cursor.sql`. Only `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` is local-only. It must be pushed before or together with the Broadcast client. `send-chat-message-push` remains ACTIVE with physical-iPhone delivery QA pending. **Do not rename or edit applied migrations.**
 
 ## Contents
 
@@ -35,7 +35,8 @@ supabase/
 │   ├── 20260711063412_add_team_membership_management.sql # pushed: narrow add/remove membership RPCs
 │   ├── 20260711154126_refine_team_membership_governance.sql # pushed: governed removal + Leave Team
 │   ├── 20260711154134_enable_shared_live_data_realtime.sql # pushed: shared-domain publication tables
-│   └── 20260711173139_add_team_chat_read_cursor.sql # local-only: server-authoritative chat read cursor + unread summary + chat_read_states publication
+│   ├── 20260711173139_add_team_chat_read_cursor.sql # pushed: server-authoritative chat read cursor + unread summary
+│   └── 20260711195143_migrate_chat_realtime_to_private_broadcast.sql # local-only: secure private chat Broadcast transport
 ├── functions/
 │   └── send-chat-message-push/  # Edge Function (deployed, JWT verified): chat push delivery
 ├── seed/
@@ -58,7 +59,7 @@ The schema mirrors `src/types/index.ts` one-to-one (snake_case, same names) so s
 
 ## Getting started (when you're ready)
 
-### Pending Membership Governance + Shared Live Data migrations
+### Current chat Broadcast migration
 
 `20260711063412_add_team_membership_management.sql` is already pushed, verified, and manually QA-complete. It remains unchanged.
 
@@ -66,14 +67,21 @@ The schema mirrors `src/types/index.ts` one-to-one (snake_case, same names) so s
 
 `20260711154134_enable_shared_live_data_realtime.sql` adds exactly the 13 existing tables used by the shared announcements/events/rotas/songs/directory loaders to `supabase_realtime`. It does not republish chat tables, set `REPLICA IDENTITY FULL`, alter RLS/grants, create a webhook/Edge Function, or add data. Events are invalidation signals; AppData re-runs RLS-scoped loaders. AppState foreground catch-up is mandatory because a removed member may not receive the membership DELETE after RLS access is lost.
 
-`20260711173139_add_team_chat_read_cursor.sql` (**local-only**) makes chat unread state server-authoritative. It adds `chat_read_states.last_read_message_id` (FK to `chat_messages`, `ON DELETE SET NULL`) so the cursor is a `(last_read_at, last_read_message_id)` tuple; deterministically backfills the rollout baseline (existing rows keep their read position; every accessible member/admin+team with messages and no row is pinned to the latest message, so deployment starts with zero unread); revokes the broad authenticated INSERT/UPDATE on `chat_read_states` and drops those policies while keeping owner-scoped SELECT (for owner reads and Realtime authorization); adds `mark_team_chat_read(p_team_id uuid, p_message_id uuid)` (forward-only cursor, returns `(team_id, last_read_message_id, last_read_at)`) and `get_team_chat_unread_summary()` (one row per accessible team, own messages excluded, read-cursor/membership baseline), both `SECURITY DEFINER` with `search_path=''`, caller derived from `auth.uid()`, and authenticated-only EXECUTE; and adds `chat_read_states` to `supabase_realtime` for multi-device read reconciliation. No `REPLICA IDENTITY FULL`, Broadcast, trigger, webhook, Edge Function, or new push category. The two RPCs never accept a profile id, caller id, or read timestamp.
+`20260711173139_add_team_chat_read_cursor.sql` is applied and immutable. It owns the server-authoritative cursor, rollout backfill, narrow mark/summary RPCs, and write restrictions. Those contracts are unchanged.
 
-After an explicitly approved controlled push, verify the new migration version, both new RPC signatures/definitions/EXECUTE grants/search paths, the revoked `chat_read_states` INSERT/UPDATE with kept owner SELECT, the rollout backfill result (no historical flood), the `(team_id, created_at)` message-order index, and the `chat_read_states` publication entry. Then run the light two-user/multi-device QA in the integration plan.
+`20260711195143_migrate_chat_realtime_to_private_broadcast.sql` is the only local-only migration. It adds receive-only private Broadcast authorization on `realtime.messages`, then uses database triggers to emit minimal v1 invalidations:
+
+- `team-chat:<teamId>` / `chat_message_inserted`: `version`, `message_id`, `team_id`, `sender_id`, and `created_at` only. The client fetches that exact `(team_id, id)` row through normal RLS, including its bounded attachment join.
+- `profile-chat-read:<profileId>` / `chat_read_state_changed`: `version` and `team_id` only. The client reconciles the authoritative summary.
+
+The policies are SELECT-only and use `realtime.topic()` plus canonical UUID parsing; there is no client Broadcast INSERT policy or client send path. Team topics authorize normal members and same-organisation church admins through `can_access_team`; profile topics authorize only the current profile. Trigger functions are `SECURITY DEFINER`, pin `search_path=''`, derive topics from `NEW`, and are not executable by app roles. The migration removes only `chat_messages` and `chat_read_states` from the `supabase_realtime` publication after the triggers/policies exist. The 13 non-chat shared-data tables remain on Postgres Changes.
+
+After an explicitly approved controlled push, verify the new migration version, both private-topic policies, trigger definitions/privileges, minimal payloads, and absence of both chat tables from the publication. Then run the two-user/multi-device, church-admin, membership removal/re-add, same-account token refresh, reconnect, foreground, image preview, and account-switch QA in the integration plan. The live database still uses chat Postgres Changes until this migration is applied, so do not ship the Broadcast client first.
 
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
-   - **Hosted dev:** remote history is aligned through `20260711154134`; only `20260711173139_add_team_chat_read_cursor.sql` is local-only. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
+   - **Hosted dev:** remote history is aligned through `20260711173139`; only `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` is local-only. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
    - **A fresh project from scratch:** `supabase db push` applies `001`–`006` and the timestamped migrations in order (numeric prefixes are accepted by the CLI); or paste each migration in version order in the dashboard SQL editor. `supabase db reset` (local stack) requires Docker.
 4. Seed dev profiles, then create Auth users with matching emails. Once migration `20260709233705` is applied, new Auth users link automatically; see `seed/README.md` for verification and the manual path for users created earlier.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).
