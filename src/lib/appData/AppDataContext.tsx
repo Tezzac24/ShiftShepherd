@@ -107,6 +107,7 @@ import * as profileAvatarsService from '../supabase/services/profileAvatars';
 import * as rotasService from '../supabase/services/rotas';
 import * as songsService from '../supabase/services/songs';
 import * as teamsService from '../supabase/services/teams';
+import { countUnreadByTeam } from './selectors';
 
 export interface NewRotaAssignmentInput {
   user_id: string;
@@ -1964,17 +1965,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (!chatLive || !supabaseProfileId || !liveChatReadStates || !chatReadBaseline) {
       return NO_UNREAD;
     }
-    const lastReadByTeam = new Map(
-      liveChatReadStates.map((s) => [s.team_id, timeOf(s.last_read_at)] as const),
+    const counts = countUnreadByTeam(
+      liveChatMessages,
+      liveChatReadStates,
+      chatReadBaseline,
+      supabaseProfileId,
     );
-    const counts: Record<string, number> = {};
-    for (const message of liveChatMessages) {
-      if (message.sender_id === supabaseProfileId) continue;
-      const readPoint = lastReadByTeam.get(message.team_id) ?? timeOf(chatReadBaseline);
-      if (timeOf(message.created_at) > readPoint) {
-        counts[message.team_id] = (counts[message.team_id] ?? 0) + 1;
-      }
-    }
     return Object.keys(counts).length > 0 ? counts : NO_UNREAD;
   }, [chatLive, supabaseProfileId, liveChatReadStates, chatReadBaseline, liveChatMessages]);
 
