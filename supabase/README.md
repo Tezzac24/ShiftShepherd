@@ -1,8 +1,8 @@
 # Supabase Backend Foundation
 
-This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + live sessions, the **announcements**, **events**, **rotas/availability**, **choir songs/song selections**, **team chat** (with realtime for the open conversation and one optional private image per message), and **notification preferences** feature slices, and the **read-only people/teams directory** (organisations, profiles, teams, team memberships) run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured). Push Token Registration V1 is implemented in the app (`expo-notifications` and the EAS project id are configured; a development build is needed — Expo Go cannot register), its migration `20260710171200_add_push_token_registration.sql` is **pushed and DB/RPC-verified**, and registration passed iOS Simulator QA on 2026-07-11 (Android and physical-iPhone QA deferred). **Chat Message Push Delivery V1** is implemented locally: the `send-chat-message-push` Edge Function (`supabase/functions/`) plus the delivery-ledger migration `20260710234443_add_push_delivery_foundation.sql` — **neither is deployed/pushed yet, so nothing is delivered**. Announcement/event/rota/availability push delivery is not implemented. The Auth/profile auto-link migration (`20260709233705`) and the chat realtime publication migration (`20260710020944`) have both been pushed and verified, alongside the earlier grants migrations. See `docs/supabase-integration-plan.md` for the wiring order.
+This folder holds the database foundation for Shift Shepherd's intended production backend. **The app is partially wired to Supabase**: auth + live sessions, the **announcements**, **events**, **rotas/availability**, **choir songs/song selections**, **team chat** (with realtime for the open conversation and one optional private image per message), and **notification preferences** feature slices, and the **read-only people/teams directory** (organisations, profiles, teams, team memberships) run live (when `EXPO_PUBLIC_SUPABASE_*` env vars are configured). Push Token Registration V1 is implemented in the app (`expo-notifications` and the EAS project id are configured; a development build is needed — Expo Go cannot register), and its migration `20260710171200_add_push_token_registration.sql` is **pushed and DB/RPC-verified**; iOS Simulator registration UI was exercised, but simulator token reliability is limited. **Chat Message Push Delivery V1** is deployed: the `send-chat-message-push` Edge Function is ACTIVE with JWT verification and `20260710234443_add_push_delivery_foundation.sql` is pushed/verified. Backend QA confirmed invocation, sender exclusion, recipient/team selection, preference handling, and safe `no_push_token` skips with no token/message leakage. Real Expo delivery still requires physical iPhone development-build QA. Announcement/event/rota/availability push delivery is not implemented. The Auth/profile auto-link migration (`20260709233705`) and the chat realtime publication migration (`20260710020944`) have both been pushed and verified, alongside the earlier grants migrations. See `docs/supabase-integration-plan.md` for the wiring order.
 
-> **Current dev-project state:** remote migration history is tracked and aligned through the pushed and verified push token registration migration (`20260710171200`). `20260710234443_add_push_delivery_foundation.sql` is **local-only pending an explicitly approved push**, and the `send-chat-message-push` Edge Function is **not deployed** — no push is delivered until both happen. Chat images add one optional image per chat message in a private bucket, not arbitrary files or galleries. The private `profile-avatars`, `announcement-images`, and `chat-attachments` slices are all live and QA'd. Migrations `001`–`002` were originally applied by hand and back-filled into history; later applied migrations used `supabase db push`. **Do not rename old or timestamped migrations.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Current dev-project state:** remote migration history is tracked and aligned through the pushed and verified Chat Message Push Delivery migration (`20260710234443`). `send-chat-message-push` is deployed and ACTIVE with JWT verification. Backend invocation and the safe no-token skip path are verified; physical iPhone development-build QA must still confirm a recipient token, Expo ticket, visible banner, no self-notification, and preference-off suppression. Chat images add one optional image per chat message in a private bucket, not arbitrary files or galleries. The private `profile-avatars`, `announcement-images`, and `chat-attachments` slices are all live and QA'd. Migrations `001`–`002` were originally applied by hand and back-filled into history; later applied migrations used `supabase db push`. **Do not rename old or timestamped migrations.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ## Contents
 
@@ -28,9 +28,9 @@ supabase/
 │   ├── 20260710124206_add_chat_image_attachments.sql # pushed: private chat images + attachment grants/RPCs
 │   ├── 20260710162415_fix_chat_image_attachment_permissions.sql # pushed: qualify the chat upload policy's object path
 │   ├── 20260710171200_add_push_token_registration.sql # pushed: register_push_token RPC (no table grants)
-│   └── 20260710234443_add_push_delivery_foundation.sql # local-only: push_notification_deliveries ledger + service_role grants
+│   └── 20260710234443_add_push_delivery_foundation.sql # pushed: push_notification_deliveries ledger + service_role grants
 ├── functions/
-│   └── send-chat-message-push/  # Edge Function (not deployed): chat push delivery
+│   └── send-chat-message-push/  # Edge Function (deployed, JWT verified): chat push delivery
 ├── seed/
 │   ├── dev_seed.sql             # mock data ported to SQL (relative dates)
 │   └── README.md                # how to seed + link Supabase Auth users
@@ -54,12 +54,13 @@ The schema mirrors `src/types/index.ts` one-to-one (snake_case, same names) so s
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
+   - **Current linked dev project:** history is aligned through `20260710234443`; no local-only migration remains. The following hosted-dev procedure is retained as historical setup context only.
    - **Hosted dev:** remote history is aligned through `20260710171200`; `20260710234443` is local-only and must not be pushed without explicit approval. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.**
    - **A fresh project from scratch:** `supabase db push` applies `001`–`006` and the timestamped migrations in order (numeric prefixes are accepted by the CLI); or paste each migration in version order in the dashboard SQL editor. `supabase db reset` (local stack) requires Docker.
 4. Seed dev profiles, then create Auth users with matching emails. Once migration `20260709233705` is applied, new Auth users link automatically; see `seed/README.md` for verification and the manual path for users created earlier.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).
 
-## Chat message push delivery (implemented locally, not live)
+## Chat message push delivery (deployed; backend skip path verified)
 
 Chat Message Push Delivery V1 is server-side only — the app never talks to Expo's push API itself. After a live chat send succeeds, the app makes one best-effort, fire-and-forget call to the `send-chat-message-push` Edge Function with just the `messageId` (see `src/lib/supabase/services/pushDelivery.ts`); chat send UX is never blocked by delivery. The function re-validates everything against the database using the service role (which exists only in the Edge Function runtime):
 
@@ -69,12 +70,7 @@ Chat Message Push Delivery V1 is server-side only — the app never talks to Exp
 
 Idempotency comes from the `push_notification_deliveries` ledger (migration `20260710234443`): each (event, recipient, token) attempt is claimed with `ON CONFLICT DO NOTHING` on a `NULLS NOT DISTINCT` unique index, so duplicate calls can never double-send. Outcomes (sent + Expo ticket id, failed + safe error code, skipped + reason) are recorded per row; app roles have **no** access to the ledger, and push tokens are never logged or returned. The notification itself is deliberately generic — title "New team message", body "You have a new message in <Team Name>.", `data: { type: 'chat_message', teamId, messageId }` — no message text or image details. There are no triggers, cron, receipts polling, or other event types.
 
-To make delivery live later (each step needs explicit approval):
-
-```bash
-npx supabase db push                                   # applies 20260710234443
-npx supabase functions deploy send-chat-message-push   # deploys with verify_jwt from config.toml
-```
+The migration and function are already live. Backend QA confirmed authenticated invocation and expected `no_push_token` skips, with no raw tokens or message content in logs/ledger. Real Expo delivery is still unverified: physical iPhone development-build QA must confirm recipient registration, Expo ticket creation, banner display, no self-notification, and preference-off suppression. Do not add announcement, event, rota, or availability delivery until that chat QA passes.
 
 The hosted Edge runtime injects `SUPABASE_URL` and the service role key (`SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEYS`) automatically — no manual secret is required. Only if the Expo project has "Enhanced Security for Push Notifications" enabled: `npx supabase secrets set EXPO_ACCESS_TOKEN=<token>`.
 

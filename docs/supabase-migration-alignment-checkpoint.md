@@ -1,8 +1,8 @@
 # Supabase Migration Alignment
 
-**Status: aligned through `20260710171200` on 2026-07-10** against the repo-configured Supabase MCP/CLI dev project.
-This document records that completed remote checkpoint, including Push Token Registration V1, and the rules that keep history aligned.
-**One migration is currently local-only:** `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) awaits an explicitly approved `supabase db push`; the matching `send-chat-message-push` Edge Function is likewise not deployed yet.
+**Status: aligned through `20260710234443` on 2026-07-11** against the repo-configured Supabase MCP/CLI dev project.
+This document records the completed remote checkpoint, including Chat Message Push Delivery V1, and the rules that keep history aligned.
+`20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) is pushed and verified; the matching `send-chat-message-push` Edge Function is deployed and ACTIVE with JWT verification.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
@@ -79,7 +79,7 @@ with explicit approval, verified, and covered by manual QA.
 
 On supported Xcode 14+ / macOS 13+ / iOS 16+ versions, the iOS Simulator development build is allowed to attempt notification permission and Expo token registration. Token acquisition failures remain friendly and retryable rather than being pre-blocked.
 
-**iOS Simulator QA passed (2026-07-11):** the live Device notifications card appears, the OS permission prompt only follows the button tap, the device registers successfully, no raw token is ever shown, and a second signed-in user can re-register the same simulator token (the shared-device takeover path). Android QA is deferred and physical iPhone QA remains the most representative later step. Known accepted polish deferral: the card's "registered" state is session-only and does not persist after leaving and returning to the screen — re-registering succeeds, which is fine for now. Real Push Delivery V1 is not yet implemented and must start narrowly with chat messages only.
+**iOS Simulator UI exercise (2026-07-11):** the live Device notifications card appears, the OS permission prompt only follows the button tap, and no raw token is ever shown. Simulator token behavior is not reliable enough to mark real delivery QA complete. Android QA is deferred and physical iPhone development-build QA remains required. Known accepted polish deferral: the card's "registered" state is session-only and does not persist after leaving and returning to the screen — re-registering succeeds, which is fine for now. Real Push Delivery V1 is deployed narrowly for chat messages only.
 
 ## How Alignment Was Done
 
@@ -160,10 +160,12 @@ in their teams, admins in teams they administer, non-members stay blocked, and t
 chat/realtime/unread tracking still work). Chat supports exactly one optional image
 per message — no arbitrary files, audio/video, galleries, camera capture, full-screen
 viewer, or message edit/delete. **Push Token Registration V1** and its migration
-`20260710171200_add_push_token_registration.sql` are pushed, DB/RPC-verified, and
-passed iOS Simulator runtime QA on 2026-07-11 (Android and physical iPhone QA
-deferred). Real push delivery started narrowly with chat messages only:
-**Chat Message Push Delivery V1** is implemented locally (the
-`send-chat-message-push` Edge Function plus the local-only
-`20260710234443_add_push_delivery_foundation.sql` ledger migration) and goes
-live only after an explicitly approved migration push and function deploy.
+`20260710171200_add_push_token_registration.sql` are pushed and DB/RPC-verified;
+the iOS Simulator registration UI path was exercised on 2026-07-11, though token
+reliability remains limited (Android and physical iPhone QA deferred). **Chat Message
+Push Delivery V1** is deployed: the `send-chat-message-push` Edge Function is ACTIVE
+with JWT verification and `20260710234443_add_push_delivery_foundation.sql` is pushed.
+Backend QA verified invocation, sender exclusion, recipient/team selection, preference
+handling, and safe `no_push_token` skips without token/message leakage. Physical iPhone
+development-build QA must still verify a recipient token, Expo ticket, banner, no
+self-notification, and preference-off suppression; do not expand beyond chat until then.
