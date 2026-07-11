@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 
 import { useAppData } from '../../../lib/appData/AppDataContext';
 import { Team } from '../../../types';
@@ -7,9 +7,11 @@ import { useTeamAvatar } from '../useTeamAvatar';
 
 jest.mock('../useTeamAvatar', () => ({ useTeamAvatar: jest.fn() }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
   useLocalSearchParams: () => ({ teamId: '30000000-0000-4000-a000-000000000001' }),
+  useRouter: () => ({ push: mockPush }),
 }));
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -42,7 +44,13 @@ function avatarState(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 beforeEach(() => {
-  mockUseAppData.mockReturnValue({ teams: [TEAM], teamsLoading: false });
+  jest.clearAllMocks();
+  mockUseAppData.mockReturnValue({
+    teams: [TEAM],
+    teamsLoading: false,
+    memberships: [],
+    users: [],
+  });
   mockUseTeamAvatar.mockReturnValue(avatarState());
 });
 
@@ -67,11 +75,21 @@ describe('TeamSettingsScreen', () => {
     mockUseTeamAvatar.mockReturnValue(avatarState({ canManage: false }));
     const screen = render(<TeamSettingsScreen />);
     expect(screen.queryByTestId('team-avatar-management-controls')).toBeNull();
+    expect(screen.queryByText('Manage members')).toBeNull();
     expect(screen.getByText('No permission')).toBeTruthy();
   });
 
+  it('shows a calm Manage members row to authorised users', () => {
+    const screen = render(<TeamSettingsScreen />);
+    fireEvent.press(screen.getByText('Manage members'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/teams/[teamId]/settings/members',
+      params: { teamId: TEAM.id },
+    });
+  });
+
   it('shows a friendly not-found state for an unknown team', () => {
-    mockUseAppData.mockReturnValue({ teams: [], teamsLoading: false });
+    mockUseAppData.mockReturnValue({ teams: [], teamsLoading: false, memberships: [], users: [] });
     const screen = render(<TeamSettingsScreen />);
     expect(screen.getByText('Team not found')).toBeTruthy();
   });

@@ -1,5 +1,5 @@
 import { SessionUser } from '../../../types';
-import { canManageTeamAvatar } from '..';
+import { canManageTeamAvatar, canManageTeamMemberships } from '..';
 
 const TEAM_ID = 'team-a';
 
@@ -45,5 +45,53 @@ describe('canManageTeamAvatar', () => {
       { id: 'm2', team_id: 'team-b', user_id: 'profile-a', role: 'team_leader', created_at: '' },
     ];
     expect(canManageTeamAvatar(user({ memberships }), TEAM_ID)).toBe(false);
+  });
+});
+
+describe('canManageTeamMemberships', () => {
+  it('allows church admins and the target team leader', () => {
+    expect(canManageTeamMemberships(user({ orgRole: 'church_admin' }), TEAM_ID)).toBe(true);
+    expect(
+      canManageTeamMemberships(
+        user({
+          memberships: [
+            {
+              id: 'm1',
+              team_id: TEAM_ID,
+              user_id: 'profile-a',
+              role: 'team_leader',
+              created_at: '',
+            },
+          ],
+        }),
+        TEAM_ID,
+      ),
+    ).toBe(true);
+  });
+
+  it('denies ordinary members and leaders of another team', () => {
+    expect(
+      canManageTeamMemberships(
+        user({
+          memberships: [
+            {
+              id: 'm1',
+              team_id: TEAM_ID,
+              user_id: 'profile-a',
+              role: 'member',
+              created_at: '',
+            },
+            {
+              id: 'm2',
+              team_id: 'team-b',
+              user_id: 'profile-a',
+              role: 'team_leader',
+              created_at: '',
+            },
+          ],
+        }),
+        TEAM_ID,
+      ),
+    ).toBe(false);
   });
 });

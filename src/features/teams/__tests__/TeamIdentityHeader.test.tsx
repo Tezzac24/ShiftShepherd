@@ -47,6 +47,8 @@ describe('TeamIdentityHeader', () => {
     expect(screen.queryByText('Add team photo')).toBeNull();
     expect(screen.queryByText('Change team photo')).toBeNull();
     expect(screen.queryByText('Remove photo')).toBeNull();
+    expect(screen.queryByText('Add member')).toBeNull();
+    expect(screen.queryByText('Remove member')).toBeNull();
   });
 
   it('hides the settings action from ordinary members', () => {
