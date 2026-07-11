@@ -11,7 +11,7 @@
  * the real backend later means swapping implementations, not screens.
  *
  * ★ Announcements, events, the people/teams directory (organisation,
- * profiles, teams, team memberships), rotas (entries, assignments,
+ * profiles, teams, team memberships plus narrow manager add/remove), rotas (entries, assignments,
  * availability responses), choir songs/song selections, and team chat are the
  * live Supabase slices: when the user is
  * signed in through Supabase Auth with a linked profile, those collections
@@ -108,6 +108,7 @@ import * as profilesService from '../supabase/services/profiles';
 import * as rotasService from '../supabase/services/rotas';
 import * as songsService from '../supabase/services/songs';
 import * as teamAvatarsService from '../supabase/services/teamAvatars';
+import * as teamMembershipsService from '../supabase/services/teamMemberships';
 import * as teamsService from '../supabase/services/teams';
 import { countUnreadByTeam } from './selectors';
 
@@ -170,7 +171,7 @@ interface AppDataContextValue {
   /** False until persisted demo state has been restored (or fallen back). */
   isHydrated: boolean;
 
-  // People & teams directory — the third live Supabase slice (read-only).
+  // People & teams directory — reads plus narrow live membership management.
   // Live rows (real UUIDs) for linked Supabase sessions; mock data otherwise.
   // Event categories stay mock-only for now.
   organisation: Organisation;
@@ -186,6 +187,10 @@ interface AppDataContextValue {
   teamsError: string | null;
   /** Reload the live people/teams directory (no-op in demo mode). */
   refreshTeams: () => Promise<void>;
+  /** Add one existing linked organisation profile as an ordinary team member. */
+  addTeamMember: (teamId: string, profileId: string) => Promise<void>;
+  /** Remove one ordinary team membership after the screen confirms intent. */
+  removeTeamMember: (teamId: string, profileId: string) => Promise<void>;
 
   // Profile avatars — the first Supabase Storage slice. avatar_url holds a
   // private-bucket storage path in live mode, so display goes through
@@ -1029,7 +1034,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [eventsLive, resyncLiveEvents],
   );
 
-  // --- People & teams directory (live Supabase slice ★, read-only) ------------
+  // --- People & teams directory + membership management (live slice ★) -------
 
   const refreshTeams: AppDataContextValue['refreshTeams'] = useCallback(async () => {
     const requestProfileId = supabaseProfileIdRef.current;
@@ -1064,6 +1069,82 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, []);
+
+  const applyLiveMembership = useCallback((membership: TeamMembership) => {
+    setLiveDirectory((prev) =>
+      prev
+        ? {
+            ...prev,
+            memberships: [
+              ...prev.memberships.filter(
+                (candidate) =>
+                  candidate.id !== membership.id &&
+                  !(
+                    candidate.team_id === membership.team_id &&
+                    candidate.user_id === membership.user_id
+                  ),
+              ),
+              membership,
+            ].sort(
+              (a, b) =>
+                a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
+            ),
+          }
+        : prev,
+    );
+  }, []);
+
+  const addTeamMember: AppDataContextValue['addTeamMember'] = useCallback(
+    async (teamId, profileId) => {
+      const requestProfileId = supabaseProfileIdRef.current;
+      if (!liveDataEnabled || !requestProfileId) {
+        throw new Error(teamMembershipsService.TEAM_MEMBERSHIP_DEMO_ERROR);
+      }
+      const membership = await teamMembershipsService.addTeamMember({ teamId, profileId });
+      if (
+        !liveDataEnabledRef.current ||
+        supabaseProfileIdRef.current !== requestProfileId
+      ) {
+        return;
+      }
+      applyLiveMembership(membership);
+      void refreshTeams();
+    },
+    [liveDataEnabled, applyLiveMembership, refreshTeams],
+  );
+
+  const removeTeamMember: AppDataContextValue['removeTeamMember'] = useCallback(
+    async (teamId, profileId) => {
+      const requestProfileId = supabaseProfileIdRef.current;
+      if (!liveDataEnabled || !requestProfileId) {
+        throw new Error(teamMembershipsService.TEAM_MEMBERSHIP_DEMO_ERROR);
+      }
+      const removed = await teamMembershipsService.removeTeamMember({ teamId, profileId });
+      if (
+        !liveDataEnabledRef.current ||
+        supabaseProfileIdRef.current !== requestProfileId
+      ) {
+        return;
+      }
+      setLiveDirectory((prev) =>
+        prev
+          ? {
+              ...prev,
+              memberships: prev.memberships.filter(
+                (membership) =>
+                  membership.id !== removed.id &&
+                  !(
+                    membership.team_id === removed.team_id &&
+                    membership.user_id === removed.user_id
+                  ),
+              ),
+            }
+          : prev,
+      );
+      void refreshTeams();
+    },
+    [liveDataEnabled, refreshTeams],
+  );
 
   // Load the live directory when a Supabase session appears; clear it (and
   // any load error) when it goes away. Mock data is untouched either way.
@@ -2223,6 +2304,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       teamsLoading,
       teamsError,
       refreshTeams,
+      addTeamMember,
+      removeTeamMember,
       getAvatarUri,
       setOwnAvatar,
       removeOwnAvatar,
@@ -2309,6 +2392,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       teamsLoading,
       teamsError,
       refreshTeams,
+      addTeamMember,
+      removeTeamMember,
       getAvatarUri,
       setOwnAvatar,
       removeOwnAvatar,

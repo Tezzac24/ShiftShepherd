@@ -1,9 +1,9 @@
 /**
  * Teams & people service — the third live Supabase feature-data slice.
  *
- * Read-only by design: the app has no team-management screens yet (creating
- * teams and assigning members happens in the Supabase dashboard), so this
- * service only fetches the "directory" the rest of the app renders from —
+ * This service remains read-only and fetches the directory the app renders.
+ * Narrow membership writes live separately in teamMemberships.ts; team
+ * creation, profile creation, and role editing remain outside the app. It returns
  * the caller's organisation, the profiles they may see, their visible teams,
  * and those teams' memberships. RLS scopes every query:
  *

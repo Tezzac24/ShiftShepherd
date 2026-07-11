@@ -61,6 +61,8 @@ function RootStack() {
         <Stack.Screen name="events/edit" />
         <Stack.Screen name="teams/[teamId]/index" />
         <Stack.Screen name="teams/[teamId]/settings" />
+        <Stack.Screen name="teams/[teamId]/settings/members/index" />
+        <Stack.Screen name="teams/[teamId]/settings/members/add" />
         <Stack.Screen name="teams/[teamId]/chat" />
         <Stack.Screen name="teams/[teamId]/rota/index" />
         <Stack.Screen name="teams/[teamId]/rota/edit" />

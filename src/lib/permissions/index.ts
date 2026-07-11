@@ -41,6 +41,11 @@ export function canManageTeamAvatar(user: SessionUser, teamId: string): boolean 
   return isChurchAdmin(user) || isTeamLeader(user, teamId);
 }
 
+/** Membership writes follow the same team-leader/church-admin boundary. */
+export function canManageTeamMemberships(user: SessionUser, teamId: string): boolean {
+  return isChurchAdmin(user) || isTeamLeader(user, teamId);
+}
+
 // ---------------------------------------------------------------------------
 // Announcements
 // ---------------------------------------------------------------------------

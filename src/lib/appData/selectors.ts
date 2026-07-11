@@ -41,13 +41,71 @@ export function teamMembers(
   memberships: TeamMembership[],
   users: UserProfile[],
 ): { profile: UserProfile; membership: TeamMembership }[] {
-  return memberships
-    .filter((m) => m.team_id === teamId)
-    .map((membership) => ({
-      membership,
-      profile: users.find((u) => u.id === membership.user_id)!,
-    }))
-    .filter((x) => x.profile);
+  const profileById = new Map(users.map((profile) => [profile.id, profile]));
+  const membershipByProfile = new Map<string, TeamMembership>();
+  for (const membership of memberships
+    .filter((candidate) => candidate.team_id === teamId)
+    .sort(
+      (a, b) =>
+        a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
+    )) {
+    const existing = membershipByProfile.get(membership.user_id);
+    if (!existing || (existing.role !== 'team_leader' && membership.role === 'team_leader')) {
+      membershipByProfile.set(membership.user_id, membership);
+    }
+  }
+
+  return [...membershipByProfile.values()]
+    .flatMap((membership) => {
+      const profile = profileById.get(membership.user_id);
+      return profile ? [{ profile, membership }] : [];
+    })
+    .sort(
+      (a, b) =>
+        a.profile.full_name.localeCompare(b.profile.full_name, undefined, {
+          sensitivity: 'base',
+        }) || a.profile.id.localeCompare(b.profile.id),
+    );
+}
+
+/**
+ * Existing linked profiles that can be offered to a team manager. The live
+ * directory is already same-organisation scoped by RLS; the explicit org
+ * comparison keeps this helper correct in tests and any future merged stores.
+ */
+export function eligibleTeamProfiles(
+  team: Team,
+  memberships: TeamMembership[],
+  users: UserProfile[],
+  query = '',
+): UserProfile[] {
+  const memberIds = new Set(
+    memberships
+      .filter((membership) => membership.team_id === team.id)
+      .map((membership) => membership.user_id),
+  );
+  const normalisedQuery = query.trim().toLocaleLowerCase();
+  const uniqueProfiles = new Map<string, UserProfile>();
+
+  for (const profile of users) {
+    if (
+      profile.organisation_id !== team.organisation_id ||
+      !profile.auth_user_id.trim() ||
+      memberIds.has(profile.id)
+    ) {
+      continue;
+    }
+    const searchable = `${profile.full_name} ${profile.email}`.toLocaleLowerCase();
+    if (normalisedQuery && !searchable.includes(normalisedQuery)) continue;
+    uniqueProfiles.set(profile.id, profile);
+  }
+
+  return [...uniqueProfiles.values()].sort(
+    (a, b) =>
+      a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' }) ||
+      a.email.localeCompare(b.email, undefined, { sensitivity: 'base' }) ||
+      a.id.localeCompare(b.id),
+  );
 }
 
 export function userById(users: UserProfile[], id: string): UserProfile | undefined {

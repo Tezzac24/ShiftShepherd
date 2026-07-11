@@ -1,4 +1,4 @@
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
@@ -8,17 +8,27 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { EmptyState } from '../../components/EmptyState';
+import { ListRow } from '../../components/ListRow';
 import { Screen } from '../../components/Screen';
 import { SectionHeader } from '../../components/SectionHeader';
 import { useAppData } from '../../lib/appData/AppDataContext';
+import { teamMembers } from '../../lib/appData/selectors';
 import { Team } from '../../types';
 import { useTeamAvatar } from './useTeamAvatar';
 
 /**
- * Team settings for authorised leaders/admins. Today it manages only the team
- * photo; future team configuration belongs here rather than on the team screen.
+ * Team settings for authorised leaders/admins. Photo and membership management
+ * start here; detailed flows stay on dedicated screens rather than the team hub.
  */
-function TeamSettingsContent({ team }: { team: Team }) {
+function TeamSettingsContent({
+  team,
+  memberCount,
+  onManageMembers,
+}: {
+  team: Team;
+  memberCount: number;
+  onManageMembers: () => void;
+}) {
   const { canManage, hasPhoto, avatarUri, busy, changePhoto, removePhoto } = useTeamAvatar(team);
 
   if (!canManage) {
@@ -72,23 +82,44 @@ function TeamSettingsContent({ team }: { team: Team }) {
         </View>
       </Card>
 
+      <SectionHeader title="Members" />
+      <ListRow
+        icon="people-outline"
+        title="Manage members"
+        subtitle={`${memberCount} current ${memberCount === 1 ? 'member' : 'members'}`}
+        onPress={onManageMembers}
+      />
+
       <AppText variant="small" tone="muted" style={styles.footerNote}>
-        Team name, members and roles are managed by your church admin.
+        Team name and leadership roles are managed by your church admin.
       </AppText>
     </>
   );
 }
 
 export default function TeamSettingsScreen() {
+  const router = useRouter();
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
   const data = useAppData();
   const team = data.teams.find((t) => t.id === teamId);
+  const memberCount = team
+    ? teamMembers(team.id, data.memberships ?? [], data.users ?? []).length
+    : 0;
 
   return (
     <Screen>
       <Stack.Screen options={{ title: 'Team Settings' }} />
       {team ? (
-        <TeamSettingsContent team={team} />
+        <TeamSettingsContent
+          team={team}
+          memberCount={memberCount}
+          onManageMembers={() =>
+            router.push({
+              pathname: '/teams/[teamId]/settings/members',
+              params: { teamId: team.id },
+            })
+          }
+        />
       ) : data.teamsLoading ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={colors.primary} />
