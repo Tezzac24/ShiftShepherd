@@ -110,7 +110,19 @@ import * as songsService from '../supabase/services/songs';
 import * as teamAvatarsService from '../supabase/services/teamAvatars';
 import * as teamMembershipsService from '../supabase/services/teamMemberships';
 import * as teamsService from '../supabase/services/teams';
+import { SharedRefreshDomain } from './liveInvalidation';
+import {
+  membershipsForProfile,
+  upsertMembership,
+  withoutMembership,
+} from './membershipState';
 import { countUnreadByTeam } from './selectors';
+import { useSharedLiveDataFreshness } from './useSharedLiveDataFreshness';
+
+interface RefreshOptions {
+  /** Keep existing content and user-visible loading/error state stable. */
+  quiet?: boolean;
+}
 
 export interface NewRotaAssignmentInput {
   user_id: string;
@@ -186,11 +198,13 @@ interface AppDataContextValue {
   /** Friendly load-failure message, or null. Always null in demo mode. */
   teamsError: string | null;
   /** Reload the live people/teams directory (no-op in demo mode). */
-  refreshTeams: () => Promise<void>;
+  refreshTeams: (options?: RefreshOptions) => Promise<void>;
   /** Add one existing linked organisation profile as an ordinary team member. */
   addTeamMember: (teamId: string, profileId: string) => Promise<void>;
   /** Remove one ordinary team membership after the screen confirms intent. */
   removeTeamMember: (teamId: string, profileId: string) => Promise<void>;
+  /** Remove only the signed-in profile's membership in one team. */
+  leaveTeam: (teamId: string) => Promise<void>;
 
   // Profile avatars — the first Supabase Storage slice. avatar_url holds a
   // private-bucket storage path in live mode, so display goes through
@@ -249,7 +263,7 @@ interface AppDataContextValue {
   /** Friendly load-failure message, or null. Always null in demo mode. */
   announcementsError: string | null;
   /** Reload live announcements (no-op in demo mode). */
-  refreshAnnouncements: () => Promise<void>;
+  refreshAnnouncements: (options?: RefreshOptions) => Promise<void>;
   addAnnouncement: (
     input: Omit<Announcement, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>,
   ) => Promise<Announcement>;
@@ -294,7 +308,7 @@ interface AppDataContextValue {
   /** Friendly load-failure message, or null. Always null in demo mode. */
   eventsError: string | null;
   /** Reload live events (no-op in demo mode). */
-  refreshEvents: () => Promise<void>;
+  refreshEvents: (options?: RefreshOptions) => Promise<void>;
   addEvent: (
     input: Omit<Event, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>,
   ) => Promise<Event>;
@@ -312,7 +326,7 @@ interface AppDataContextValue {
   /** Friendly load-failure message, or null. Always null in demo mode. */
   rotasError: string | null;
   /** Reload live rotas (no-op in demo mode). */
-  refreshRotas: () => Promise<void>;
+  refreshRotas: (options?: RefreshOptions) => Promise<void>;
   addRotaEntry: (
     input: NewRotaEntryInput,
     assignments: NewRotaAssignmentInput[],
@@ -344,7 +358,7 @@ interface AppDataContextValue {
   /** Friendly load-failure message, or null. Always null in demo mode. */
   songsError: string | null;
   /** Reload live songs and song selections (no-op in demo mode). */
-  refreshSongs: () => Promise<void>;
+  refreshSongs: (options?: RefreshOptions) => Promise<void>;
   addSong: (
     input: Omit<Song, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>,
   ) => Promise<Song>;
@@ -487,7 +501,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // Live-vs-local mode for the wired slices:
   // Supabase session + configured client + linked profile ⇒ live; demo mode
   // or missing env vars ⇒ local/mock.
-  const { user, authMode, applySessionAvatarUrl, applySessionProfile } = useAuth();
+  const {
+    user,
+    authMode,
+    applySessionAvatarUrl,
+    applySessionProfile,
+    applySessionDirectorySnapshot,
+  } = useAuth();
   const supabaseProfileId =
     authMode === 'supabase' ? (user?.supabaseProfileId ?? null) : null;
   const liveDataEnabled = isSupabaseConfigured && supabaseProfileId !== null;
@@ -521,6 +541,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   liveDataEnabledRef.current = liveDataEnabled;
   const supabaseProfileIdRef = useRef<string | null>(null);
   supabaseProfileIdRef.current = supabaseProfileId;
+  const queueSharedRefreshRef = useRef<
+    (domains: Iterable<SharedRefreshDomain>) => void
+  >(() => {});
   const [localEvents, setLocalEvents] = useState<Event[]>(mockEvents);
   const [liveEvents, setLiveEvents] = useState<Event[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -674,11 +697,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // --- Announcements (live Supabase slice ★, with local demo fallback) --------
 
   const refreshAnnouncements: AppDataContextValue['refreshAnnouncements'] =
-    useCallback(async () => {
+    useCallback(async (options) => {
       const requestProfileId = supabaseProfileIdRef.current;
       if (!liveDataEnabledRef.current || !requestProfileId) return;
-      setAnnouncementsLoading(true);
-      setAnnouncementsError(null);
+      if (!options?.quiet) {
+        setAnnouncementsLoading(true);
+        setAnnouncementsError(null);
+      }
       try {
         const list = await announcementsService.listAnnouncements();
         if (
@@ -692,7 +717,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           liveDataEnabledRef.current &&
           supabaseProfileIdRef.current === requestProfileId
         ) {
-          setAnnouncementsError(
+          if (!options?.quiet) setAnnouncementsError(
             error instanceof Error
               ? error.message
               : 'We couldn’t load announcements right now. Please try again.',
@@ -703,7 +728,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           liveDataEnabledRef.current &&
           supabaseProfileIdRef.current === requestProfileId
         ) {
-          setAnnouncementsLoading(false);
+          if (!options?.quiet) setAnnouncementsLoading(false);
         }
       }
     }, []);
@@ -724,19 +749,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // (no loading flicker; a failed re-sync keeps the optimistically-applied
   // server row, so nothing is lost).
   const resyncLiveAnnouncements = useCallback(() => {
-    const requestProfileId = supabaseProfileIdRef.current;
-    if (!requestProfileId) return;
-    announcementsService
-      .listAnnouncements()
-      .then((list) => {
-        if (
-          liveDataEnabledRef.current &&
-          supabaseProfileIdRef.current === requestProfileId
-        ) {
-          setLiveAnnouncements(list);
-        }
-      })
-      .catch((error) => console.warn('[appData] announcements re-sync failed', error));
+    queueSharedRefreshRef.current(['announcements']);
   }, []);
 
   const addAnnouncement: AppDataContextValue['addAnnouncement'] = useCallback(
@@ -920,11 +933,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   // --- Events (live Supabase slice ★, with local demo fallback) ---------------
 
-  const refreshEvents: AppDataContextValue['refreshEvents'] = useCallback(async () => {
+  const refreshEvents: AppDataContextValue['refreshEvents'] = useCallback(async (options) => {
     const requestProfileId = supabaseProfileIdRef.current;
     if (!liveDataEnabledRef.current || !requestProfileId) return;
-    setEventsLoading(true);
-    setEventsError(null);
+    if (!options?.quiet) {
+      setEventsLoading(true);
+      setEventsError(null);
+    }
     try {
       const list = await eventsService.listEvents();
       if (
@@ -938,7 +953,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setEventsError(
+        if (!options?.quiet) setEventsError(
           error instanceof Error
             ? error.message
             : 'We couldn’t load events right now. Please try again.',
@@ -949,7 +964,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setEventsLoading(false);
+        if (!options?.quiet) setEventsLoading(false);
       }
     }
   }, []);
@@ -970,19 +985,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // (no loading flicker; a failed re-sync keeps the optimistically-applied
   // server row, so nothing is lost).
   const resyncLiveEvents = useCallback(() => {
-    const requestProfileId = supabaseProfileIdRef.current;
-    if (!requestProfileId) return;
-    eventsService
-      .listEvents()
-      .then((list) => {
-        if (
-          liveDataEnabledRef.current &&
-          supabaseProfileIdRef.current === requestProfileId
-        ) {
-          setLiveEvents(list);
-        }
-      })
-      .catch((error) => console.warn('[appData] events re-sync failed', error));
+    queueSharedRefreshRef.current(['events']);
   }, []);
 
   const addEvent: AppDataContextValue['addEvent'] = useCallback(
@@ -1036,25 +1039,41 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   // --- People & teams directory + membership management (live slice ★) -------
 
-  const refreshTeams: AppDataContextValue['refreshTeams'] = useCallback(async () => {
+  const commitLiveDirectory = useCallback(
+    (directory: teamsService.TeamsDirectory, profileId: string) => {
+      if (!liveDataEnabledRef.current || supabaseProfileIdRef.current !== profileId) return;
+      liveDirectoryRef.current = directory;
+      setLiveDirectory(directory);
+      applySessionDirectorySnapshot(profileId, {
+        profile: directory.users.find((profile) => profile.id === profileId),
+        orgRole: directory.currentOrgRole,
+        memberships: membershipsForProfile(directory.memberships, profileId),
+      });
+    },
+    [applySessionDirectorySnapshot],
+  );
+
+  const refreshTeams: AppDataContextValue['refreshTeams'] = useCallback(async (options) => {
     const requestProfileId = supabaseProfileIdRef.current;
     if (!liveDataEnabledRef.current || !requestProfileId) return;
-    setTeamsLoading(true);
-    setTeamsError(null);
+    if (!options?.quiet) {
+      setTeamsLoading(true);
+      setTeamsError(null);
+    }
     try {
-      const directory = await teamsService.fetchTeamsDirectory();
+      const directory = await teamsService.fetchTeamsDirectory(requestProfileId);
       if (
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setLiveDirectory(directory);
+        commitLiveDirectory(directory, requestProfileId);
       }
     } catch (error) {
       if (
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setTeamsError(
+        if (!options?.quiet) setTeamsError(
           error instanceof Error
             ? error.message
             : 'We couldn’t load your teams right now. Please try again.',
@@ -1065,34 +1084,37 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setTeamsLoading(false);
+        if (!options?.quiet) setTeamsLoading(false);
       }
     }
-  }, []);
+  }, [commitLiveDirectory]);
 
-  const applyLiveMembership = useCallback((membership: TeamMembership) => {
-    setLiveDirectory((prev) =>
-      prev
-        ? {
-            ...prev,
-            memberships: [
-              ...prev.memberships.filter(
-                (candidate) =>
-                  candidate.id !== membership.id &&
-                  !(
-                    candidate.team_id === membership.team_id &&
-                    candidate.user_id === membership.user_id
-                  ),
-              ),
-              membership,
-            ].sort(
-              (a, b) =>
-                a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
-            ),
-          }
-        : prev,
-    );
-  }, []);
+  const commitMemberships = useCallback(
+    (memberships: TeamMembership[]) => {
+      const directory = liveDirectoryRef.current;
+      if (!directory) return;
+      const nextDirectory = { ...directory, memberships };
+      liveDirectoryRef.current = nextDirectory;
+      setLiveDirectory(nextDirectory);
+      const profileId = supabaseProfileIdRef.current;
+      if (profileId) {
+        applySessionDirectorySnapshot(profileId, {
+          profile: nextDirectory.users.find((profile) => profile.id === profileId),
+          orgRole: nextDirectory.currentOrgRole,
+          memberships: membershipsForProfile(memberships, profileId),
+        });
+      }
+    },
+    [applySessionDirectorySnapshot],
+  );
+
+  const applyLiveMembership = useCallback(
+    (membership: TeamMembership) => {
+      const current = liveDirectoryRef.current?.memberships;
+      if (current) commitMemberships(upsertMembership(current, membership));
+    },
+    [commitMemberships],
+  );
 
   const addTeamMember: AppDataContextValue['addTeamMember'] = useCallback(
     async (teamId, profileId) => {
@@ -1108,9 +1130,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       applyLiveMembership(membership);
-      void refreshTeams();
+      queueSharedRefreshRef.current(['directory']);
     },
-    [liveDataEnabled, applyLiveMembership, refreshTeams],
+    [liveDataEnabled, applyLiveMembership],
   );
 
   const removeTeamMember: AppDataContextValue['removeTeamMember'] = useCallback(
@@ -1126,24 +1148,28 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       ) {
         return;
       }
-      setLiveDirectory((prev) =>
-        prev
-          ? {
-              ...prev,
-              memberships: prev.memberships.filter(
-                (membership) =>
-                  membership.id !== removed.id &&
-                  !(
-                    membership.team_id === removed.team_id &&
-                    membership.user_id === removed.user_id
-                  ),
-              ),
-            }
-          : prev,
-      );
-      void refreshTeams();
+      const current = liveDirectoryRef.current?.memberships;
+      if (current) commitMemberships(withoutMembership(current, removed));
+      queueSharedRefreshRef.current(['directory']);
     },
-    [liveDataEnabled, refreshTeams],
+    [liveDataEnabled, commitMemberships],
+  );
+
+  const leaveTeam: AppDataContextValue['leaveTeam'] = useCallback(
+    async (teamId) => {
+      const requestProfileId = supabaseProfileIdRef.current;
+      if (!liveDataEnabled || !requestProfileId) {
+        throw new Error(teamMembershipsService.TEAM_MEMBERSHIP_DEMO_ERROR);
+      }
+      const removed = await teamMembershipsService.leaveTeam({ teamId });
+      if (!liveDataEnabledRef.current || supabaseProfileIdRef.current !== requestProfileId) {
+        return;
+      }
+      const current = liveDirectoryRef.current?.memberships;
+      if (current) commitMemberships(withoutMembership(current, removed));
+      queueSharedRefreshRef.current(['directory']);
+    },
+    [liveDataEnabled, commitMemberships],
   );
 
   // Load the live directory when a Supabase session appears; clear it (and
@@ -1403,11 +1429,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   // --- Rotas (live Supabase slice ★, with local demo fallback) -----------------
 
-  const refreshRotas: AppDataContextValue['refreshRotas'] = useCallback(async () => {
+  const refreshRotas: AppDataContextValue['refreshRotas'] = useCallback(async (options) => {
     const requestProfileId = supabaseProfileIdRef.current;
     if (!liveDataEnabledRef.current || !requestProfileId) return;
-    setRotasLoading(true);
-    setRotasError(null);
+    if (!options?.quiet) {
+      setRotasLoading(true);
+      setRotasError(null);
+    }
     try {
       const rotaData = await rotasService.fetchRotaData();
       if (
@@ -1421,7 +1449,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setRotasError(
+        if (!options?.quiet) setRotasError(
           error instanceof Error
             ? error.message
             : 'We couldn’t load the rota right now. Please try again.',
@@ -1432,7 +1460,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setRotasLoading(false);
+        if (!options?.quiet) setRotasLoading(false);
       }
     }
   }, []);
@@ -1454,19 +1482,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // server rows, so nothing is lost). This is also what heals the rare
   // partial assignment replace (see rotas service).
   const resyncLiveRotas = useCallback(() => {
-    const requestProfileId = supabaseProfileIdRef.current;
-    if (!requestProfileId) return;
-    rotasService
-      .fetchRotaData()
-      .then((rotaData) => {
-        if (
-          liveDataEnabledRef.current &&
-          supabaseProfileIdRef.current === requestProfileId
-        ) {
-          setLiveRota(rotaData);
-        }
-      })
-      .catch((error) => console.warn('[appData] rotas re-sync failed', error));
+    queueSharedRefreshRef.current(['rotas']);
   }, []);
 
   const addRotaEntry: AppDataContextValue['addRotaEntry'] = useCallback(
@@ -1732,11 +1748,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   // --- Songs (live Supabase slice, with local demo fallback) ------------------
 
-  const refreshSongs: AppDataContextValue['refreshSongs'] = useCallback(async () => {
+  const refreshSongs: AppDataContextValue['refreshSongs'] = useCallback(async (options) => {
     const requestProfileId = supabaseProfileIdRef.current;
     if (!liveDataEnabledRef.current || !requestProfileId) return;
-    setSongsLoading(true);
-    setSongsError(null);
+    if (!options?.quiet) {
+      setSongsLoading(true);
+      setSongsError(null);
+    }
     try {
       const songsData = await songsService.fetchSongsData();
       if (
@@ -1750,7 +1768,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setSongsError(
+        if (!options?.quiet) setSongsError(
           error instanceof Error
             ? error.message
             : "We couldn't load songs right now. Please try again.",
@@ -1761,7 +1779,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
-        setSongsLoading(false);
+        if (!options?.quiet) setSongsLoading(false);
       }
     }
   }, []);
@@ -1779,19 +1797,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [songsLive, refreshSongs]);
 
   const resyncLiveSongs = useCallback(() => {
-    const requestProfileId = supabaseProfileIdRef.current;
-    if (!requestProfileId) return;
-    songsService
-      .fetchSongsData()
-      .then((songsData) => {
-        if (
-          liveDataEnabledRef.current &&
-          supabaseProfileIdRef.current === requestProfileId
-        ) {
-          setLiveSongsData(songsData);
-        }
-      })
-      .catch((error) => console.warn('[appData] songs re-sync failed', error));
+    queueSharedRefreshRef.current(['songs']);
   }, []);
 
   const addSong: AppDataContextValue['addSong'] = useCallback(
@@ -2289,6 +2295,23 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       [notificationPrefsLive, supabaseProfileId, liveNotificationPrefs],
     );
 
+  const sharedRefreshers = useMemo<Record<SharedRefreshDomain, () => Promise<void>>>(
+    () => ({
+      announcements: () => refreshAnnouncements({ quiet: true }),
+      events: () => refreshEvents({ quiet: true }),
+      rotas: () => refreshRotas({ quiet: true }),
+      songs: () => refreshSongs({ quiet: true }),
+      directory: () => refreshTeams({ quiet: true }),
+    }),
+    [refreshAnnouncements, refreshEvents, refreshRotas, refreshSongs, refreshTeams],
+  );
+  const invalidateSharedDomains = useSharedLiveDataFreshness({
+    enabled: liveDataEnabled,
+    profileId: supabaseProfileId,
+    refreshers: sharedRefreshers,
+  });
+  queueSharedRefreshRef.current = invalidateSharedDomains;
+
   const value = useMemo<AppDataContextValue>(
     () => ({
       isHydrated,
@@ -2306,6 +2329,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshTeams,
       addTeamMember,
       removeTeamMember,
+      leaveTeam,
       getAvatarUri,
       setOwnAvatar,
       removeOwnAvatar,
@@ -2394,6 +2418,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshTeams,
       addTeamMember,
       removeTeamMember,
+      leaveTeam,
       getAvatarUri,
       setOwnAvatar,
       removeOwnAvatar,

@@ -17,9 +17,13 @@ export const TEAM_MEMBERSHIP_ALREADY_MEMBER_ERROR =
 export const TEAM_MEMBERSHIP_NOT_FOUND_ERROR =
   'That person is no longer a member of this team.';
 export const TEAM_MEMBERSHIP_LEADER_ERROR =
-  'Team leaders cannot be removed here. Ask a church admin to reassign the team leader first.';
+  'Another team admin cannot be removed by a team admin in this version.';
+export const TEAM_MEMBERSHIP_FINAL_ADMIN_ERROR =
+  'This is the final team admin. Another team admin must be appointed before they can be removed.';
 export const TEAM_MEMBERSHIP_SELF_REMOVAL_ERROR =
-  'You cannot remove yourself here. Ask another team leader or church admin for help.';
+  'Use Leave Team from the team page to remove your own membership.';
+export const TEAM_MEMBERSHIP_LEAVE_FINAL_ADMIN_ERROR =
+  'Another team admin must be appointed before you can leave.';
 export const TEAM_MEMBERSHIP_OFFLINE_ERROR =
   "We couldn't reach the server. Please check your connection and try again.";
 export const TEAM_MEMBERSHIP_SETUP_ERROR =
@@ -35,6 +39,10 @@ export interface TeamMembershipMutationInput {
   profileId: string;
 }
 
+export interface LeaveTeamInput {
+  teamId: string;
+}
+
 interface TeamMembershipRpcRow {
   membership_id: string;
   team_id: string;
@@ -47,6 +55,10 @@ function assertLiveIds({ teamId, profileId }: TeamMembershipMutationInput): void
   if (!UUID_PATTERN.test(teamId) || !UUID_PATTERN.test(profileId)) {
     throw new Error(TEAM_MEMBERSHIP_DEMO_ERROR);
   }
+}
+
+function assertLiveTeamId(teamId: string): void {
+  if (!UUID_PATTERN.test(teamId)) throw new Error(TEAM_MEMBERSHIP_DEMO_ERROR);
 }
 
 function requireClient(): SupabaseClient {
@@ -71,7 +83,7 @@ function isMissingFunctionError(error: unknown): boolean {
   );
 }
 
-function friendlyError(operation: 'add' | 'remove', error: unknown): Error {
+function friendlyError(operation: 'add' | 'remove' | 'leave', error: unknown): Error {
   const message = messageOf(error);
   const known = [
     TEAM_MEMBERSHIP_DEMO_ERROR,
@@ -81,7 +93,9 @@ function friendlyError(operation: 'add' | 'remove', error: unknown): Error {
     TEAM_MEMBERSHIP_ALREADY_MEMBER_ERROR,
     TEAM_MEMBERSHIP_NOT_FOUND_ERROR,
     TEAM_MEMBERSHIP_LEADER_ERROR,
+    TEAM_MEMBERSHIP_FINAL_ADMIN_ERROR,
     TEAM_MEMBERSHIP_SELF_REMOVAL_ERROR,
+    TEAM_MEMBERSHIP_LEAVE_FINAL_ADMIN_ERROR,
     TEAM_MEMBERSHIP_OFFLINE_ERROR,
     TEAM_MEMBERSHIP_SETUP_ERROR,
   ];
@@ -101,25 +115,32 @@ function friendlyError(operation: 'add' | 'remove', error: unknown): Error {
   if (/MEMBERSHIP_NOT_FOUND/i.test(message)) {
     return new Error(TEAM_MEMBERSHIP_NOT_FOUND_ERROR);
   }
-  if (/TEAM_LEADER_REMOVAL_BLOCKED/i.test(message)) {
+  if (/PEER_TEAM_ADMIN_REMOVAL_BLOCKED|TEAM_LEADER_REMOVAL_BLOCKED/i.test(message)) {
     return new Error(TEAM_MEMBERSHIP_LEADER_ERROR);
   }
-  if (/SELF_REMOVAL_BLOCKED/i.test(message)) {
+  if (/FINAL_TEAM_ADMIN_REMOVAL_BLOCKED/i.test(message)) {
+    return new Error(TEAM_MEMBERSHIP_FINAL_ADMIN_ERROR);
+  }
+  if (/SELF_REMOVAL_USE_LEAVE_TEAM|SELF_REMOVAL_BLOCKED/i.test(message)) {
     return new Error(TEAM_MEMBERSHIP_SELF_REMOVAL_ERROR);
   }
-  return new Error(operation === 'add' ? ADD_ERROR : REMOVE_ERROR);
+  if (/FINAL_TEAM_ADMIN_LEAVE_BLOCKED/i.test(message)) {
+    return new Error(TEAM_MEMBERSHIP_LEAVE_FINAL_ADMIN_ERROR);
+  }
+  return new Error(operation === 'add' ? ADD_ERROR : operation === 'remove' ? REMOVE_ERROR : "We couldn't leave this team right now. Please try again.");
 }
 
 function toMembership(
   value: unknown,
-  expected: TeamMembershipMutationInput,
+  expected: { teamId: string; profileId?: string },
 ): TeamMembership {
   const row = (Array.isArray(value) ? value[0] : value) as TeamMembershipRpcRow | null;
   if (
     !row ||
     row.team_id !== expected.teamId ||
-    row.profile_id !== expected.profileId ||
+    (expected.profileId !== undefined && row.profile_id !== expected.profileId) ||
     !row.membership_id ||
+    !UUID_PATTERN.test(row.profile_id) ||
     !['member', 'team_leader'].includes(row.role)
   ) {
     throw new Error('INVALID_MEMBERSHIP_RESPONSE');
@@ -170,5 +191,22 @@ export async function removeTeamMember(
       code: (error as { code?: string })?.code,
     });
     throw friendlyError('remove', error);
+  }
+}
+
+/** Leave one team as the authenticated caller; caller identity and role are server-derived. */
+export async function leaveTeam(input: LeaveTeamInput): Promise<TeamMembership> {
+  try {
+    assertLiveTeamId(input.teamId);
+    const { data, error } = await requireClient().rpc('leave_team', {
+      p_team_id: input.teamId,
+    });
+    if (error) throw error;
+    return toMembership(data, { teamId: input.teamId });
+  } catch (error) {
+    console.warn('[teamMemberships] leave failed', {
+      code: (error as { code?: string })?.code,
+    });
+    throw friendlyError('leave', error);
   }
 }

@@ -64,6 +64,19 @@ interface AuthContextValue {
   applySessionProfile: (
     patch: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'avatar_url'>>,
   ) => void;
+  /**
+   * Replace the live session's directory-derived identity/authority snapshot.
+   * The profile id guard prevents an old account's refresh from touching a
+   * newly signed-in account.
+   */
+  applySessionDirectorySnapshot: (
+    profileId: string,
+    snapshot: {
+      profile?: UserProfile;
+      orgRole: OrganisationRoleName;
+      memberships: TeamMembership[];
+    },
+  ) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -82,6 +95,24 @@ function buildMockSession(userId: string): SessionUser | null {
     mockOrganisationRoles.find((r) => r.user_id === userId)?.role ?? 'general_member';
   const memberships = mockMemberships.filter((m) => m.user_id === userId);
   return { profile, orgRole, memberships };
+}
+
+export function applyDirectorySnapshotToSession(
+  current: SessionUser | null,
+  profileId: string,
+  snapshot: {
+    profile?: UserProfile;
+    orgRole: OrganisationRoleName;
+    memberships: TeamMembership[];
+  },
+): SessionUser | null {
+  if (!current || current.supabaseProfileId !== profileId) return current;
+  return {
+    ...current,
+    profile: snapshot.profile ?? current.profile,
+    orgRole: snapshot.orgRole,
+    memberships: snapshot.memberships,
+  };
 }
 
 /**
@@ -268,6 +299,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [applySessionProfile],
   );
 
+  const applySessionDirectorySnapshot = useCallback(
+    (
+      profileId: string,
+      snapshot: {
+        profile?: UserProfile;
+        orgRole: OrganisationRoleName;
+        memberships: TeamMembership[];
+      },
+    ) => {
+      setUser((prev) => applyDirectorySnapshotToSession(prev, profileId, snapshot));
+    },
+    [],
+  );
+
   const signOut = useCallback(async () => {
     const mode = authModeRef.current;
     applySession(null, null);
@@ -294,6 +339,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut,
       applySessionAvatarUrl,
       applySessionProfile,
+      applySessionDirectorySnapshot,
     }),
     [
       user,
@@ -304,6 +350,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut,
       applySessionAvatarUrl,
       applySessionProfile,
+      applySessionDirectorySnapshot,
     ],
   );
 

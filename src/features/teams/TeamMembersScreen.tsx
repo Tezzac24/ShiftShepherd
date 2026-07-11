@@ -17,7 +17,11 @@ import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { teamMembers } from '../../lib/appData/selectors';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
-import { canManageTeamMemberships } from '../../lib/permissions';
+import {
+  canManageTeamMemberships,
+  teamMemberRemovalState,
+  TeamMemberRemovalState,
+} from '../../lib/permissions';
 import { Team, TeamMembership, UserProfile } from '../../types';
 
 export function TeamMemberRow({
@@ -25,6 +29,7 @@ export function TeamMemberRow({
   membership,
   avatarUri,
   isCurrentUser,
+  removalState,
   removing,
   disabled,
   onRemove,
@@ -33,11 +38,12 @@ export function TeamMemberRow({
   membership: TeamMembership;
   avatarUri?: string;
   isCurrentUser: boolean;
+  removalState: TeamMemberRemovalState;
   removing: boolean;
   disabled: boolean;
   onRemove: () => void;
 }) {
-  const protectedMembership = membership.role === 'team_leader' || isCurrentUser;
+  const protectedMembership = removalState !== 'removable';
 
   return (
     <Card style={styles.memberCard}>
@@ -53,9 +59,23 @@ export function TeamMemberRow({
           <AppText variant="small" tone="secondary" numberOfLines={1}>
             {profile.email}
           </AppText>
-          {membership.role === 'team_leader' ? (
+          <View style={styles.roleRow}>
+            <Badge
+              label={membership.role === 'team_leader' ? 'Team admin' : 'Member'}
+              tone={membership.role === 'team_leader' ? 'accent' : 'neutral'}
+            />
+          </View>
+          {removalState === 'self' ? (
             <AppText variant="small" tone="muted">
-              Team leader · leadership is managed separately
+              Use Leave Team from the team page for your own membership.
+            </AppText>
+          ) : removalState === 'peer_team_admin' ? (
+            <AppText variant="small" tone="muted">
+              Team admins cannot remove another team admin in this version.
+            </AppText>
+          ) : removalState === 'final_team_admin' ? (
+            <AppText variant="small" tone="muted">
+              Another team admin must be appointed before this person can be removed.
             </AppText>
           ) : null}
         </View>
@@ -155,11 +175,14 @@ export default function TeamMembersScreen() {
   const isDemo = authMode !== 'supabase' || !data.teamsLive;
   const canManage = !isDemo && canManageTeamMemberships(user, team.id);
 
-  const requestRemove = async (profile: UserProfile) => {
+  const requestRemove = async (profile: UserProfile, membership: TeamMembership) => {
     if (!canManage || removingProfileId) return;
     const approved = await confirm({
       title: `Remove ${profile.full_name}?`,
-      message: `${profile.full_name} will be removed from ${team.name} and will no longer have member access to this team’s chat, rota and updates. Their church profile and account will stay in place.`,
+      message:
+        membership.role === 'team_leader'
+          ? `${profile.full_name}'s team-admin membership will be removed from ${team.name}. Another team admin will remain. Their church profile, account and organisation role will stay in place.`
+          : `${profile.full_name} will be removed from ${team.name} and will no longer have member access to this team's chat, rota and updates. Their church profile, account and organisation role will stay in place.`,
       confirmLabel: 'Remove member',
     });
     if (!approved) return;
@@ -230,9 +253,10 @@ export default function TeamMembersScreen() {
                 membership={membership}
                 avatarUri={data.getAvatarUri(profile)}
                 isCurrentUser={profile.id === user.profile.id}
+                removalState={teamMemberRemovalState(user, membership, data.memberships)}
                 removing={removingProfileId === profile.id}
                 disabled={removingProfileId !== null}
-                onRemove={() => void requestRemove(profile)}
+                onRemove={() => void requestRemove(profile, membership)}
               />
             ))
           ) : (
@@ -255,6 +279,7 @@ const styles = StyleSheet.create({
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   memberCopy: { flex: 1, gap: 2, minWidth: 0 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  roleRow: { flexDirection: 'row', marginTop: 2 },
   flexText: { flex: 1 },
   removeAction: {
     minHeight: touchTarget,

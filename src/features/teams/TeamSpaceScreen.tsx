@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
@@ -9,11 +9,14 @@ import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Badge, CountBadge } from '../../components/Badge';
 import { Button } from '../../components/Button';
+import { Card } from '../../components/Card';
 import { EmptyState } from '../../components/EmptyState';
+import { useConfirm } from '../../components/ConfirmDialog';
 import { ListRow } from '../../components/ListRow';
 import { RotaEntryCard } from '../../components/RotaEntryCard';
 import { Screen } from '../../components/Screen';
 import { SectionHeader } from '../../components/SectionHeader';
+import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import {
   assignmentsForEntry,
@@ -29,6 +32,8 @@ import {
   canCreateTeamAnnouncements,
   canManageTeamRota,
   canViewTeam,
+  isChurchAdmin,
+  leaveTeamState,
 } from '../../lib/permissions';
 import { Team } from '../../types';
 import { useTeamAvatar } from './useTeamAvatar';
@@ -53,7 +58,7 @@ export function TeamIdentityHeader({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Team settings"
-            accessibilityHint={`Manage the photo for ${team.name}`}
+            accessibilityHint={`Manage the photo and members for ${team.name}`}
             onPress={onOpenSettings}
             style={({ pressed }) => [
               styles.settingsAction,
@@ -85,9 +90,14 @@ export function TeamIdentityHeader({
  */
 export default function TeamSpaceScreen() {
   const router = useRouter();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
   const user = useRequiredUser();
   const data = useAppData();
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
 
   const team = data.teams.find((t) => t.id === teamId);
 
@@ -146,12 +156,55 @@ export default function TeamSpaceScreen() {
   const announcements = teamAnnouncements(team.id, data.announcements).slice(0, 2);
   const members = teamMembers(team.id, data.memberships, data.users);
   const unread = data.unreadByTeam[team.id] ?? 0;
+  const ownMembership = data.memberships.find(
+    (membership) =>
+      membership.team_id === team.id && membership.user_id === user.profile.id,
+  );
+  const currentLeaveState = leaveTeamState(user.profile.id, team.id, data.memberships);
 
   const myAssignment = nextEntry
     ? assignmentsForEntry(nextEntry.id, data.rotaAssignments).find(
         (a) => a.user_id === user.profile.id,
       )
     : undefined;
+
+  const requestLeave = async () => {
+    if (!ownMembership || currentLeaveState !== 'allowed' || confirmingLeave || leaving) return;
+    const leadershipCopy =
+      ownMembership.role === 'team_leader'
+        ? ' You will also stop being a team admin. Another team admin will remain.'
+        : '';
+    const accessCopy = isChurchAdmin(user)
+      ? 'Your team membership will be removed. Your church-admin role, account and organisation access will stay in place.'
+      : `You will lose access to ${team.name}'s chat, rota and team updates.`;
+    setConfirmingLeave(true);
+    let approved = false;
+    try {
+      approved = await confirm({
+        title: `Leave ${team.name}?`,
+        message: `${accessCopy}${leadershipCopy} Your church profile and account will not be deleted.`,
+        confirmLabel: 'Leave team',
+      });
+    } finally {
+      setConfirmingLeave(false);
+    }
+    if (!approved) return;
+    setLeaving(true);
+    setLeaveError(null);
+    try {
+      await data.leaveTeam(team.id);
+      showToast(`You left ${team.name}.`);
+      router.replace('/(tabs)/teams');
+    } catch (error) {
+      setLeaveError(
+        error instanceof Error
+          ? error.message
+          : "We couldn't leave this team right now. Please try again.",
+      );
+    } finally {
+      setLeaving(false);
+    }
+  };
 
   return (
     <Screen>
@@ -350,6 +403,70 @@ export default function TeamSpaceScreen() {
           </View>
         </>
       ) : null}
+
+      {ownMembership ? (
+        <>
+          <SectionHeader title="Your Membership" />
+          <Card style={styles.membershipCard}>
+            <View style={styles.membershipSummary}>
+              <Badge
+                label={ownMembership.role === 'team_leader' ? 'Team admin' : 'Member'}
+                tone={ownMembership.role === 'team_leader' ? 'accent' : 'neutral'}
+              />
+              <AppText tone="secondary" style={styles.membershipCopy}>
+                Leaving removes only your membership in {team.name}. Your church profile and
+                account stay in place.
+              </AppText>
+            </View>
+            {currentLeaveState === 'final_team_admin' ? (
+              <View style={styles.leaveGuidance} accessibilityLiveRegion="polite">
+                <Ionicons name="shield-checkmark-outline" size={21} color={colors.textMuted} />
+                <AppText variant="small" tone="muted" style={styles.membershipCopy}>
+                  Another team admin must be appointed before you can leave.
+                </AppText>
+              </View>
+            ) : null}
+            {leaveError ? (
+              <View style={styles.leaveError} accessibilityLiveRegion="polite">
+                <Ionicons name="alert-circle-outline" size={21} color={colors.danger} />
+                <AppText variant="small" tone="danger" style={styles.membershipCopy}>
+                  {leaveError}
+                </AppText>
+              </View>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Leave ${team.name}`}
+              accessibilityHint="Removes only your membership after confirmation"
+              accessibilityState={{
+                disabled:
+                  confirmingLeave || leaving || currentLeaveState === 'final_team_admin',
+                busy: leaving,
+              }}
+              disabled={
+                confirmingLeave || leaving || currentLeaveState === 'final_team_admin'
+              }
+              onPress={() => void requestLeave()}
+              style={({ pressed }) => [
+                styles.leaveAction,
+                pressed && styles.leaveActionPressed,
+                (confirmingLeave || leaving || currentLeaveState === 'final_team_admin') &&
+                  styles.leaveDisabled,
+              ]}
+              testID="leave-team-action"
+            >
+              {leaving ? (
+                <ActivityIndicator size="small" color={colors.danger} />
+              ) : (
+                <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+              )}
+              <AppText variant="label" tone="danger">
+                {leaving ? 'Leaving…' : 'Leave team'}
+              </AppText>
+            </Pressable>
+          </Card>
+        </>
+      ) : null}
     </Screen>
   );
 }
@@ -373,4 +490,33 @@ const styles = StyleSheet.create({
   memberRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
   shortcuts: { gap: spacing.sm },
   actions: { gap: spacing.sm },
+  membershipCard: { gap: spacing.md },
+  membershipSummary: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    alignItems: 'flex-start',
+  },
+  membershipCopy: { flex: 1 },
+  leaveGuidance: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  leaveError: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    backgroundColor: colors.dangerSoft,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  leaveAction: {
+    minHeight: touchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.dangerSoft,
+    paddingHorizontal: spacing.md,
+  },
+  leaveActionPressed: { opacity: 0.75 },
+  leaveDisabled: { opacity: 0.5 },
 });

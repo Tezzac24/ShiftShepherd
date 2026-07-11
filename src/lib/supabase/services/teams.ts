@@ -21,7 +21,15 @@
  */
 import { SupabaseClient } from '@supabase/supabase-js';
 
-import { Organisation, Team, TeamMembership, TeamRole, TeamType, UserProfile } from '../../../types';
+import {
+  Organisation,
+  OrganisationRoleName,
+  Team,
+  TeamMembership,
+  TeamRole,
+  TeamType,
+  UserProfile,
+} from '../../../types';
 import { getSupabase } from '../client';
 
 // Friendly, non-technical messages — shown directly in the UI.
@@ -38,6 +46,8 @@ export interface TeamsDirectory {
   teams: Team[];
   /** Memberships of the visible teams (plus the caller's own). */
   memberships: TeamMembership[];
+  /** The current profile's organisation authority, refreshed with the directory. */
+  currentOrgRole: OrganisationRoleName;
 }
 
 interface OrganisationRow {
@@ -121,10 +131,10 @@ function toAppProfile(row: ProfileRow): UserProfile {
  * Fetch the live people/teams directory for the signed-in user. RLS does all
  * the filtering; the queries just ask for everything visible.
  */
-export async function fetchTeamsDirectory(): Promise<TeamsDirectory> {
+export async function fetchTeamsDirectory(currentProfileId: string): Promise<TeamsDirectory> {
   const supabase = requireClient();
   try {
-    const [orgRes, profilesRes, teamsRes, membershipsRes] = await Promise.all([
+    const [orgRes, profilesRes, teamsRes, membershipsRes, currentRoleRes] = await Promise.all([
       supabase
         .from('organisations')
         .select('id, name, logo_url, primary_colour, created_at')
@@ -142,17 +152,24 @@ export async function fetchTeamsDirectory(): Promise<TeamsDirectory> {
         .from('team_memberships')
         .select('id, team_id, user_id, role, created_at')
         .order('created_at', { ascending: true }),
+      supabase
+        .from('organisation_roles')
+        .select('role')
+        .eq('user_id', currentProfileId)
+        .maybeSingle(),
     ]);
     if (orgRes.error) throw orgRes.error;
     if (profilesRes.error) throw profilesRes.error;
     if (teamsRes.error) throw teamsRes.error;
     if (membershipsRes.error) throw membershipsRes.error;
+    if (currentRoleRes.error) throw currentRoleRes.error;
 
     return {
       organisation: (orgRes.data as OrganisationRow | null) ?? null,
       users: ((profilesRes.data ?? []) as ProfileRow[]).map(toAppProfile),
       teams: (teamsRes.data ?? []) as TeamRow[],
       memberships: (membershipsRes.data ?? []) as MembershipRow[],
+      currentOrgRole: (currentRoleRes.data?.role ?? 'general_member') as OrganisationRoleName,
     };
   } catch (error) {
     fail('directory fetch', error);

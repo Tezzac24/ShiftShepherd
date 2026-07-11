@@ -47,8 +47,11 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
 
   const canEditProfile = authMode === 'supabase' && !!user.supabaseProfileId;
+  const currentMemberships = data.memberships.filter(
+    (membership) => membership.user_id === user.profile.id,
+  );
   const myTeams = data.teams.filter((team) =>
-    user.memberships.some((membership) => membership.team_id === team.id),
+    currentMemberships.some((membership) => membership.team_id === team.id),
   );
 
   const beginEditing = () => {
@@ -244,7 +247,7 @@ export default function ProfileScreen() {
 
         <View style={styles.badgeRow}>
           <Badge label={orgRoleLabels[user.orgRole]} tone="primary" />
-          {user.memberships
+          {currentMemberships
             .filter((membership) => membership.role === 'team_leader')
             .map((membership) => {
               const team = data.teams.find((candidate) => candidate.id === membership.team_id);
@@ -264,7 +267,7 @@ export default function ProfileScreen() {
               icon="people-outline"
               title={team.name}
               subtitle={
-                user.memberships.find((membership) => membership.team_id === team.id)?.role ===
+                currentMemberships.find((membership) => membership.team_id === team.id)?.role ===
                 'team_leader'
                   ? 'Team Leader'
                   : 'Member'

@@ -12,6 +12,7 @@ import {
   SessionUser,
   SongSection,
   Team,
+  TeamMembership,
 } from '../../types';
 
 export function isChurchAdmin(user: SessionUser): boolean {
@@ -44,6 +45,51 @@ export function canManageTeamAvatar(user: SessionUser, teamId: string): boolean 
 /** Membership writes follow the same team-leader/church-admin boundary. */
 export function canManageTeamMemberships(user: SessionUser, teamId: string): boolean {
   return isChurchAdmin(user) || isTeamLeader(user, teamId);
+}
+
+export type TeamMemberRemovalState =
+  | 'removable'
+  | 'self'
+  | 'peer_team_admin'
+  | 'final_team_admin';
+
+/**
+ * Presentation-only removal availability. The target's team role is the only
+ * protected role input: an organisation-wide church admin whose membership is
+ * `member` remains an ordinary removable target. The RPC is authoritative.
+ */
+export function teamMemberRemovalState(
+  user: SessionUser,
+  target: TeamMembership,
+  teamMemberships: TeamMembership[],
+): TeamMemberRemovalState {
+  if (target.user_id === user.profile.id) return 'self';
+  if (target.role !== 'team_leader') return 'removable';
+  if (!isChurchAdmin(user)) return 'peer_team_admin';
+  const adminCount = teamMemberships.filter(
+    (membership) =>
+      membership.team_id === target.team_id && membership.role === 'team_leader',
+  ).length;
+  return adminCount > 1 ? 'removable' : 'final_team_admin';
+}
+
+export type LeaveTeamState = 'allowed' | 'final_team_admin' | 'not_member';
+
+/** Presentation hint for Leave Team; the database repeats the final-admin check under lock. */
+export function leaveTeamState(
+  profileId: string,
+  teamId: string,
+  memberships: TeamMembership[],
+): LeaveTeamState {
+  const own = memberships.find(
+    (membership) => membership.team_id === teamId && membership.user_id === profileId,
+  );
+  if (!own) return 'not_member';
+  if (own.role !== 'team_leader') return 'allowed';
+  const adminCount = memberships.filter(
+    (membership) => membership.team_id === teamId && membership.role === 'team_leader',
+  ).length;
+  return adminCount > 1 ? 'allowed' : 'final_team_admin';
 }
 
 // ---------------------------------------------------------------------------
