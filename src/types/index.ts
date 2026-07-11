@@ -279,14 +279,40 @@ export interface ChatAttachment {
 
 /**
  * How far a user has read one team's chat (one row per user + team, private
- * to that user). Messages from other people created after last_read_at count
- * as unread; there are no visible read receipts.
+ * to that user). The cursor is server-derived: last_read_at is the pointed-at
+ * message's created_at and last_read_message_id its id, ordered as a
+ * (created_at, id) tuple. Messages from other people after the cursor count as
+ * unread. Writes go only through mark_team_chat_read; there are no visible read
+ * receipts.
  */
 export interface ChatReadState {
   id: ID;
   user_id: ID;
   team_id: ID;
   last_read_at: string;
+  last_read_message_id: ID | null;
+}
+
+/**
+ * One row of the authoritative unread summary (get_team_chat_unread_summary),
+ * per team the caller can currently access. unread_count excludes the caller's
+ * own messages and applies the read-cursor/membership baseline server-side.
+ */
+export interface TeamChatUnreadEntry {
+  team_id: ID;
+  unread_count: number;
+  latest_message_id: ID | null;
+  latest_message_created_at: string | null;
+  latest_message_sender_id: ID | null;
+  last_read_message_id: ID | null;
+  last_read_at: string | null;
+}
+
+/** Result of advancing the caller's read cursor for one team (mark_team_chat_read). */
+export interface TeamChatReadCursor {
+  team_id: ID;
+  last_read_message_id: ID | null;
+  last_read_at: string | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import React from 'react';
 
 import { colors } from '@/constants/theme';
 import { useAppData } from '@/src/lib/appData/AppDataContext';
+import { sumUnread } from '@/src/lib/appData/chatUnread';
 import { visibleTeams } from '@/src/lib/appData/selectors';
 import { useAuth } from '@/src/lib/auth/AuthContext';
 
@@ -14,12 +15,16 @@ export default function TabsLayout() {
   const { user } = useAuth();
   const data = useAppData();
 
+  // Total unread across the teams this user can see. Driven by central state,
+  // so it updates from anywhere in the app — not only on the Messages screen.
   const unreadTotal = user
-    ? visibleTeams(user, data.teams).reduce(
-        (sum, team) => sum + (data.unreadByTeam[team.id] ?? 0),
-        0,
+    ? sumUnread(
+        data.unreadByTeam,
+        visibleTeams(user, data.teams).map((team) => team.id),
       )
     : 0;
+  // A sensible cap keeps the badge from dominating navigation.
+  const badgeCount = unreadTotal > 99 ? '99+' : unreadTotal;
 
   return (
     <Tabs
@@ -65,7 +70,11 @@ export default function TabsLayout() {
         name="messages"
         options={{
           title: 'Messages',
-          tabBarBadge: unreadTotal > 0 ? unreadTotal : undefined,
+          tabBarBadge: unreadTotal > 0 ? badgeCount : undefined,
+          tabBarAccessibilityLabel:
+            unreadTotal > 0
+              ? `Messages, ${unreadTotal} unread`
+              : 'Messages',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="chatbubbles-outline" size={size} color={color} />
           ),

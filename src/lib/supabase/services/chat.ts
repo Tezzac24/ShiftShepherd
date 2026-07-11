@@ -9,37 +9,37 @@
  *    (sender_id must be the caller's own profile).
  *
  * V1 chat supports text plus one optional image attachment. Realtime still
- * streams only the parent chat_messages INSERT; the open-screen hook follows
- * every arrival with a coalesced refetch so attachment metadata catches up.
- * `subscribeToTeamChatMessages` streams new-message INSERTs for one team
- * (Realtime authorizes each delivered row against the same RLS SELECT
- * policy), while list/send stay ordinary RLS-scoped queries and the database
- * remains the source of truth — missed messages are always caught up by a
- * refetch, never replayed by the socket. There is no editing or deleting (no
- * RLS policies exist for either). Attachment Storage/upload/atomic-send logic
- * lives in chatAttachments.ts; this service owns canonical joined reads.
+ * streams only the parent chat_messages INSERT; consumers follow arrivals with
+ * a coalesced refetch so attachment metadata catches up.
+ * `subscribeToSessionChatMessages` opens ONE session-scoped channel per linked
+ * profile that streams every accessible new-message INSERT (Realtime authorizes
+ * each delivered row against the same RLS SELECT policy) plus the caller's own
+ * read-state changes for cross-device reconciliation. list/send stay ordinary
+ * RLS-scoped queries and the database remains the source of truth — missed
+ * messages are always caught up by a refetch, never replayed by the socket.
+ * There is no editing or deleting (no RLS policies exist for either).
+ * Attachment Storage/upload/atomic-send logic lives in chatAttachments.ts; this
+ * service owns canonical joined reads.
  *
- * Unread tracking rides on `chat_read_states` (one private row per
- * user + team; migration `20260710031212_add_chat_read_states.sql`):
- * `fetchChatReadStates` loads the caller's own rows and `markChatRead`
- * upserts one when a chat is opened. Read state is never shown to other
- * users — this is unread badges, not read receipts.
+ * Server-authoritative unread state lives in chatReadState.ts (the
+ * get_team_chat_unread_summary / mark_team_chat_read RPCs). This service no
+ * longer writes read state directly.
  *
  * This service needs the grants migration
- * `20260709205903_grant_authenticated_chat_api_privileges.sql` and the
- * realtime publication migration
- * `20260710020944_enable_realtime_for_chat_messages.sql` (both pushed and
- * verified). If the grants are ever missing, live chat screens show a
- * friendly load/send error; if the publication entry is missing, realtime
- * reports unhealthy and the screen falls back to manual checking. Until the
- * chat_read_states migration is pushed, fetchChatReadStates reports
- * "unavailable" and the app simply hides unread badges — messages themselves
- * are unaffected. Demo mode is unaffected either way.
+ * `20260709205903_grant_authenticated_chat_api_privileges.sql` and the realtime
+ * publication migrations `20260710020944_enable_realtime_for_chat_messages.sql`
+ * and `20260711173139_add_team_chat_read_cursor.sql` (chat_read_states). If the
+ * grants are ever missing, live chat screens show a friendly load/send error;
+ * if a publication entry is missing, realtime reports unhealthy and the app
+ * falls back to reconciliation catch-up. Demo mode is unaffected either way.
  */
 import { REALTIME_SUBSCRIBE_STATES, SupabaseClient } from '@supabase/supabase-js';
 
-import { ChatAttachment, ChatMessage, ChatReadState } from '../../../types';
+import { ChatAttachment, ChatMessage } from '../../../types';
 import { getSupabase } from '../client';
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const LOAD_ERROR = "We couldn't load messages right now. Please try again.";
 const SEND_ERROR = "We couldn't send that. Check your connection and try again.";
@@ -257,63 +257,93 @@ export async function sendChatMessage(
  */
 export type ChatRealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
-interface ChatRealtimeHandlers {
-  /** A complete new message for the subscribed team arrived. */
+export interface SessionChatHandlers {
+  /** A complete new accessible message arrived (any team the caller can see). */
   onMessage: (message: ChatMessage) => void;
+  /** The caller's own read state changed (this or another device). */
+  onReadStateChanged: () => void;
+  /** The channel recovered after a drop — do an authoritative catch-up. */
+  onReconnect: () => void;
   onStatus: (status: ChatRealtimeStatus) => void;
-  /** A payload arrived that can't be trusted as-is — refetch the list. */
-  onResyncNeeded: () => void;
 }
 
 /**
- * Stream new-message INSERTs for one team over Supabase Realtime. Delivery is
- * still RLS-scoped per subscriber (the SELECT policy on chat_messages), so no
- * one receives rows they couldn't query. Returns an unsubscribe function; no
- * handler fires after it runs. Demo mode / mock team ids never connect.
+ * One session-scoped chat channel for a linked live profile. It streams every
+ * accessible chat_messages INSERT (no team filter — Realtime authorizes each
+ * delivered row against the chat_messages SELECT policy, so the caller only
+ * receives messages for teams they can access) plus the caller's own
+ * chat_read_states INSERT/UPDATE (owner-scoped SELECT policy), so a read on one
+ * device reconciles the same profile's other devices.
+ *
+ * Returns an unsubscribe function; no handler fires after it runs. Demo mode /
+ * mock or missing profile ids never connect. onReconnect fires only after a
+ * genuine drop-and-recover, never on the first subscribe.
  */
-export function subscribeToTeamChatMessages(
-  teamId: string,
-  handlers: ChatRealtimeHandlers,
+export function subscribeToSessionChatMessages(
+  profileId: string,
+  handlers: SessionChatHandlers,
 ): () => void {
   const supabase = getSupabase();
-  if (!supabase || teamId.startsWith('team-')) {
+  if (!supabase || !UUID_PATTERN.test(profileId)) {
     handlers.onStatus('disconnected');
     return () => {};
   }
 
   let stopped = false;
-  let hasConnected = false;
+  let hadConnectionIssue = false;
 
   const channel = supabase
-    .channel(`team-chat:${teamId}`)
+    .channel(`chat-session:${profileId}`)
     .on(
       'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `team_id=eq.${teamId}` },
+      { event: 'INSERT', schema: 'public', table: 'chat_messages' },
       (payload) => {
         if (stopped) return;
         const row = payload.new as Partial<ChatMessageRow>;
-        // The server-side filter should guarantee this; drop strays anyway so
-        // a misdelivered row can never land in the wrong conversation.
-        if (row.team_id !== teamId) return;
-        if (row.id && row.organisation_id && row.sender_id && row.created_at && typeof row.body === 'string') {
+        if (
+          row.id &&
+          row.team_id &&
+          row.organisation_id &&
+          row.sender_id &&
+          row.created_at &&
+          typeof row.body === 'string'
+        ) {
           handlers.onMessage(mapChatMessage(row as ChatMessageRow));
-        } else {
-          handlers.onResyncNeeded();
         }
+        // A malformed payload is ignored on the fast path; the next
+        // reconciliation still corrects previews and counts authoritatively.
+      },
+    )
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'chat_read_states' },
+      () => {
+        if (!stopped) handlers.onReadStateChanged();
+      },
+    )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'chat_read_states' },
+      () => {
+        if (!stopped) handlers.onReadStateChanged();
       },
     )
     .subscribe((status) => {
       if (stopped) return;
       if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
-        hasConnected = true;
         handlers.onStatus('connected');
-      } else if (status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT) {
+        if (hadConnectionIssue) {
+          hadConnectionIssue = false;
+          handlers.onReconnect();
+        }
+      } else if (
+        status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT ||
+        status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR
+      ) {
+        hadConnectionIssue = true;
         handlers.onStatus('reconnecting');
-      } else if (status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR) {
-        // The channel retries by itself after a drop; a join that has never
-        // succeeded (e.g. realtime unavailable) is plain disconnected.
-        handlers.onStatus(hasConnected ? 'reconnecting' : 'disconnected');
       } else if (status === REALTIME_SUBSCRIBE_STATES.CLOSED) {
+        hadConnectionIssue = true;
         handlers.onStatus('disconnected');
       }
     });
@@ -322,69 +352,4 @@ export function subscribeToTeamChatMessages(
     stopped = true;
     void supabase.removeChannel(channel);
   };
-}
-
-interface ChatReadStateRow {
-  id: string;
-  user_id: string;
-  team_id: string;
-  last_read_at: string;
-}
-
-const READ_STATE_COLUMNS = 'id, user_id, team_id, last_read_at';
-
-const MARK_READ_ERROR = "We couldn't update your unread messages just now.";
-
-const MARK_READ_FAIL: FailMessages = {
-  permission: MARK_READ_ERROR,
-  network: MARK_READ_ERROR,
-  fallback: MARK_READ_ERROR,
-};
-
-/**
- * The caller's own chat read states (RLS hides everyone else's). Returns null
- * when unread tracking is unavailable — no client, the chat_read_states
- * migration not applied yet, or any load failure — so callers hide unread
- * badges instead of surfacing an error; chat itself is unaffected.
- */
-export async function fetchChatReadStates(): Promise<ChatReadState[] | null> {
-  const supabase = getSupabase();
-  if (!supabase) return null;
-  const { data, error } = await supabase.from('chat_read_states').select(READ_STATE_COLUMNS);
-  if (error) {
-    console.warn('[chat] read states load failed', error);
-    return null;
-  }
-  return (data ?? []) as ChatReadStateRow[];
-}
-
-/**
- * Record that the signed-in profile has read one team's chat up to
- * lastReadAt (the newest visible message's created_at — a DB-owned timestamp,
- * so read state and messages share one clock). Upserts onto
- * unique(user_id, team_id); the saved row is returned. Callers guard against
- * moving last_read_at backwards — the newest known state should win.
- */
-export async function markChatRead(
-  teamId: string,
-  lastReadAt: string,
-  liveProfileId: string,
-): Promise<ChatReadState> {
-  const supabase = requireClient();
-  try {
-    const liveTeamId = requireLiveId(teamId, ['team-'], 'team');
-    const userId = requireLiveId(liveProfileId, ['user-'], 'profile');
-    const { data, error } = await supabase
-      .from('chat_read_states')
-      .upsert(
-        { user_id: userId, team_id: liveTeamId, last_read_at: lastReadAt },
-        { onConflict: 'user_id,team_id' },
-      )
-      .select(READ_STATE_COLUMNS)
-      .single();
-    if (error) throw error;
-    return data as ChatReadStateRow;
-  } catch (error) {
-    fail('mark read', error, MARK_READ_FAIL);
-  }
 }

@@ -7,7 +7,6 @@ import {
   Announcement,
   AvailabilityResponse,
   ChatMessage,
-  ChatReadState,
   ChoirSongSelection,
   Event,
   EventOccurrence,
@@ -407,31 +406,4 @@ export function lastMessageForTeam(
 export function chatMessagePreview(message: ChatMessage): string {
   const text = message.body.trim();
   return text || (message.attachment ? 'Photo' : 'Message');
-}
-
-/**
- * Unread counts per team: messages from other people newer than the user's
- * read point — their read-state row, or `baseline` for teams without one.
- * The user's own messages never count as unread.
- */
-export function countUnreadByTeam(
-  messages: ChatMessage[],
-  readStates: Pick<ChatReadState, 'team_id' | 'last_read_at'>[],
-  baseline: string,
-  selfProfileId: string,
-): Record<string, number> {
-  const timeOf = (timestamp: string) => new Date(timestamp).getTime();
-  const lastReadByTeam = new Map(
-    readStates.map((s) => [s.team_id, timeOf(s.last_read_at)] as const),
-  );
-  const baselineTime = timeOf(baseline);
-  const counts: Record<string, number> = {};
-  for (const message of messages) {
-    if (message.sender_id === selfProfileId) continue;
-    const readPoint = lastReadByTeam.get(message.team_id) ?? baselineTime;
-    if (timeOf(message.created_at) > readPoint) {
-      counts[message.team_id] = (counts[message.team_id] ?? 0) + 1;
-    }
-  }
-  return counts;
 }

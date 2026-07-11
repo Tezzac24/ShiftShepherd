@@ -26,32 +26,32 @@ export default function MessagesScreen() {
   const user = useRequiredUser();
   const data = useAppData();
 
-  // Keep live previews and unread badges fresh: refetch messages and the
-  // user's read states when the tab gains focus and when the app foregrounds
-  // while it's showing. Looking at this list never marks anything read — only
-  // opening a chat does. Demo previews are local state and need neither
-  // (both refreshes no-op).
+  // The session chat channel already keeps previews and unread badges fresh
+  // from anywhere in the app; on focus/foreground we additionally refetch
+  // messages (to pick up attachment previews) and quietly reconcile the
+  // authoritative unread summary. Looking at this list never marks anything
+  // read — only opening a chat does. Demo previews are local (both no-op).
   const focusedRef = useRef(false);
-  const { chatLive, refreshChat, refreshChatReadStates } = data;
+  const { chatLive, refreshChat, refreshUnreadSummary } = data;
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
       if (chatLive) {
         void refreshChat();
-        void refreshChatReadStates();
+        refreshUnreadSummary();
       }
       return () => {
         focusedRef.current = false;
       };
-    }, [chatLive, refreshChat, refreshChatReadStates]),
+    }, [chatLive, refreshChat, refreshUnreadSummary]),
   );
   useOnAppForeground(
     useCallback(() => {
       if (focusedRef.current && chatLive) {
         void refreshChat();
-        void refreshChatReadStates();
+        refreshUnreadSummary();
       }
-    }, [chatLive, refreshChat, refreshChatReadStates]),
+    }, [chatLive, refreshChat, refreshUnreadSummary]),
   );
 
   const teams = visibleTeams(user, data.teams);
