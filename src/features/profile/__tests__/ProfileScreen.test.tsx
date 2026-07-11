@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { useAppData } from '../../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../../lib/auth/AuthContext';
@@ -66,6 +66,12 @@ describe('ProfileScreen edit presentation', () => {
     expect(screen.queryByTestId('profile-full-name-input')).toBeNull();
   });
 
+  it('shows the stored phone as read-only text in view mode', () => {
+    const screen = render(<ProfileScreen />);
+    expect(screen.getByText('+44 7700 900104')).toBeTruthy();
+    expect(screen.queryByTestId('profile-phone-input')).toBeNull();
+  });
+
   it('shows Save and Cancel in edit mode, then Cancel returns to view mode', () => {
     const screen = render(<ProfileScreen />);
     fireEvent.press(screen.getByTestId('edit-profile-action'));
@@ -74,6 +80,48 @@ describe('ProfileScreen edit presentation', () => {
     expect(screen.getByText('Save')).toBeTruthy();
     fireEvent.press(screen.getByText('Cancel'));
     expect(screen.queryByTestId('profile-edit-form')).toBeNull();
+  });
+
+  it('edit mode offers only the name field — phone and email are read-only information', () => {
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByTestId('edit-profile-action'));
+    expect(screen.getByTestId('profile-full-name-input')).toBeTruthy();
+    expect(screen.queryByTestId('profile-phone-input')).toBeNull();
+    const contact = screen.getByTestId('profile-contact-details');
+    expect(contact).toBeTruthy();
+    expect(screen.getByText('sarah@example.com')).toBeTruthy();
+    expect(screen.getByText('+44 7700 900104')).toBeTruthy();
+  });
+
+  it('shows a neutral fallback when no phone is stored, with no edit control', () => {
+    mockUseRequiredUser.mockReturnValue({
+      ...LIVE_USER,
+      profile: { ...LIVE_USER.profile, phone: null },
+    });
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByTestId('edit-profile-action'));
+    expect(screen.getByText('Not added')).toBeTruthy();
+    expect(screen.queryByTestId('profile-phone-input')).toBeNull();
+  });
+
+  it('Cancel restores the original name after typing', () => {
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByTestId('edit-profile-action'));
+    fireEvent.changeText(screen.getByTestId('profile-full-name-input'), 'Someone Else');
+    fireEvent.press(screen.getByText('Cancel'));
+    fireEvent.press(screen.getByTestId('edit-profile-action'));
+    expect(screen.getByDisplayValue('Sarah Williams')).toBeTruthy();
+  });
+
+  it('saves only the full name through updateOwnProfile', async () => {
+    const updateOwnProfile = jest.fn().mockResolvedValue(undefined);
+    mockUseAppData.mockReturnValue({ teams: [], updateOwnProfile, resetDemoData: jest.fn() });
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByTestId('edit-profile-action'));
+    fireEvent.changeText(screen.getByTestId('profile-full-name-input'), 'Sarah W.');
+    fireEvent.press(screen.getByText('Save'));
+    await waitFor(() => expect(updateOwnProfile).toHaveBeenCalledTimes(1));
+    expect(updateOwnProfile).toHaveBeenCalledWith({ full_name: 'Sarah W.' });
   });
 
   it('keeps demo mode read-only', () => {

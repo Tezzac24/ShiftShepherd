@@ -3,7 +3,6 @@ import {
   buildProfileUpdatePayload,
   PROFILE_NAME_REQUIRED,
   PROFILE_NAME_TOO_LONG,
-  PROFILE_PHONE_TOO_LONG,
   updateOwnProfile,
 } from '../profiles';
 
@@ -27,31 +26,24 @@ beforeEach(() => {
 afterEach(() => warnSpy.mockRestore());
 
 describe('buildProfileUpdatePayload', () => {
-  it('allow-lists only full name and phone, trimming both', () => {
+  it('allow-lists only the trimmed full name — phone and admin-owned fields never pass through', () => {
     const input = {
       full_name: '  Sarah Williams  ',
-      phone: '  +44 7700 900104  ',
+      phone: '+44 7700 900104',
       email: 'changed@example.com',
+      avatar_url: 'profiles/other/avatar.jpg',
       organisation_id: 'other-org',
       auth_user_id: 'other-auth-user',
       role: 'church_admin',
       teams: ['all'],
     };
-    expect(buildProfileUpdatePayload(input)).toEqual({
-      p_full_name: 'Sarah Williams',
-      p_phone: '+44 7700 900104',
-    });
+    expect(buildProfileUpdatePayload(input)).toEqual({ p_full_name: 'Sarah Williams' });
   });
 
   it('returns calm validation errors', () => {
-    expect(() => buildProfileUpdatePayload({ full_name: ' ', phone: null })).toThrow(
-      PROFILE_NAME_REQUIRED,
-    );
-    expect(() => buildProfileUpdatePayload({ full_name: 'A'.repeat(101), phone: null })).toThrow(
+    expect(() => buildProfileUpdatePayload({ full_name: ' ' })).toThrow(PROFILE_NAME_REQUIRED);
+    expect(() => buildProfileUpdatePayload({ full_name: 'A'.repeat(101) })).toThrow(
       PROFILE_NAME_TOO_LONG,
-    );
-    expect(() => buildProfileUpdatePayload({ full_name: 'Sarah', phone: '1'.repeat(31) })).toThrow(
-      PROFILE_PHONE_TOO_LONG,
     );
   });
 });
@@ -59,24 +51,34 @@ describe('buildProfileUpdatePayload', () => {
 describe('updateOwnProfile', () => {
   it('refuses demo ids without calling Supabase', async () => {
     const { rpc } = mockClient({ data: null, error: null });
-    await expect(
-      updateOwnProfile('user-sarah', { full_name: 'Sarah Williams', phone: null }),
-    ).rejects.toThrow("We couldn't save your profile right now. Please try again.");
+    await expect(updateOwnProfile('user-sarah', { full_name: 'Sarah Williams' })).rejects.toThrow(
+      "We couldn't save your profile right now. Please try again.",
+    );
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('uses the current-profile RPC with safe fields only', async () => {
+  it('calls the name-only RPC and never sends a phone value', async () => {
     const { rpc } = mockClient({
-      data: [{ profile_id: LIVE_PROFILE_ID, full_name: 'Sarah W.', phone: null }],
+      data: [{ profile_id: LIVE_PROFILE_ID, full_name: 'Sarah W.', phone: '+44 7700 900104' }],
+      error: null,
+    });
+    await expect(updateOwnProfile(LIVE_PROFILE_ID, { full_name: ' Sarah W. ' })).resolves.toEqual({
+      id: LIVE_PROFILE_ID,
+      full_name: 'Sarah W.',
+      phone: '+44 7700 900104',
+    });
+    expect(rpc).toHaveBeenCalledWith('update_own_profile', { p_full_name: 'Sarah W.' });
+    expect(rpc.mock.calls[0][1]).not.toHaveProperty('p_phone');
+  });
+
+  it('returns the stored phone unchanged so the app can keep displaying it', async () => {
+    mockClient({
+      data: [{ profile_id: LIVE_PROFILE_ID, full_name: 'Sarah Williams', phone: null }],
       error: null,
     });
     await expect(
-      updateOwnProfile(LIVE_PROFILE_ID, { full_name: ' Sarah W. ', phone: ' ' }),
-    ).resolves.toEqual({ id: LIVE_PROFILE_ID, full_name: 'Sarah W.', phone: null });
-    expect(rpc).toHaveBeenCalledWith('update_own_profile', {
-      p_full_name: 'Sarah W.',
-      p_phone: '',
-    });
+      updateOwnProfile(LIVE_PROFILE_ID, { full_name: 'Sarah Williams' }),
+    ).resolves.toEqual({ id: LIVE_PROFILE_ID, full_name: 'Sarah Williams', phone: null });
   });
 
   it('rejects a mismatched returned profile instead of patching another user', async () => {
@@ -85,19 +87,19 @@ describe('updateOwnProfile', () => {
       error: null,
     });
     await expect(
-      updateOwnProfile(LIVE_PROFILE_ID, { full_name: 'Sarah Williams', phone: null }),
+      updateOwnProfile(LIVE_PROFILE_ID, { full_name: 'Sarah Williams' }),
     ).rejects.toThrow("We couldn't save your profile right now. Please try again.");
   });
 
   it('maps server validation and network failures to friendly copy', async () => {
     mockClient({ data: null, error: { message: 'Full name must be at least 2 characters' } });
-    await expect(
-      updateOwnProfile(LIVE_PROFILE_ID, { full_name: 'Sarah', phone: null }),
-    ).rejects.toThrow(PROFILE_NAME_REQUIRED);
+    await expect(updateOwnProfile(LIVE_PROFILE_ID, { full_name: 'Sarah' })).rejects.toThrow(
+      PROFILE_NAME_REQUIRED,
+    );
 
     mockClient({ data: null, error: { message: 'TypeError: Failed to fetch' } });
-    await expect(
-      updateOwnProfile(LIVE_PROFILE_ID, { full_name: 'Sarah', phone: null }),
-    ).rejects.toThrow("We couldn't reach the server. Please check your connection and try again.");
+    await expect(updateOwnProfile(LIVE_PROFILE_ID, { full_name: 'Sarah' })).rejects.toThrow(
+      "We couldn't reach the server. Please check your connection and try again.",
+    );
   });
 });

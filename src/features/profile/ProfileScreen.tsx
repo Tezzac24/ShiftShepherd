@@ -21,7 +21,6 @@ import {
   buildProfileUpdatePayload,
   PROFILE_NAME_REQUIRED,
   PROFILE_NAME_TOO_LONG,
-  PROFILE_PHONE_TOO_LONG,
 } from '../../lib/supabase/services/profiles';
 import { useProfileAvatar } from './useProfileAvatar';
 
@@ -43,7 +42,6 @@ export default function ProfileScreen() {
     useProfileAvatar();
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [fullName, setFullName] = useState(user.profile.full_name);
-  const [phone, setPhone] = useState(user.profile.phone ?? '');
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -55,7 +53,6 @@ export default function ProfileScreen() {
 
   const beginEditing = () => {
     setFullName(user.profile.full_name);
-    setPhone(user.profile.phone ?? '');
     setFieldError(null);
     setSaveError(null);
     setIsEditingProfile(true);
@@ -63,7 +60,6 @@ export default function ProfileScreen() {
 
   const cancelEditing = () => {
     setFullName(user.profile.full_name);
-    setPhone(user.profile.phone ?? '');
     setFieldError(null);
     setSaveError(null);
     setIsEditingProfile(false);
@@ -74,19 +70,14 @@ export default function ProfileScreen() {
     setFieldError(null);
     setSaveError(null);
     try {
-      const payload = buildProfileUpdatePayload({ full_name: fullName, phone });
+      const payload = buildProfileUpdatePayload({ full_name: fullName });
       setSaving(true);
-      await data.updateOwnProfile({
-        full_name: payload.p_full_name,
-        phone: payload.p_phone || null,
-      });
+      await data.updateOwnProfile({ full_name: payload.p_full_name });
       setIsEditingProfile(false);
       showToast('Profile updated.');
     } catch (error) {
       const message = error instanceof Error ? error.message : "We couldn't save your profile.";
-      if (
-        [PROFILE_NAME_REQUIRED, PROFILE_NAME_TOO_LONG, PROFILE_PHONE_TOO_LONG].includes(message)
-      ) {
+      if ([PROFILE_NAME_REQUIRED, PROFILE_NAME_TOO_LONG].includes(message)) {
         setFieldError(message);
       } else {
         setSaveError(message);
@@ -139,7 +130,7 @@ export default function ProfileScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Edit profile"
-              accessibilityHint="Change your name, phone number, or profile photo"
+              accessibilityHint="Change your name or profile photo"
               onPress={beginEditing}
               style={({ pressed }) => [styles.editAction, pressed && styles.editActionPressed]}
               testID="edit-profile-action"
@@ -192,32 +183,21 @@ export default function ProfileScreen() {
               autoComplete="name"
               returnKeyType="next"
               maxLength={100}
-              error={
-                fieldError === PROFILE_NAME_REQUIRED || fieldError === PROFILE_NAME_TOO_LONG
-                  ? fieldError
-                  : undefined
-              }
+              error={fieldError ?? undefined}
               testID="profile-full-name-input"
             />
-            <TextField
-              label="Phone number"
-              value={phone}
-              onChangeText={(value) => {
-                setPhone(value);
-                setFieldError(null);
-              }}
-              keyboardType="phone-pad"
-              autoComplete="tel"
-              maxLength={30}
-              helper="Optional"
-              error={fieldError === PROFILE_PHONE_TOO_LONG ? fieldError : undefined}
-              testID="profile-phone-input"
-            />
-            <View style={styles.readOnlyField}>
-              <AppText variant="label">Email</AppText>
-              <AppText tone="secondary">{user.profile.email}</AppText>
+            <View style={styles.readOnlyField} testID="profile-contact-details">
+              <View style={styles.readOnlyRow}>
+                <AppText variant="label">Email</AppText>
+                <AppText tone="secondary">{user.profile.email}</AppText>
+              </View>
+              <View style={styles.readOnlyRow}>
+                <AppText variant="label">Phone</AppText>
+                <AppText tone="secondary">{user.profile.phone ?? 'Not added'}</AppText>
+              </View>
               <AppText variant="small" tone="muted">
-                Your church administrator manages this email address.
+                Contact details are managed separately. Phone number changes will be available
+                through a verified account flow.
               </AppText>
             </View>
             {saveError ? (
@@ -353,11 +333,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   readOnlyField: {
-    gap: spacing.xs,
+    gap: spacing.sm,
     backgroundColor: colors.background,
     borderRadius: radius.md,
     padding: spacing.md,
   },
+  readOnlyRow: { gap: 2 },
   errorBar: {
     flexDirection: 'row',
     alignItems: 'flex-start',
