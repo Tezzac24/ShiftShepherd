@@ -13,12 +13,12 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run migrations in order. Remote history is aligned through pushed/verified `20260711024931_harden_security_definer_functions.sql`; `20260711041539_add_profile_editing_and_team_avatars.sql` is local-only.
+- Run migrations in order. Remote history is aligned through pushed/verified `20260711050344_restrict_profile_editing_to_name.sql`; `20260711063412_add_team_membership_management.sql` is the only local-only migration.
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260711024931` (the security hardening pass, pushed and verified 2026-07-11). Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260711050344` (the pushed/verified name-only profile correction). `20260711063412_add_team_membership_management.sql` is the only local-only migration. Migrations `001`–`002` were originally run by hand via the dashboard and back-filled with `supabase migration repair`; later applied migrations used `supabase db push`. **Do not rename `001`–`006` or any timestamped migration.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
 ### 2. Auth + profiles ✅ (done; auto-link migration pushed + QA'd)
 
@@ -67,16 +67,19 @@ Same pattern as announcements (`events` + read-only `event_categories`). What sh
 
 Verify RLS from the app: Joseph (event manager) full CRUD; Daniel (admin) full CRUD; Ruth/Sarah read-only (no New Event button, and a hand-crafted insert fails server-side).
 
-### 6. Teams & memberships ✅ (done, read-only)
+### 6. Teams directory ✅; membership management implemented (new migration local-only)
 
 Fetch-only, as planned (the app has no team-management screens; admins manage teams in the dashboard). What shipped:
 
-1. `src/lib/supabase/services/teams.ts` — `fetchTeamsDirectory()` returns the caller's organisation, visible profiles, visible teams, and those teams' memberships in one parallel fetch. RLS does the filtering (members see their teams, church admins see all); migration 006's SELECT grants already covered every table, so **no new migration was needed** and there are deliberately no write grants.
+1. `src/lib/supabase/services/teams.ts` — `fetchTeamsDirectory()` returns the caller's organisation, visible profiles, visible teams, and those teams' memberships in one parallel fetch. RLS does the filtering (same-organisation profiles; members see their teams; church admins see all); migration 006's SELECT grants cover every table and there are deliberately no direct membership write grants.
 2. `AuthContext` now builds Supabase sessions entirely from live rows (profile + org role + own memberships) — the email→mock-identity bridge is gone. All ids in a live session are real UUIDs.
 3. `AppDataContext` gained a third live slice (`teamsLive`/`teamsLoading`/`teamsError`/`refreshTeams`): `organisation`, `users`, `teams`, and `memberships` come from the live directory for linked Supabase sessions and stay mock in demo mode. Live directory data is session-only (never persisted; cleared on sign-out).
 4. The announcements/events services dropped their profile/team id bridges — live rows keep real UUIDs end-to-end and screens resolve names against the live directory. Only the **event-category name bridge** remains (categories are still mock in the app).
 5. ~~**Temporary demo bridge** (`src/lib/appData/demoBridge.ts`)~~ ✅ deleted in step 9: it existed to re-key still-local chat onto live team/profile UUIDs, and chat going live made it dead code. Demo mode runs on pure mock ids; live mode is real UUIDs end-to-end.
 6. Teams tab, team space, Messages tab, and the Home team sections show calm loading/error+retry states while the directory loads.
+7. Organisation Directory + Team Membership Management V1 adds `teamMemberships.ts` and dedicated `/teams/[teamId]/settings/members` plus `/add` routes. Live team leaders/admins browse only Auth-linked same-organisation profiles not already on the team, search by name/email, add with the fixed `member` role, and remove ordinary non-self members after confirmation. The normal Team screen stays read-only; demo mode shows no live management actions.
+8. AppData applies the server-returned membership immediately (deduped by id and team/profile), removes successful deletes immediately, then quietly calls the existing `refreshTeams()` so member rows/counts/candidates reconcile without a restart or competing store. No membership realtime subscription was added.
+9. `20260711063412_add_team_membership_management.sql` (**local-only**) adds authenticated-only SECURITY DEFINER `add_team_member(uuid, uuid)` and `remove_team_member(uuid, uuid)` with empty search paths. Both derive the caller from `auth.uid()`, restrict the team to the caller's organisation, require `can_manage_team`, and return the canonical membership row. Adds require a linked same-org profile, always use `member`, and are idempotent on the existing unique `(team_id,user_id)` constraint. Removes block self and every `team_leader` membership because leave-team and leadership reassignment are separate out-of-scope flows. No table grant, RLS policy, index, or constraint changed.
 
 Note the **team-name edge case** under Risks below — still open, and now user-visible: a non-member viewing a church-wide event linked to a team cannot resolve that team's name (RLS hides the team row), so the detail screen simply omits it.
 
@@ -238,18 +241,29 @@ Test **denials**, not just success paths — RLS bugs are almost always "someone
 
 ---
 
-### 12. Profile Editing V1 + Team Avatars V1 — implemented; name-only correction local-only
+### 12. Profile Editing V1 + Team Avatars V1 — live and QA-complete
 
-Implemented 2026-07-11 behind `20260711041539_add_profile_editing_and_team_avatars.sql` (pushed and verified), then corrected the same day by local-only `20260711050344_restrict_profile_editing_to_name.sql`:
+Implemented 2026-07-11 behind `20260711041539_add_profile_editing_and_team_avatars.sql`, then corrected by pushed/verified `20260711050344_restrict_profile_editing_to_name.sql`:
 
 1. `update_own_profile(p_full_name)` is a narrow SECURITY DEFINER RPC with empty `search_path`. It resolves the caller's linked profile from `auth.uid()`, validates/updates **only `full_name`**, returns the profile id, name, and (unchanged) stored phone, revokes public/anon execution, and grants authenticated only. The corrective migration drops the original two-argument `update_own_profile(p_full_name, p_phone)` signature entirely — **phone is deliberately not user-editable**: it is an identity/contact field reserved for a future verified account flow (phone sign-in style), and ordinary profile editing must not conflict with that. Stored phone values are untouched and remain displayed read-only. The app retains no `profiles` UPDATE grant; email, Auth linkage, organisation, roles, and memberships remain outside the API. Phone authentication itself is **not** implemented — no auth config, columns, or verification state changed.
 2. `profiles.ts` runtime-allow-lists only `full_name`, validates calm length limits, rejects demo ids, maps server/network failures to friendly copy, and verifies the returned profile id before patching the Auth session and live directory (the returned stored phone keeps local state accurate).
 3. `teams.avatar_url` stores a constrained private object path. The `team-avatars` bucket is private, JPEG/PNG/WebP-only, and capped at 5 MB. Authenticated SELECT requires `can_access_team`; INSERT/DELETE and `set_team_avatar_path` require `can_manage_team`. No anon policy, public bucket, broad teams UPDATE grant, or Storage UPDATE policy exists; generated names use `upsert: false`.
 4. `teamAvatars.ts` validates before upload, uses `teams/<teamId>/avatar-<timestamp>.<ext>`, signs URLs for one hour, refuses demo ids, atomically repoints through the RPC, and treats old-object cleanup failure as non-fatal. AppData keeps signed URLs/session state separate from demo data and refreshes URLs on foreground.
 5. UI: Profile view mode uses a quiet top-right edit action; edit mode edits the name only, with email and phone shown as read-only information ("Not added" fallback, no disabled inputs) and concise copy that contact details are managed separately. The normal team screen shows only team identity/content — avatar management lives on a dedicated **Team Settings** screen (`/teams/[teamId]/settings`), reached through a subtle header action visible only to live team leaders/church admins; ordinary members see neither the action nor the controls. UI visibility is convenience only — the RPC and Storage policies remain the security boundary.
-6. Automated coverage adds profile payload/RPC/validation/session-shape contracts (including that phone is never sent), team-avatar path/type/size/cleanup/signing, leader/admin permission rules, and focused view/edit/settings-mode visibility tests. Manual QA remains after the corrective migration push: live name persistence/cancel; phone/email/role read-only; leader/admin add/change/remove inside Team Settings; ordinary-member denial; demo fallback; small-iPhone layout.
+6. Automated coverage adds profile payload/RPC/validation/session-shape contracts (including that phone is never sent), team-avatar path/type/size/cleanup/signing, leader/admin permission rules, and focused view/edit/settings-mode visibility tests. The corrective function shape and Team Settings/avatar UX have passed live verification/manual QA; phone/email remain read-only.
 
-Still out of scope: phone/OTP sign-in, admin member management, invites/signup, role/organisation changes, team name/description editing, arbitrary files, and any push delivery expansion.
+Still out of scope: phone/OTP sign-in, invites/signup/account creation, team or organisation-role editing, leader reassignment, team name/description editing, arbitrary files, and any push delivery expansion.
+
+### 13. Organisation Directory + Team Membership Management V1 — implemented; migration local-only
+
+Implemented 2026-07-11 behind local-only `20260711063412_add_team_membership_management.sql`:
+
+1. Managers enter through a subtle **Manage members** row in Team Settings. A dedicated member screen shows a calm alphabetic list, count, avatars/initials, names, email disambiguation, protected leader/self rows, quiet remove actions, confirmation, progress, success toast, and stable inline errors. A separate keyboard-aware add screen provides browse/search, clear no-match/all-added states, and disabled pending actions. Ordinary members see no settings action; direct routes show a friendly locked state.
+2. `eligibleTeamProfiles()` uses the existing RLS-scoped organisation directory, filters to `auth_user_id`-linked profiles in the team's organisation, excludes/deduplicates current members, searches trimmed name/email case-insensitively, and sorts stably. There is no extra read RPC because the safe directory already contains the required data.
+3. `teamMemberships.ts` accepts only `{ teamId, profileId }`, refuses demo/non-UUID ids before creating a client, calls one RPC, validates the returned row, and maps permission/team/ineligible/duplicate/missing/leader/self/network/setup/unexpected failures to calm copy without leaking cross-organisation existence or raw PostgREST detail.
+4. The RPCs retain SELECT-only `team_memberships` app grants, derive caller/organisation authority server-side, and add no anon access. There is no role input, invite/account creation, organisation-role mutation, notification, realtime, or profile/Auth deletion path.
+5. Automated regression coverage is now **108 tests across 17 suites**. New coverage makes most deterministic manual checks unnecessary: RPC payload/identity boundaries, mock-id refusal, safe errors, selector eligibility/search/sorting/deduplication, leader/admin permission gates, direct-route locks, no-candidate states, confirmation cancel/confirm, double-submit prevention, rendered refreshes, failure stability, and demo isolation.
+6. Remaining manual QA starts only after an explicitly approved migration push: one live leader/admin add + reopen, duplicate/cross-org/ineligible protection, confirmed remove + reopen, ordinary-member invisibility, and small-iPhone usability.
 
 ## Risks & edge cases
 
@@ -269,11 +283,11 @@ Still out of scope: phone/OTP sign-in, admin member management, invites/signup, 
 - **Notification delivery** — preferences persist, Push Token Registration V1 stores tokens, and Chat Message Push Delivery V1 is deployed. Backend invocation and no-token skips are verified, but real Expo delivery awaits physical iPhone development-build QA for token registration, ticket creation, banner display, no self-notification, and preference-off suppression. Announcements/events/rota/availability delivery stays unimplemented.
 - ~~**Chat images migration/QA**~~ — shipped (step 10c); `20260710124206` plus the `20260710162415` permission fix are pushed and chat images passed manual QA. Arbitrary files and multiple attachments remain out of scope.
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
-- **Team management UI** (create teams, assign leaders) — admin does this via the dashboard until a screen exists.
+- **Broader team administration** (create/delete/rename teams, assign/reassign leaders, edit roles) — only ordinary membership add/remove is implemented; admins use the dashboard for these broader actions.
 
 ## Recommended immediate next task
 
-Steps 1–9 are done in app code (auth + live sessions + organisations/roles + announcements + events + the read-only teams/people directory + rotas/availability + choir songs/song selections + team chat). The temporary demo bridge is gone. Next, in order of value:
+Steps 1–13 are implemented in app code. Remote history is aligned through the name-only profile correction; Team Membership Management V1 is the single pending local migration. Next, in order of value:
 
 1. ✅ **Done (2026-07-09):** migrations `003`–`006` applied remotely with aligned history; the events grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` is pushed and verified.
 2. ✅ **Done (2026-07-09):** **step 5 — events**, including live `linked_event_id` on announcements.
@@ -295,4 +309,5 @@ Security hardening review (2026-07-11) created `20260711024931_harden_security_d
 **Automated Regression Foundation V1 (2026-07-11):** the repo now has a jest-expo test suite (`src/**/__tests__`) and a check-only GitHub Actions CI workflow (typecheck, lint, `test:ci`, `check:migrations`, `expo export` on pushes/PRs to `main`). The tests mock the Supabase client entirely — no test touches a live project, creates backend data, or generates a push token — and they pin the service-boundary contracts documented above (RPC shapes, demo/live separation, friendly error mapping, fire-and-forget delivery). CI needs no secrets and never deploys: migration pushes and Edge Function deploys remain explicitly approved manual steps, and a Deno test lane for the Edge Function plus Maestro E2E smoke tests are documented future additions.
 
 15. ✅ **Implemented (2026-07-11; base migration pushed):** Profile Editing V1 + Team Avatars V1, including `profiles.ts`, `teamAvatars.ts`, session/directory integration, polished manager-only UI, automated regressions, and pushed `20260711041539_add_profile_editing_and_team_avatars.sql`.
-16. **Corrected (2026-07-11; corrective migration local-only):** Profile editing narrowed to full name only and team avatar controls moved behind the authorised Team Settings screen (see step 12). Exact next step: explicitly approve/push `20260711050344_restrict_profile_editing_to_name.sql`, verify the two-argument `update_own_profile` is gone and the one-argument function is authenticated-only, then run the light manual QA above.
+16. ✅ **Corrected, pushed, and verified (2026-07-11):** Profile editing is narrowed to full name only and team avatar controls live behind the authorised Team Settings screen (see step 12); manual QA passed.
+17. **Implemented (2026-07-11; migration local-only):** Organisation Directory + Team Membership Management V1 (see step 13). Exact next step: explicitly approve/push only `20260711063412_add_team_membership_management.sql`, verify both function definitions/signatures, authenticated-only EXECUTE, empty search paths, same-organisation/link/management/leader/self safeguards, unchanged SELECT-only table grants, and migration alignment; then run the light live QA. Do not start invite/onboarding until this slice is confirmed.
