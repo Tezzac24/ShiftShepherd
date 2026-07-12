@@ -2,14 +2,31 @@
 
 ## Status
 
-Implemented locally in commit `c54da51`, with account-scope invalidation hardened in
-`7628569` and cleanup-write serialization in `ad09ae9`. The database change is
-`20260712103321_add_organisation_membership_role_management.sql`; it must not be
-deployed as part of the implementation task. The deterministic suite passes 359 tests
-across 48 suites; typecheck, lint, migration checks, Android/iOS/web Expo export, and
-diff checks pass. A final read-only migration-list check proves this is the sole
-local-only migration. Docker was unavailable, so the SQL has static contract coverage
-but no local runtime execution or advisor result. Manual membership/role QA is pending.
+Implemented in commit `c54da51`, with account-scope invalidation hardened in
+`7628569` and cleanup-write serialization in `ad09ae9`. The database change,
+`20260712103321_add_organisation_membership_role_management.sql`, was **deployed to
+`shift-shepherd-dev` on 2026-07-12** in a controlled task where it was the only remote
+mutation. The deterministic suite passes 359 tests across 48 suites; typecheck, lint,
+migration checks, Android/iOS/web Expo export, and diff checks pass. Local and remote
+migration history align through `20260712103321` with no repair entry.
+
+Hosted verification passed: the `organisation_access_status` enum, the four profile
+columns, the consistency constraint, the three indexes, and the access-transition trigger
+deployed as written; every pre-existing profile was deterministically backfilled to
+`active` with empty removal audit, and none was deleted or re-keyed; the deployed function
+bodies carry the shared organisation-row lock (role change, removal, leave) and the target
+profile lock (team-add, push registration); no new function grants `PUBLIC` or `anon`
+EXECUTE, and `repair_active_profile_after_access_loss` plus the trigger validators are
+`postgres`-only; direct authenticated writes to profiles, roles, team memberships, push
+tokens, and invitations remain revoked; `user_accounts` is published exactly once under
+owner-only RLS; and all 17 pre/post data fingerprints matched, so the migration mutated no
+application row. Advisors added only the four expected "authenticated can execute SECURITY
+DEFINER" notices for the new RPCs and improved multiple-permissive-policies from 6 to 5.
+
+**No live membership, role, removal, leave, or re-invitation mutation has been executed**,
+and live last-admin concurrency has never been run — concurrency safety is verified
+structurally through the deployed definitions and lock ordering only. Disposable-account
+manual membership/role QA remains pending, and real-user rollout remains blocked.
 
 ## Identity and membership model
 
@@ -169,14 +186,15 @@ active organisation boundary.
 
 ## Realtime transition
 
-The local migration adds `user_accounts` to the non-chat Postgres Changes publication.
+The migration adds `user_accounts` to the non-chat Postgres Changes publication.
 RLS lets only the owning account observe its row. Every access removal updates that
 account row, including removal of a non-active organisation where `active_profile_id`
 does not change. The invalidation causes AppData to clear the old scope, refresh account
 context, and tear down the old organisation provider and private chat channels before
 accepting any new scoped data. Foreground/reconnect reconciliation remains the fallback.
-The remote baseline remains 13 non-chat publication tables until the migration is
-deployed.
+The deployed publication now carries 14 non-chat tables — the original 13 plus
+`user_accounts` exactly once — and the chat tables remain outside it under the private
+Broadcast architecture. Owner-only `user_accounts` SELECT was verified after deployment.
 
 ## Validation and rollout gates
 
@@ -186,11 +204,11 @@ remove/leave confirmations, one/many/no remaining active-profile outcomes, no st
 scope flash, removed-profile invitation presentation, team-add exclusion, account-row
 Realtime invalidation, and existing invitation/chat/push regressions.
 
-Before deployment, review the migration and rollout plan. With separate explicit
-approval, apply only `20260712103321`, then verify function signatures/ACLs, RLS,
-publication membership, access-status constraints, active-profile repair, final-admin
-locking, cleanup, retained history, and removed-profile invitation acceptance against
-the hosted dev database. Manual disposable-account QA must cover:
+`20260712103321` has been applied to hosted dev, and function signatures/ACLs, RLS,
+publication membership, access-status constraints and backfill, the deployed
+active-profile repair and final-admin locking, and data preservation were verified there.
+The removal, leave, role-change, and re-invitation code paths were **not** executed, so
+they remain unproven at runtime. Manual disposable-account QA must still cover:
 
 1. directory loading, bounded search, empty/error/retry, and direct-route admin lock;
 2. every role transition, self-demotion, concurrent/final-admin rejection, and no

@@ -1,7 +1,7 @@
 # Supabase Migration Alignment
 
-**Current status on 2026-07-12: remote history is aligned through deployed `20260712001940`; local history contains one later migration, `20260712103321_add_organisation_membership_role_management.sql`, which is intentionally local-only.**
-This document preserves the earlier pre-Broadcast and membership-start checkpoints as history, then records the deployed invitation/onboarding foundation and the completed local membership implementation.
+**Current status on 2026-07-12: remote history is aligned through deployed `20260712103321_add_organisation_membership_role_management.sql`. All 30 migrations are applied; there is no local-only migration, no remote-only migration, and no repair entry.**
+This document preserves the earlier pre-Broadcast and membership-start checkpoints as history, then records the deployed invitation/onboarding foundation and the deployed membership implementation.
 `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) is pushed and verified; the matching `send-chat-message-push` Edge Function is deployed and ACTIVE with JWT verification.
 `20260711024931_harden_security_definer_functions.sql` through `20260712001940_add_invite_onboarding_identity_foundation.sql` are pushed and verified. Membership governance, shared freshness, server-authoritative unread, and private Broadcast passed their documented manual QA. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are ACTIVE; invitation runtime secrets/redirects are configured and non-mutating smoke tests passed. Genuine no-organisation device QA, first real invitation delivery/acceptance, disposable-account invitation/multi-org QA, and physical-iPhone push QA remain pending.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
@@ -18,7 +18,7 @@ with explicit approval, verified, and covered by manual QA.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
 - `supabase migration list` at the Organisation Membership & Role Management V1 preflight showed local/remote alignment through `20260712001940` with 29 migrations and no mismatch.
-- The implementation generated `20260712103321_add_organisation_membership_role_management.sql` with the Supabase CLI. There are now 30 local migrations; the final read-only migration-list check confirmed this version appears only on the local side, with no remote-only version. It has not been pushed, repaired, or executed remotely.
+- The implementation generated `20260712103321_add_organisation_membership_role_management.sql` with the Supabase CLI. There are now 30 local migrations, and on 2026-07-12 a controlled deployment task applied exactly this one version — a dry run listed it alone, `supabase db push --yes` applied it in a single transaction, and no repair, seed, reset, or historical replay occurred. Local and remote history now match through `20260712103321`.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -84,7 +84,7 @@ with explicit approval, verified, and covered by manual QA.
 - `20260711173139_add_team_chat_read_cursor.sql` (**applied + immutable**): adds `chat_read_states.last_read_message_id` (server-derived read cursor), a deterministic rollout backfill, narrow authenticated-only SECURITY DEFINER mark/summary RPCs, and read-state write restrictions. Its cursor/RPC/backfill contracts remain unchanged.
 - `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` (**pushed + verified + manual QA complete**): adds canonical private `team-chat:<teamId>` and `profile-chat-read:<profileId>` Broadcast authorization through SELECT-only `realtime.messages` policies; adds locked-down database triggers that emit minimal v1 message/read invalidations; and removes only `chat_messages` and `chat_read_states` from `supabase_realtime`. There is no client send/INSERT policy or sensitive payload data. The two-user/multi-device, membership, reconnect/foreground, image, account-switch, and demo matrix passed.
 - `20260712001940_add_invite_onboarding_identity_foundation.sql` (**deployed + verified**): adds account-global identity/active profile, multi-org uniqueness, deterministic backfill, display-name overrides, invitation lifecycle, verified-email acceptance, no-org organisation creation, and active-aware helpers/RPCs. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are deployed; invitation runtime configuration is present. Live invitation/no-org device QA remains deferred.
-- `20260712103321_add_organisation_membership_role_management.sql` (**local-only; not deployed**): adds explicit active/removed profile access, active-profile repair, bounded church-admin directory/role/removal RPCs, caller-owned Leave organisation, same-row final-admin locking, removed-profile baseline re-invitation, direct-write hardening, and owner-RLS `user_accounts` invalidation. It retains stable identities/history/other organisations while revoking current roles, team memberships, and profile push tokens. Static contracts pass; Docker runtime SQL/advisors and live QA remain pending.
+- `20260712103321_add_organisation_membership_role_management.sql` (**deployed + hosted-verified; live QA pending**): adds explicit active/removed profile access, active-profile repair, bounded church-admin directory/role/removal RPCs, caller-owned Leave organisation, same-row final-admin locking, removed-profile baseline re-invitation, direct-write hardening, and owner-RLS `user_accounts` invalidation. It retains stable identities/history/other organisations while revoking current roles, team memberships, and profile push tokens. Applied 2026-07-12 in one transaction. Hosted verification confirmed the enum/columns/constraint/indexes/trigger, a deterministic `active` backfill of every existing profile with empty removal audit, organisation-row and target-profile locks in the deployed function bodies, no `PUBLIC`/`anon` EXECUTE on any new function (internal repair and trigger validators are `postgres`-only), revoked direct authenticated writes, `user_accounts` published exactly once under owner-only RLS, and 17/17 matching pre/post data fingerprints with no application row mutated. Advisors gained only the four expected definer-executable notices and improved multiple-permissive-policies 6→5. Live membership/role/remove/leave/re-invitation QA and live last-admin concurrency remain pending.
 
 ## iOS Simulator registration QA correction
 
@@ -170,13 +170,14 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 
 ## Result
 
-The remote dev schema and migration history are aligned through `20260712001940`.
-Local history has exactly one unapplied successor, `20260712103321`; this is deliberate,
-and no migration push, repair, function deployment, Auth/email change, or invitation send
-occurred during the membership implementation.
+The remote dev schema and migration history are aligned through `20260712103321`.
+There is no unapplied local migration, no remote-only migration, and no repair entry.
+The membership deployment applied exactly that one version; no other migration, function
+deployment, Auth/email change, secret rotation, or invitation send occurred.
 Private chat Broadcast is live, its deployment/security checks passed, and the full
-documented manual QA matrix passed; chat no longer uses Postgres Changes. The 13
-unrelated shared-data tables still use Postgres Changes. The final membership-slice
+documented manual QA matrix passed; chat no longer uses Postgres Changes. The shared-data
+publication now carries 14 tables — the original 13 plus owner-RLS `user_accounts` — and
+the chat tables remain outside it. The final membership-slice
 Expo export passed for Android, iOS, and web; its deterministic suite passes 359/48.
 The historical deployed Broadcast baseline was 211 tests across 31 suites.
 
@@ -190,19 +191,20 @@ function smoke tests passed. No live invitation acceptance/delivery QA has occur
 without changing delivery semantics.
 
 The pre-membership regression suite passed 296 tests across 43 suites, compared with
-the deployed Broadcast baseline of 211/31. The current local implementation passes
+the deployed Broadcast baseline of 211/31. The current implementation passes
 359 tests across 48 suites. Commits `420e12f` and `bf6a538` repaired auth sign-out
 persistence and account-bootstrap routing races; `c54da51` implements the membership
 slice, `7628569` hardens invalidation when a non-active organisation is removed, and
 `ad09ae9` serializes team/token creation with removal cleanup.
 
-The next backend task is a separately approved controlled review/deployment of
-`20260712103321`, followed by SQL/security verification and disposable-account
+The next backend task is disposable-account manual QA of the deployed membership slice:
 member-list, role, last-admin, remove/leave, active-profile, re-invitation, access-loss,
-stale-channel, invitation, and push regression QA. Docker was unavailable during
-implementation, so no local SQL execution or database-advisor claim is made. Genuine
-no-organisation device QA and disposable-account open-signup/invitation/multi-org QA
-remain deferred; do not invite real users before those scenarios pass. Production
+stale-channel, invitation, and push regression scenarios, using development identities
+only. The migration is deployed and hosted-verified, but its destructive RPCs have never
+been executed against live data and live last-admin concurrency has never been run, so no
+claim is made that removal, leave, role management, or re-invitation works end to end.
+Genuine no-organisation device QA and disposable-account open-signup/invitation/multi-org
+QA remain deferred; do not invite real users before those scenarios pass. Production
 invitation delivery is not approved and custom-scheme links are not production-ready.
 Both Announcement Images V1 and Chat Image Attachments V1
 passed manual QA (after the `20260710162415` permission fix: members can send images
