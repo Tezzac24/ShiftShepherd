@@ -13,14 +13,14 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run migrations in order. Remote history is aligned through deployed/QA-complete `20260711195143_migrate_chat_realtime_to_private_broadcast.sql`; only `20260712001940_add_invite_onboarding_identity_foundation.sql` is local-only.
+- Run migrations in order. Remote history is aligned through deployed `20260712001940_add_invite_onboarding_identity_foundation.sql`; the identity/onboarding migration is live alongside `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5.
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260711195143`. Broadcast is deployed and manually QA-complete. `20260712001940_add_invite_onboarding_identity_foundation.sql` is the only local-only migration. Migrations `001`–`002` were originally run by hand and back-filled into history; later migrations used the normal controlled push workflow. **Do not rename `001`–`006`, rename timestamped migrations, or edit applied migration SQL.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260712001940`. Broadcast and identity/onboarding are deployed; the former is manually QA-complete, while genuine no-organisation device QA and disposable-account invitation/multi-org QA remain deferred. Migrations `001`–`002` were originally run by hand and back-filled into history; later migrations used the normal controlled push workflow. **Do not rename `001`–`006`, rename timestamped migrations, or edit applied migration SQL.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
-### 2. Auth + profiles ✅ (historical single-profile foundation; superseded locally by step 17)
+### 2. Auth + profiles ✅ (historical single-profile foundation; superseded by deployed step 17)
 
 The single riskiest step — done in its own pass. What shipped:
 
@@ -303,7 +303,7 @@ Implemented and pushed 2026-07-11 through `20260711154126_refine_team_membership
 
 ## Recommended immediate next task
 
-Steps 1–16 are deployed; step 16 is manually QA-complete. Step 17 is implemented locally only. Remote history is aligned through `20260711195143`; only `20260712001940` is pending. Next, in order of value:
+Steps 1–17 are deployed. Step 16 is manually QA-complete; step 17's migration and functions are deployed/configured and passed non-mutating smoke tests, while device/live invitation QA remains deferred. Remote history is aligned through `20260712001940`. Commits `420e12f` and `bf6a538` repaired sign-out persistence and account-bootstrap routing races. The next implementation slice is Organisation Membership & Role Management V1.
 
 1. ✅ **Done (2026-07-09):** migrations `003`–`006` applied remotely with aligned history; the events grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` is pushed and verified.
 2. ✅ **Done (2026-07-09):** **step 5 — events**, including live `linked_event_id` on announcements.
@@ -330,7 +330,7 @@ Security hardening review (2026-07-11) created `20260711024931_harden_security_d
 18. ✅ **Pushed, verified, and manual-QA complete (2026-07-11):** Membership Governance, Leave Team, AppData Consistency, and Shared Live Data Freshness V1 (`20260711154126` + `20260711154134`; see step 14). The two multi-admin removal branches remain deferred until a safe multi-admin fixture exists.
 19. ✅ **Applied (2026-07-11):** Chat Unread State & Session-Wide Messaging Freshness V1 (`20260711173139`; see step 15 below). The migration is immutable and must not be repaired or edited.
 20. ✅ **Deployed, verified, and manual-QA complete (2026-07-12):** Secure Private Chat Broadcast Transport V1 (`20260711195143`; see step 16). Chat message/read-state Postgres Changes were replaced with private Broadcast; only the two chat tables left the publication; Expo export and the 211/31 baseline passed; the complete two-user/multi-device QA matrix passed.
-21. **Implemented locally (2026-07-12; undeployed):** Invite, Open Signup Onboarding, No-Organisation State, Organisation Creation, and Multi-Organisation Identity Foundation V1 (`20260712001940`; see step 17). No remote configuration or data changed.
+21. **Deployed (2026-07-12; live QA partly deferred):** Invite, Open Signup Onboarding, No-Organisation State, Organisation Creation, and Multi-Organisation Identity Foundation V1 (`20260712001940`; see step 17). `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are ACTIVE; runtime invitation configuration is present and non-mutating smoke tests passed. Genuine no-org device, first real delivery/acceptance, disposable-account invitation, and multi-org QA remain deferred.
 
 ### 15. Chat Unread State & Session-Wide Messaging Freshness V1 — applied; migration immutable
 
@@ -357,9 +357,9 @@ Implemented 2026-07-11 and deployed/QA-completed 2026-07-12 through `20260711195
 7. **Freshness and UI unchanged.** Aggregate channel recovery after a genuine drop triggers one reconciliation; initial joins do not. Foreground catch-up, active-chat marking, own-message exclusion, image previews, unread badges, multi-device read convergence, and push separation remain. Demo/logged-out/unlinked sessions create no private channels.
 8. **Deployment result.** The migration, exact policies/triggers/payloads, publication removal, and absence of a client INSERT path were verified. Two-user/multi-device, same-org church-admin, membership removal/re-add, token refresh, reconnect/foreground, image, account-switch, and demo QA passed. The 13 non-chat shared-data tables remain on Postgres Changes.
 
-### 17. Invite, open signup, no-organisation, organisation creation, and multi-org identity V1 — implemented locally
+### 17. Invite, open signup, no-organisation, organisation creation, and multi-org identity V1 — deployed; live QA partly deferred
 
-Implemented 2026-07-12 behind local-only `20260712001940_add_invite_onboarding_identity_foundation.sql` and undeployed `manage-organisation-invitations`:
+Implemented and deployed 2026-07-12 behind `20260712001940_add_invite_onboarding_identity_foundation.sql` and `manage-organisation-invitations` v1:
 
 1. **Identity compatibility.** `auth.users` remains sign-in authority; new `user_accounts` owns global name and validated `active_profile_id`; existing `profiles` remain stable organisation identities. Global Auth/profile uniqueness becomes partial uniqueness per `(auth_user_id, organisation_id)`. Existing IDs and every dependent team, rota, chat, unread, notification, push, role, and directory row remain untouched. Backfill deterministically chooses the oldest linked profile and preserves visible name conflicts as organisation overrides.
 2. **No automatic access.** The historical Auth-email auto-link trigger is dropped forward-only. Signup creates only an account shell. A no-org user confirms a global name, may create one organisation transactionally as its church admin, sees Request to join as a no-backend placeholder, or signs out. Creation is restricted to no-org accounts with a verified email and confirmed name and creates no team/fake member.
@@ -368,5 +368,5 @@ Implemented 2026-07-12 behind local-only `20260712001940_add_invite_onboarding_i
 5. **Trusted delivery.** The Edge Function validates JWTs itself, derives caller identity, repeats church-admin/tenant checks in service-only SQL, generates 32 random bytes, constructs `/invite/accept`, and sends through an isolated Resend adapter. Runtime-only requirements are `RESEND_API_KEY`, `INVITATION_FROM_EMAIL`, and `INVITATION_APP_BASE_URL`. Public preview returns only masked/bounded context; raw tokens are never stored/logged/returned.
 6. **Acceptance.** The database checks server-authoritative `auth.users.email` and `email_confirmed_at`. A matching email/password or already-configured OAuth identity can accept; phone-only, unverified, wrong-email, expired, revoked, or superseded attempts fail. New-person acceptance creates one profile; existing-person acceptance reuses the targeted unlinked profile and preserves its relationships/roles. Only `general_member` is inserted when no role exists; no team/admin/rota/notification/push permission is added. The accepted organisation becomes active.
 7. **Deep link and UI.** `/invite/accept` supports signed-out, mismatch, phone-only, name-confirmation, pending, success, and terminal states. Native pending tokens use SecureStore; web uses sessionStorage; the seven-day state survives intentional sign-out/OAuth redirects and clears on success or terminal invalidation. Church-admin UI supports existing-person invite, Add & invite email-only, history, resend, and revoke. Profile contains global/org name editing and the minimal organisation selector.
-8. **Deployment status/order.** Nothing in this step is live. Review/push only `20260712001940`; verify backfill, constraints, RLS, grants, active profile and migration alignment; configure the sender/secrets/allowed redirect; deploy `manage-organisation-invitations` and the active-profile compatibility revision of `send-chat-message-push`; then run disposable-account open-signup, create-org, both invite paths, lifecycle, wrong-account, OAuth, phone-only, names, multi-org, and full regression QA. Do not invite real users first.
-9. **Automated state.** The deterministic offline suite passes 254 tests across 40 suites, up from the deployed Broadcast baseline of 211/31. Edge/Deno runtime and live email delivery still require the controlled deployment QA above.
+8. **Deployment status.** `20260712001940` is deployed and verified; the sender/secrets/allowed redirect are configured; `manage-organisation-invitations` v1 and the active-profile-compatible `send-chat-message-push` v5 are ACTIVE; non-mutating smoke tests passed. Disposable-account open-signup, create-org, genuine no-org device routing, first real invitation delivery/acceptance, both invite paths, lifecycle, wrong-account, OAuth, phone-only, names, multi-org, and full live regression QA remain deferred. Production invitation delivery is not approved and custom-scheme links are not production-ready.
+9. **Automated state.** The deterministic offline suite passes 296 tests across 43 suites, up from the deployed Broadcast baseline of 211/31. Edge/Deno provider delivery and the deferred device/live scenarios remain manual QA gates.

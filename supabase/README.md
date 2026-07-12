@@ -2,7 +2,7 @@
 
 This folder holds the database foundation for Shift Shepherd's intended production backend. Existing auth/live data, membership governance, shared freshness, server-authoritative unread, and private chat Broadcast slices are deployed and QA-complete. Chat now receives freshness through exact private Broadcast topics; the 13 non-chat shared tables remain on Postgres Changes. Push Token Registration and chat push delivery are live foundations, with physical-iPhone delivery QA pending.
 
-> **Current dev-project state:** remote migration history is aligned through deployed and manually QA-complete `20260711195143_migrate_chat_realtime_to_private_broadcast.sql`. Only `20260712001940_add_invite_onboarding_identity_foundation.sql` is local-only. `manage-organisation-invitations` and the active-profile compatibility revision of `send-chat-message-push` are undeployed; remote Auth redirects/email secrets are unchanged; live invitation QA has not run. **Do not rename or edit applied migrations.**
+> **Current dev-project state:** remote migration history is aligned through deployed `20260712001940_add_invite_onboarding_identity_foundation.sql`. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are deployed and ACTIVE; invitation runtime secrets and allowed redirects are configured, and non-mutating function smoke tests passed. Genuine no-organisation device QA, first real invitation delivery/acceptance, disposable-account invitation/multi-org QA, and physical-iPhone push QA remain pending. **Do not rename or edit applied migrations.**
 
 ## Contents
 
@@ -37,10 +37,10 @@ supabase/
 │   ├── 20260711154134_enable_shared_live_data_realtime.sql # pushed: shared-domain publication tables
 │   ├── 20260711173139_add_team_chat_read_cursor.sql # pushed: server-authoritative chat read cursor + unread summary
 │   ├── 20260711195143_migrate_chat_realtime_to_private_broadcast.sql # deployed: secure private chat Broadcast transport
-│   └── 20260712001940_add_invite_onboarding_identity_foundation.sql # local-only: identity/invitation foundation
+│   └── 20260712001940_add_invite_onboarding_identity_foundation.sql # deployed: identity/invitation foundation
 ├── functions/
-│   ├── send-chat-message-push/  # deployed; local active-profile compatibility revision pending
-│   └── manage-organisation-invitations/ # local-only trusted invitation/email gateway
+│   ├── send-chat-message-push/  # deployed v5 with active-profile-compatible sender resolution
+│   └── manage-organisation-invitations/ # deployed v1 trusted invitation/email gateway
 ├── seed/
 │   ├── dev_seed.sql             # mock data ported to SQL (relative dates)
 │   └── README.md                # how to seed + link Supabase Auth users
@@ -57,7 +57,7 @@ Choir-specific rules worth knowing:
 
 ## Design in one paragraph
 
-The local identity foundation distinguishes Supabase `auth.users`, one account-global `user_accounts` row, and stable organisation-scoped `profiles` rows. One Auth user may own one profile per organisation; `user_accounts.active_profile_id` is ownership-validated and `current_profile_id()` scopes normal RLS queries to that single organisation. Effective display name is `profiles.display_name_override ?? user_accounts.global_display_name`, while synchronized `profiles.full_name` preserves existing readers. Child relationships keep their existing profile IDs. Demo/mock data remains separate.
+The deployed identity foundation distinguishes Supabase `auth.users`, one account-global `user_accounts` row, and stable organisation-scoped `profiles` rows. One Auth user may own one profile per organisation; `user_accounts.active_profile_id` is ownership-validated and `current_profile_id()` scopes normal RLS queries to that single organisation. Effective display name is `profiles.display_name_override ?? user_accounts.global_display_name`, while synchronized `profiles.full_name` preserves existing readers. Child relationships keep their existing profile IDs. Demo/mock data remains separate.
 
 ## Getting started (when you're ready)
 
@@ -80,22 +80,22 @@ The policies are SELECT-only and use `realtime.topic()` plus canonical UUID pars
 
 Deployment verification confirmed the migration version, both private-topic policies, trigger definitions/privileges, minimal payloads, no Broadcast INSERT policy, and removal of only the two chat tables from the publication. Two-user/multi-device, church-admin, membership removal/re-add, token refresh, reconnect/foreground, image, account-switch, and demo QA passed. The 13 unrelated shared-data tables remain on Postgres Changes.
 
-### Local invite and multi-organisation foundation
+### Deployed invite and multi-organisation foundation
 
-`20260712001940_add_invite_onboarding_identity_foundation.sql` is the only local-only migration. It removes the historical email auto-link trigger, replaces global profile/Auth uniqueness with one profile per Auth user per organisation, adds `user_accounts`, a validated active profile, organisation display-name overrides, deterministic existing-user/name backfill, active-aware identity helpers, and narrow account/name/switch/create-organisation RPCs. Existing profile IDs and their team, rota, chat, unread, notification, push, directory, and role relationships are untouched.
+`20260712001940_add_invite_onboarding_identity_foundation.sql` is deployed and verified. It removes the historical email auto-link trigger, replaces global profile/Auth uniqueness with one profile per Auth user per organisation, adds `user_accounts`, a validated active profile, organisation display-name overrides, deterministic existing-user/name backfill, active-aware identity helpers, and narrow account/name/switch/create-organisation RPCs. Existing profile IDs and their team, rota, chat, unread, notification, push, directory, and role relationships are untouched.
 
 `organisation_invitations` stores normalized target email, optional existing unlinked profile, audit/status timestamps, and only a unique 32-byte SHA-256 token hash. Pending rows are unique per organisation/email and per target profile. Resend supersedes the previous row/token, revoke is immediate, expiration is seven days, and row-locked acceptance is idempotent for the same account. Acceptance checks `auth.users.email` plus `email_confirmed_at`, reuses or creates exactly one organisation profile, preserves existing relationships/roles, adds only `general_member` when no role exists, and makes the accepted profile active. Phone-only or mismatching/unverified identities cannot claim an invitation.
 
-`manage-organisation-invitations` is an undeployed Edge Function. Public preview is protected by the high-entropy app token and reveals only bounded invitation context; send/resend/revoke/accept manually validate the user JWT, and the service-only database operations repeat tenant/admin/identity checks. Raw tokens exist only in request memory and the email link. The isolated Resend adapter needs runtime-only `RESEND_API_KEY`, `INVITATION_FROM_EMAIL`, and `INVITATION_APP_BASE_URL`. Configure an allowed `/invite/accept` redirect/deep link and verified sender before deployment. No secrets belong in Expo.
+`manage-organisation-invitations` v1 is deployed and ACTIVE. Public preview is protected by the high-entropy app token and reveals only bounded invitation context; send/resend/revoke/accept manually validate the user JWT, and the service-only database operations repeat tenant/admin/identity checks. Raw tokens exist only in request memory and the email link. The isolated Resend adapter uses runtime-only `RESEND_API_KEY`, `INVITATION_FROM_EMAIL`, and `INVITATION_APP_BASE_URL`; the allowed `/invite/accept` redirect and sender are configured. No secrets belong in Expo.
 
-Deployment order: review/push only the new migration; verify backfill, constraints, RLS, grants, active-profile behavior, and migration alignment; configure the invitation URL/sender/secrets; deploy `manage-organisation-invitations`; deploy the local active-profile compatibility revision of `send-chat-message-push`; then run disposable-account open-signup, no-org/create-org, new/existing invite, wrong-account, OAuth, phone-only, lifecycle, name, multi-org, and regression QA. Do not invite real users until this passes.
+Deployment completed in that controlled order: the migration was applied and verified, invitation URL/sender/secrets were configured, `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 were deployed, and non-mutating function smoke tests passed. Disposable-account open-signup, no-org/create-org, first real delivery/acceptance, new/existing invite, wrong-account, OAuth, phone-only, lifecycle, name, multi-org, and regression QA remain deferred. Do not invite real users until this passes.
 
-The local deterministic regression suite passes 254 tests across 40 suites (the deployed Broadcast baseline was 211/31). Edge/Deno runtime, provider delivery, and local/remote database execution are intentionally outside Jest and remain deployment/manual QA gates.
+The deterministic regression suite passes 296 tests across 43 suites (the deployed Broadcast baseline was 211/31). Edge/Deno runtime and provider delivery are outside Jest; non-mutating function smoke tests passed, while first real email delivery/acceptance remains a manual QA gate.
 
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
-   - **Hosted dev:** remote history is aligned through `20260711195143`; only `20260712001940_add_invite_onboarding_identity_foundation.sql` is local-only. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
+   - **Hosted dev:** remote history is aligned through `20260712001940_add_invite_onboarding_identity_foundation.sql`. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
    - **A fresh project from scratch:** `supabase db push` applies `001`–`006` and the timestamped migrations in order (numeric prefixes are accepted by the CLI); or paste each migration in version order in the dashboard SQL editor. `supabase db reset` (local stack) requires Docker.
 4. Existing dev users remain linked through the deterministic backfill. After `20260712001940` is deployed, new Auth users receive only a global account shell; organisation access must come from invitation acceptance or the no-org create-organisation RPC. Do not manually restore email auto-linking.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).
@@ -116,7 +116,7 @@ The hosted Edge runtime injects `SUPABASE_URL` and the service role key (`SUPABA
 
 ## Auth user to profile linking
 
-`20260709233705_link_auth_users_to_existing_profiles.sql` introduced the currently deployed historical email auto-link behavior. The local forward migration deliberately drops that trigger and global uniqueness without editing history. It backfills every existing linked Auth user into `user_accounts`, preserves every profile ID and visible name, chooses the oldest `(created_at,id)` profile as the deterministic active profile, and allows at most one profile per Auth user per organisation.
+`20260709233705_link_auth_users_to_existing_profiles.sql` introduced the historical email auto-link behavior. The deployed forward migration deliberately drops that trigger and global uniqueness without editing history. It backfills every existing linked Auth user into `user_accounts`, preserves every profile ID and visible name, chooses the oldest `(created_at,id)` profile as the deterministic active profile, and allows at most one profile per Auth user per organisation.
 
 After the new migration is deployed, Auth signup creates only a `user_accounts` shell. Email match alone never grants organisation access. New links occur only inside row-locked invitation acceptance after a matching verified Auth email, or the no-org user creates their own organisation transactionally. Never reintroduce direct authenticated `profiles.auth_user_id` writes or the old trigger.
 

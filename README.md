@@ -7,7 +7,7 @@ Every migration through Chat Message Push Delivery V1 (`20260710234443_add_push_
 
 Remote history is aligned through deployed `20260711195143_migrate_chat_realtime_to_private_broadcast.sql`. Its exact-topic policies and minimal triggers are live, `chat_messages` and `chat_read_states` are no longer in `supabase_realtime`, Expo export passed for Android/iOS/web, and the documented two-user, multi-device, membership, reconnect, foreground, image, account-switch, and demo QA passed.
 
-Invite, Open Signup Onboarding, No-Organisation State, Organisation Creation, and Multi-Organisation Identity Foundation V1 is now implemented locally. Its only new migration, `20260712001940_add_invite_onboarding_identity_foundation.sql`, remains local-only; `manage-organisation-invitations` remains undeployed; remote Auth redirects and invitation-email secrets are unchanged; and live invitation QA has not occurred. No migration or function was deployed by this implementation.
+Invite, Open Signup Onboarding, No-Organisation State, Organisation Creation, and Multi-Organisation Identity Foundation V1 is deployed through `20260712001940_add_invite_onboarding_identity_foundation.sql`. `manage-organisation-invitations` v1 and the active-profile-compatible `send-chat-message-push` v5 are ACTIVE, invitation runtime secrets and allowed redirects are configured, and non-mutating function smoke tests passed. Live invitation acceptance/delivery and genuine no-organisation device QA remain deferred. Commits `420e12f` and `bf6a538` repaired sign-out persistence and account-bootstrap routing races. The next local implementation slice is Organisation Membership & Role Management V1.
 
 ## Current Scaffold Highlights
 
@@ -24,8 +24,8 @@ Invite, Open Signup Onboarding, No-Organisation State, Organisation Creation, an
 - Every current member can find a restrained **Leave team** action on the normal team page without gaining administrative settings. Confirmation explains the real consequence and preserves the church profile/account/organisation role; a final team admin receives “Another team admin must be appointed before you can leave.”
 - Canonical directory membership state now updates member lists, counts, candidates, Profile → Your Teams, and access gates together immediately after a successful mutation, then queues a quiet scoped refresh.
 - Active linked sessions use one shared Realtime invalidation channel for announcements, events, rotas, songs, and the teams/directory domain. A short domain scheduler coalesces bursts and AppState foreground transitions always catch up; open-chat Realtime remains separate. Push notifications and Edge Functions are not synchronization sources.
-- Remote Supabase migrations are applied through `20260711195143`; only `20260712001940_add_invite_onboarding_identity_foundation.sql` is local-only. The existing chat push function has a local active-profile compatibility update that must be redeployed in the controlled multi-org rollout; its delivery behavior is otherwise unchanged. Physical-device Expo ticket/banner QA is pending.
-- Live identity now has three explicit layers locally: Supabase Auth identity, one account-global `user_accounts` identity, and one `profiles` row per organisation. A server-validated active profile scopes every normal app query to exactly one organisation.
+- Remote Supabase migrations are aligned through deployed `20260712001940_add_invite_onboarding_identity_foundation.sql`. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are deployed. Disposable-account invitation/multi-org QA and physical-device Expo ticket/banner QA are pending.
+- Live identity now has three explicit deployed layers: Supabase Auth identity, one account-global `user_accounts` identity, and one `profiles` row per organisation. A server-validated active profile scopes every normal app query to exactly one organisation.
 - Open signup creates no organisation access. Signed-in accounts with no organisations can confirm a global name, create an organisation transactionally, see the intentionally unavailable Request to join placeholder, or sign out.
 - Church admins can invite an existing unlinked directory person or use Add & invite with email only. Seven-day app-owned invitations store only a SHA-256 hash, rotate on resend, support revoke, and require the matching server-verified email at acceptance. Acceptance adds only baseline `general_member` membership, no team/admin authority.
 - Global display name is account-owned; an optional organisation override wins for the active profile. A minimal Profile selector safely switches linked organisations and remounts all organisation-scoped app data/channels.
@@ -61,7 +61,7 @@ npx expo export          # Bundle/export sanity check
 
 The repo has an automated regression foundation (jest-expo + React Native Testing Library) plus a check-only GitHub Actions workflow.
 
-**Tests** live in `src/**/__tests__/*.test.ts(x)` and are deterministic: Supabase, Expo Notifications/Constants/Device/SecureStore, and AsyncStorage are mocked, no test uses the network or real credentials, and no real push token or invitation is generated. The deployed Broadcast baseline was **211 tests across 31 suites**; the current local onboarding implementation passes **254 tests across 40 suites**. Coverage now also includes migration-history preservation, active-account mapping/switch contracts, no-organisation/create-organisation UI, pending invitation storage, token/security contracts, invitation administration and acceptance states, and multi-org push compatibility.
+**Tests** live in `src/**/__tests__/*.test.ts(x)` and are deterministic: Supabase, Expo Notifications/Constants/Device/SecureStore, and AsyncStorage are mocked, no test uses the network or real credentials, and no real push token or invitation is generated. The deployed Broadcast baseline was **211 tests across 31 suites**; the current identity/onboarding and auth-routing baseline passes **296 tests across 43 suites**. Coverage includes migration-history preservation, active-account mapping/switch contracts, no-organisation/create-organisation UI, pending invitation storage, token/security contracts, invitation administration and acceptance states, multi-org push compatibility, sign-out persistence, and account-bootstrap routing.
 
 **The standard local check sequence** before pushing any slice:
 
@@ -75,7 +75,7 @@ git diff --check
 
 **CI** (`.github/workflows/ci.yml`) runs on every push to `main`, on pull requests targeting `main`, and manually via workflow_dispatch. It runs exactly: `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run check:migrations`, `npx expo export`. It is **check-only**: it needs no secrets and no `.env` (the export intentionally runs in demo mode), and it never deploys anything — Supabase migration pushes, Edge Function deploys, and EAS builds all remain explicit, manually approved steps.
 
-**Still manual:** the Broadcast QA above is complete. The local onboarding slice still requires controlled migration deployment, invitation secrets/redirect configuration, deployment of `manage-organisation-invitations` plus the active-profile compatibility revision of `send-chat-message-push`, and disposable-account QA for open signup, no-org/create-org, both invitation paths, resend/revoke/expiry, wrong account, OAuth, phone-only rejection, names, and multi-org switching. Physical-iPhone push banner QA remains separately pending; push is unrelated to unread truth. Edge Functions remain outside Jest.
+**Still manual:** the Broadcast QA above is complete and the identity migration/functions are deployed, configured, and non-mutating-smoke-tested. Genuine no-organisation device routing and disposable-account QA for open signup, no-org/create-org, first real invitation delivery/acceptance, both invitation paths, resend/revoke/expiry, wrong account, OAuth, phone-only rejection, names, and multi-org switching remain deferred. Production invitation delivery is not approved and custom-scheme links are not production-ready. Physical-iPhone push banner QA remains separately pending; push is unrelated to unread truth. Edge Functions remain outside Jest.
 
 ## Running the App
 
@@ -92,15 +92,15 @@ With no `.env` file the app runs fully offline on mock data. Pick a test account
    ```
    These are public, RLS-protected values. **Never** put a service_role key in the app.
 2. Make sure the migrations and `supabase/seed/dev_seed.sql` have been run.
-3. Until the local identity migration is deployed, the historical email auto-link behavior remains live. After `20260712001940` is deployed, open signup creates only an Auth/global-account shell and never grants organisation access by email match; use the new invitation or no-org creation flows instead.
+3. The deployed identity migration removed historical email auto-linking. Open signup creates only an Auth/global-account shell and never grants organisation access by email match; use the invitation or no-org creation flows instead.
 4. Restart Expo (`npm start`) so the env vars are picked up, then log in with the real email/password. The session is restored on cold start; sign out from the Profile tab.
 
 Notes:
-- In the local onboarding implementation, a Supabase Auth user with no organisation reaches **No organisations yet** rather than being signed out. Open signup does not search the directory or auto-link by email.
+- In the deployed onboarding implementation, a Supabase Auth user with no organisation reaches **No organisations yet** rather than being signed out. Open signup does not search the directory or auto-link by email.
 - A live session is built from one account-global identity and its server-validated active organisation profile. Organisation role and team memberships remain canonical database rows with real UUIDs.
 - The demo account selector stays available even when Supabase is configured.
 
-Invitation deployment additionally requires runtime-only `RESEND_API_KEY`, `INVITATION_FROM_EMAIL`, and `INVITATION_APP_BASE_URL`, an allowed `/invite/accept` Auth/app redirect, and a verified sender. Keep these out of Expo and committed files. Deploy the migration first, then `manage-organisation-invitations`, then the active-profile compatibility update to `send-chat-message-push`; use disposable accounts for QA before any real invitations.
+Invitation runtime uses configured `RESEND_API_KEY`, `INVITATION_FROM_EMAIL`, and `INVITATION_APP_BASE_URL`, an allowed `/invite/accept` Auth/app redirect, and a verified sender. These remain runtime-only and out of Expo and committed files. The migration, `manage-organisation-invitations` v1, and active-profile-compatible `send-chat-message-push` v5 are deployed; use disposable accounts for the still-pending QA before any real invitations.
 
 ### Live announcements, events, teams, rotas, choir songs, chat & notification settings (Supabase data slices)
 

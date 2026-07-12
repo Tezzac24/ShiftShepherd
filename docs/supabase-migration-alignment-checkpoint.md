@@ -1,9 +1,9 @@
 # Supabase Migration Alignment
 
-**Current remote status: aligned through deployed `20260711195143` on 2026-07-12. Current local status: one new pending migration, `20260712001940`.**
-This document preserves the earlier pre-Broadcast checkpoint as history and records the later deployed/QA-complete Broadcast checkpoint plus the new local-only invitation/onboarding identity foundation.
+**Current remote and local status: aligned through deployed `20260712001940` on 2026-07-12. No migration mismatch existed at the Organisation Membership & Role Management V1 starting checkpoint.**
+This document preserves the earlier pre-Broadcast checkpoint as history and records the later deployed/QA-complete Broadcast checkpoint plus the deployed invitation/onboarding identity foundation.
 `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) is pushed and verified; the matching `send-chat-message-push` Edge Function is deployed and ACTIVE with JWT verification.
-`20260711024931_harden_security_definer_functions.sql` through `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` are pushed and verified. Membership governance, shared freshness, server-authoritative unread, and private Broadcast passed their documented manual QA. Only `20260712001940_add_invite_onboarding_identity_foundation.sql` is local-only. Its Edge Function, remote Auth/email configuration, and live QA remain pending.
+`20260711024931_harden_security_definer_functions.sql` through `20260712001940_add_invite_onboarding_identity_foundation.sql` are pushed and verified. Membership governance, shared freshness, server-authoritative unread, and private Broadcast passed their documented manual QA. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are ACTIVE; invitation runtime secrets/redirects are configured and non-mutating smoke tests passed. Genuine no-organisation device QA, first real invitation delivery/acceptance, disposable-account invitation/multi-org QA, and physical-iPhone push QA remain pending.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
@@ -17,7 +17,7 @@ with explicit approval, verified, and covered by manual QA.
   `001, 002, 003, 004, 005, 006`.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
-- `supabase migration list` showed local/remote alignment through `20260711195143` before this slice; it should now show only `20260712001940` as local-only.
+- `supabase migration list` at the Organisation Membership & Role Management V1 preflight showed local/remote alignment through `20260712001940` with 29 migrations and no mismatch.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -82,7 +82,7 @@ with explicit approval, verified, and covered by manual QA.
 - `20260711154134_enable_shared_live_data_realtime.sql` (**pushed + verified + manual QA complete**): adds the 13 user-visible shared-data tables for announcements, events, rotas, songs, and directory/session access to `supabase_realtime`. Chat was separately published at this historical point; the later Broadcast migration removes only the two chat tables.
 - `20260711173139_add_team_chat_read_cursor.sql` (**applied + immutable**): adds `chat_read_states.last_read_message_id` (server-derived read cursor), a deterministic rollout backfill, narrow authenticated-only SECURITY DEFINER mark/summary RPCs, and read-state write restrictions. Its cursor/RPC/backfill contracts remain unchanged.
 - `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` (**pushed + verified + manual QA complete**): adds canonical private `team-chat:<teamId>` and `profile-chat-read:<profileId>` Broadcast authorization through SELECT-only `realtime.messages` policies; adds locked-down database triggers that emit minimal v1 message/read invalidations; and removes only `chat_messages` and `chat_read_states` from `supabase_realtime`. There is no client send/INSERT policy or sensitive payload data. The two-user/multi-device, membership, reconnect/foreground, image, account-switch, and demo matrix passed.
-- `20260712001940_add_invite_onboarding_identity_foundation.sql` (**local-only, undeployed**): adds account-global identity/active profile, multi-org uniqueness, deterministic backfill, display-name overrides, invitation lifecycle, verified-email acceptance, no-org organisation creation, and active-aware helpers/RPCs. `manage-organisation-invitations` and the push-function compatibility revision are also local/undeployed; no remote Auth/email settings changed.
+- `20260712001940_add_invite_onboarding_identity_foundation.sql` (**deployed + verified**): adds account-global identity/active profile, multi-org uniqueness, deterministic backfill, display-name overrides, invitation lifecycle, verified-email acceptance, no-org organisation creation, and active-aware helpers/RPCs. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are deployed; invitation runtime configuration is present. Live invitation/no-org device QA remains deferred.
 
 ## iOS Simulator registration QA correction
 
@@ -168,29 +168,29 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 
 ## Result
 
-The remote dev schema and migration history are aligned through `20260711195143`.
+The remote dev schema and migration history are aligned through `20260712001940`.
 Private chat Broadcast is live, its deployment/security checks passed, and the full
 documented manual QA matrix passed; chat no longer uses Postgres Changes. The 13
 unrelated shared-data tables still use Postgres Changes. Expo export passed for
 Android, iOS, and web, and the deployed-slice baseline was 211 tests across 31 suites.
 
-The only local-only migration is now
-`20260712001940_add_invite_onboarding_identity_foundation.sql`. It and the undeployed
-`manage-organisation-invitations` function implement open signup/no-org/create-org,
+The deployed `20260712001940_add_invite_onboarding_identity_foundation.sql` and
+`manage-organisation-invitations` v1 implement open signup/no-org/create-org,
 global identity, active multi-org profiles, app-owned seven-day invitations, matching
 verified-email acceptance, and display-name ownership. Remote Auth redirects, email
-provider secrets, and sender configuration are unchanged; no live invitation QA or
-remote write occurred in this implementation. The existing push function has a local
-active-profile compatibility revision that must ship in the controlled multi-org
-rollout without changing delivery semantics.
+provider secrets, allowed redirects, and sender configuration are now present; non-mutating
+function smoke tests passed. No live invitation acceptance/delivery QA has occurred.
+`send-chat-message-push` v5 includes the active-profile-compatible sender resolution
+without changing delivery semantics.
 
-The local deterministic regression suite passes 254 tests across 40 suites, compared
-with the deployed Broadcast baseline of 211/31.
+The deterministic regression suite passes 296 tests across 43 suites, compared with
+the deployed Broadcast baseline of 211/31. Commits `420e12f` and `bf6a538` repaired
+auth sign-out persistence and account-bootstrap routing races.
 
-Next: deploy/verify only the new migration, configure invitation secrets/redirects,
-deploy the invitation function and push compatibility revision, then run disposable-
-account open-signup, both invitation paths, lifecycle, wrong-account, OAuth, phone-only,
-names, multi-org, and regression QA. Do not invite real users before it passes.
+Next implementation slice: Organisation Membership & Role Management V1. Genuine
+no-organisation device QA and disposable-account open-signup/invitation/multi-org QA
+remain deferred; do not invite real users before those scenarios pass. Production
+invitation delivery is not approved and custom-scheme links are not production-ready.
 Both Announcement Images V1 and Chat Image Attachments V1
 passed manual QA (after the `20260710162415` permission fix: members can send images
 in their teams, admins in teams they administer, non-members stay blocked, and text
