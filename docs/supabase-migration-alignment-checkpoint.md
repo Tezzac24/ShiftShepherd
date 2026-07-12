@@ -18,7 +18,7 @@ with explicit approval, verified, and covered by manual QA.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
 - `supabase migration list` at the Organisation Membership & Role Management V1 preflight showed local/remote alignment through `20260712001940` with 29 migrations and no mismatch.
-- The implementation generated `20260712103321_add_organisation_membership_role_management.sql` with the Supabase CLI. There are now 30 local migrations; a final read-only migration-list check must show this version only on the local side. It has not been pushed, repaired, or executed remotely.
+- The implementation generated `20260712103321_add_organisation_membership_role_management.sql` with the Supabase CLI. There are now 30 local migrations; the final read-only migration-list check confirmed this version appears only on the local side, with no remote-only version. It has not been pushed, repaired, or executed remotely.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -176,8 +176,9 @@ and no migration push, repair, function deployment, Auth/email change, or invita
 occurred during the membership implementation.
 Private chat Broadcast is live, its deployment/security checks passed, and the full
 documented manual QA matrix passed; chat no longer uses Postgres Changes. The 13
-unrelated shared-data tables still use Postgres Changes. Expo export passed for
-Android, iOS, and web, and the deployed-slice baseline was 211 tests across 31 suites.
+unrelated shared-data tables still use Postgres Changes. The final membership-slice
+Expo export passed for Android, iOS, and web; its deterministic suite passes 359/48.
+The historical deployed Broadcast baseline was 211 tests across 31 suites.
 
 The deployed `20260712001940_add_invite_onboarding_identity_foundation.sql` and
 `manage-organisation-invitations` v1 implement open signup/no-org/create-org,

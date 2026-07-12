@@ -11,6 +11,8 @@ Invite, Open Signup Onboarding, No-Organisation State, Organisation Creation, an
 
 Organisation Membership & Role Management V1 is now implemented locally in commits `c54da51`, `7628569`, and `ad09ae9` behind the sole pending migration `20260712103321_add_organisation_membership_role_management.sql`. Church admins have a bounded searchable member directory and exclusive-role editor; admins can revoke another member's access, and members can leave an organisation from Profile. Stable profiles/history and other organisations are preserved, current roles/teams/profile push tokens are revoked, active-profile transitions are atomic, every removal invalidates the affected account scope, concurrent team/token writes cannot survive cleanup, the final effective church admin is protected under one organisation-row lock, and re-invitation restores only baseline membership. The migration and UI are not deployed or manually QA-tested.
 
+Final local verification passed with 359 tests across 48 suites, typecheck, lint, migration filename validation, Android/iOS/web Expo export, and diff checks. A read-only hosted migration-list check confirmed every deployed version through `20260712001940` remains aligned and `20260712103321` is the sole local-only migration.
+
 ## Current Scaffold Highlights
 
 - Home prioritises latest announcement, next upcoming event, then the user's next team responsibility.

@@ -6,8 +6,10 @@ Implemented locally in commit `c54da51`, with account-scope invalidation hardene
 `7628569` and cleanup-write serialization in `ad09ae9`. The database change is
 `20260712103321_add_organisation_membership_role_management.sql`; it must not be
 deployed as part of the implementation task. The deterministic suite passes 359 tests
-across 48 suites. Docker was unavailable, so the SQL has static contract coverage but
-no local runtime execution or advisor result. Manual membership/role QA is pending.
+across 48 suites; typecheck, lint, migration checks, Android/iOS/web Expo export, and
+diff checks pass. A final read-only migration-list check proves this is the sole
+local-only migration. Docker was unavailable, so the SQL has static contract coverage
+but no local runtime execution or advisor result. Manual membership/role QA is pending.
 
 ## Identity and membership model
 
