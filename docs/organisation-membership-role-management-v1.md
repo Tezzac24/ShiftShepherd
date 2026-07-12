@@ -2,9 +2,11 @@
 
 ## Status
 
-Implemented locally only. The database change is
+Implemented locally in commit `c54da51`. The database change is
 `20260712103321_add_organisation_membership_role_management.sql`; it must not be
-deployed as part of the implementation task. Manual membership/role QA is pending.
+deployed as part of the implementation task. The deterministic suite passes 357 tests
+across 48 suites. Docker was unavailable, so the SQL has static contract coverage but
+no local runtime execution or advisor result. Manual membership/role QA is pending.
 
 ## Identity and membership model
 
@@ -139,3 +141,59 @@ revoked; the permissive historical role-management policy is removed as defense 
 depth. Normal organisation reads continue through existing RLS and cannot cross the
 active organisation boundary.
 
+## App surface
+
+- Profile shows **Organisation members** only to church admins and **Leave
+  organisation** to linked active members.
+- The member directory is bounded and searchable, with explicit loading, empty,
+  failure/retry, active/unlinked/removed, role, team, invitation, current-user, and
+  final-admin states.
+- The role editor presents the four exclusive roles with plain-English capability
+  descriptions, flags `church_admin` as high privilege, disables an unsafe final-admin
+  demotion, and guards duplicate submits.
+- Admin removal and self-leave require consequence-specific confirmation. Successful
+  leave clears the old organisation context before account refresh so stale scoped
+  data cannot flash while routing to Home, the selector, or no-organisation state.
+- Invitation administration includes removed profiles as re-invitation targets and
+  explains that only baseline access returns. Team-add candidates exclude removed
+  profiles.
+
+## Realtime transition
+
+The local migration adds `user_accounts` to the non-chat Postgres Changes publication.
+RLS lets only the owning account observe its row. If another admin removes the current
+profile, that account-row invalidation causes AppData to refresh account context and
+tear down the old organisation provider and private chat channels before accepting any
+new scoped data. Foreground/reconnect reconciliation remains the fallback. The remote
+baseline remains 13 non-chat publication tables until the migration is deployed.
+
+## Validation and rollout gates
+
+Automated coverage includes migration-history/security contracts, service error
+mapping, member-list states/search/actions, role selection and last-admin protection,
+remove/leave confirmations, one/many/no remaining active-profile outcomes, no stale
+scope flash, removed-profile invitation presentation, team-add exclusion, account-row
+Realtime invalidation, and existing invitation/chat/push regressions.
+
+Before deployment, review the migration and rollout plan. With separate explicit
+approval, apply only `20260712103321`, then verify function signatures/ACLs, RLS,
+publication membership, access-status constraints, active-profile repair, final-admin
+locking, cleanup, retained history, and removed-profile invitation acceptance against
+the hosted dev database. Manual disposable-account QA must cover:
+
+1. directory loading, bounded search, empty/error/retry, and direct-route admin lock;
+2. every role transition, self-demotion, concurrent/final-admin rejection, and no
+   cross-organisation target access;
+3. admin removal and self-leave for one, several, and no remaining organisations;
+4. immediate team/chat loss, old-scope/channel teardown, foreground/reconnect catch-up,
+   and no stale data flash;
+5. profile/history preservation, role/team/token cleanup, retained rota/history rows,
+   and explicit future-duty reassignment;
+6. removed-profile re-invitation by the same verified account, baseline-only access,
+   wrong-account/replay/expiry/resend/revoke regressions, and no restored teams/tokens;
+7. open-signup/no-org/create-org/name/multi-org regressions and separate physical-iPhone
+   push registration/delivery/preference/self-notification regressions.
+
+No production invitation is approved, custom-scheme invitation links are not
+production-ready, and the previously deferred identity/invitation/device QA remains
+open independently of this slice.

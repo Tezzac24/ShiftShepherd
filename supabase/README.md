@@ -2,7 +2,7 @@
 
 This folder holds the database foundation for Shift Shepherd's intended production backend. Existing auth/live data, membership governance, shared freshness, server-authoritative unread, and private chat Broadcast slices are deployed and QA-complete. Chat now receives freshness through exact private Broadcast topics; the 13 non-chat shared tables remain on Postgres Changes. Push Token Registration and chat push delivery are live foundations, with physical-iPhone delivery QA pending.
 
-> **Current dev-project state:** remote migration history is aligned through deployed `20260712001940_add_invite_onboarding_identity_foundation.sql`. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are deployed and ACTIVE; invitation runtime secrets and allowed redirects are configured, and non-mutating function smoke tests passed. Genuine no-organisation device QA, first real invitation delivery/acceptance, disposable-account invitation/multi-org QA, and physical-iPhone push QA remain pending. **Do not rename or edit applied migrations.**
+> **Current dev-project state:** remote migration history is aligned through deployed `20260712001940_add_invite_onboarding_identity_foundation.sql`. `20260712103321_add_organisation_membership_role_management.sql` is the only local-only migration. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are deployed and ACTIVE; invitation runtime secrets and allowed redirects are configured, and non-mutating function smoke tests passed. The new membership SQL was not runtime-executed because Docker was unavailable; its deployment/manual QA, genuine no-organisation device QA, first real invitation delivery/acceptance, disposable-account invitation/multi-org QA, and physical-iPhone push QA remain pending. **Do not rename or edit applied migrations.**
 
 ## Contents
 
@@ -37,7 +37,8 @@ supabase/
 │   ├── 20260711154134_enable_shared_live_data_realtime.sql # pushed: shared-domain publication tables
 │   ├── 20260711173139_add_team_chat_read_cursor.sql # pushed: server-authoritative chat read cursor + unread summary
 │   ├── 20260711195143_migrate_chat_realtime_to_private_broadcast.sql # deployed: secure private chat Broadcast transport
-│   └── 20260712001940_add_invite_onboarding_identity_foundation.sql # deployed: identity/invitation foundation
+│   ├── 20260712001940_add_invite_onboarding_identity_foundation.sql # deployed: identity/invitation foundation
+│   └── 20260712103321_add_organisation_membership_role_management.sql # local-only: safe org access/role lifecycle
 ├── functions/
 │   ├── send-chat-message-push/  # deployed v5 with active-profile-compatible sender resolution
 │   └── manage-organisation-invitations/ # deployed v1 trusted invitation/email gateway
@@ -57,7 +58,7 @@ Choir-specific rules worth knowing:
 
 ## Design in one paragraph
 
-The deployed identity foundation distinguishes Supabase `auth.users`, one account-global `user_accounts` row, and stable organisation-scoped `profiles` rows. One Auth user may own one profile per organisation; `user_accounts.active_profile_id` is ownership-validated and `current_profile_id()` scopes normal RLS queries to that single organisation. Effective display name is `profiles.display_name_override ?? user_accounts.global_display_name`, while synchronized `profiles.full_name` preserves existing readers. Child relationships keep their existing profile IDs. Demo/mock data remains separate.
+The deployed identity foundation distinguishes Supabase `auth.users`, one account-global `user_accounts` row, and stable organisation-scoped `profiles` rows. One Auth user may own one profile per organisation; `user_accounts.active_profile_id` is ownership-validated and `current_profile_id()` scopes normal RLS queries to that single organisation. The local membership migration adds `profiles.access_status`: removed profiles keep their IDs and historical attribution but grant no access. Effective display name is `profiles.display_name_override ?? user_accounts.global_display_name`, while synchronized `profiles.full_name` preserves existing readers. Demo/mock data remains separate.
 
 ## Getting started (when you're ready)
 
@@ -80,6 +81,23 @@ The policies are SELECT-only and use `realtime.topic()` plus canonical UUID pars
 
 Deployment verification confirmed the migration version, both private-topic policies, trigger definitions/privileges, minimal payloads, no Broadcast INSERT policy, and removal of only the two chat tables from the publication. Two-user/multi-device, church-admin, membership removal/re-add, token refresh, reconnect/foreground, image, account-switch, and demo QA passed. The 13 unrelated shared-data tables remain on Postgres Changes.
 
+### Local organisation membership and role management
+
+`20260712103321_add_organisation_membership_role_management.sql` is local-only. It adds explicit `active`/`removed` organisation access with removal audit fields and replaces active-profile/account helpers so removed profiles cannot be current, listed as account access, switched to, or added to a team. Profiles, global accounts, Auth users, other organisations, messages, authored content, rota assignments, availability, read cursors, preferences, invitation history, and delivery history are retained.
+
+The authenticated app surface is four narrow RPCs:
+
+- `list_organisation_members(p_search, p_limit)` — church-admin-only bounded read model; no Auth IDs, invitation hashes, or push tokens.
+- `set_organisation_member_role(p_profile_id, p_role)` — replaces the target's one schema-supported role.
+- `remove_organisation_member(p_profile_id)` — admin-owned removal of another active linked member.
+- `leave_organisation()` — caller-owned departure with no caller/profile/organisation argument.
+
+Role change, admin removal, and self-leave lock the same organisation row before counting effective linked active `church_admin` profiles, so concurrent operations cannot leave zero admins. Remove/leave deletes current organisation roles, team memberships, and profile-owned push tokens, then marks the stable profile removed; active profile is selected automatically for one remaining organisation, cleared for the selector when several remain, or cleared for no-organisation state. The target account's owner-RLS `user_accounts` row joins shared Postgres Changes invalidation so its old AppData/channels remount promptly; the remote baseline remains 13 shared tables until this migration is deployed.
+
+Removed profiles can be invited again through the existing Edge Function. Acceptance requires the same matching verified Auth account, reactivates the same profile ID, clears removal audit fields, defensively removes stale roles/teams/tokens, and inserts `general_member` only. Active unlinked directory profiles retain the existing first-invitation behavior.
+
+Direct authenticated profile/role writes remain revoked and the old permissive role-write policy is dropped. Every new definer function has `search_path = ''`, fully qualified relations, server-derived caller/tenant authority, and explicit ACLs. The local deterministic suite passes 357 tests across 48 suites. SQL runtime execution and advisors remain unverified because Docker was not running; do not claim the migration has passed database execution.
+
 ### Deployed invite and multi-organisation foundation
 
 `20260712001940_add_invite_onboarding_identity_foundation.sql` is deployed and verified. It removes the historical email auto-link trigger, replaces global profile/Auth uniqueness with one profile per Auth user per organisation, adds `user_accounts`, a validated active profile, organisation display-name overrides, deterministic existing-user/name backfill, active-aware identity helpers, and narrow account/name/switch/create-organisation RPCs. Existing profile IDs and their team, rota, chat, unread, notification, push, directory, and role relationships are untouched.
@@ -90,12 +108,12 @@ Deployment verification confirmed the migration version, both private-topic poli
 
 Deployment completed in that controlled order: the migration was applied and verified, invitation URL/sender/secrets were configured, `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 were deployed, and non-mutating function smoke tests passed. Disposable-account open-signup, no-org/create-org, first real delivery/acceptance, new/existing invite, wrong-account, OAuth, phone-only, lifecycle, name, multi-org, and regression QA remain deferred. Do not invite real users until this passes.
 
-The deterministic regression suite passes 296 tests across 43 suites (the deployed Broadcast baseline was 211/31). Edge/Deno runtime and provider delivery are outside Jest; non-mutating function smoke tests passed, while first real email delivery/acceptance remains a manual QA gate.
+The pre-membership deterministic regression suite passed 296 tests across 43 suites; the current local implementation passes 357 tests across 48 suites (the deployed Broadcast baseline was 211/31). Edge/Deno runtime and provider delivery are outside Jest; non-mutating identity-function smoke tests passed, while membership SQL runtime execution, member/role manual QA, and first real email delivery/acceptance remain manual gates.
 
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
 3. Apply migrations:
-   - **Hosted dev:** remote history is aligned through `20260712001940_add_invite_onboarding_identity_foundation.sql`. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
+   - **Hosted dev:** remote history is aligned through `20260712001940_add_invite_onboarding_identity_foundation.sql`; `20260712103321_add_organisation_membership_role_management.sql` should appear local-only. New changes go through `supabase migration new <name>` (leave the generated filename unchanged) followed by an explicitly approved `supabase db push`. **Do not rename `001`–`006` or timestamped migrations.** `npm run check:migrations` is an offline filename guard; local/remote alignment still requires `npx supabase migration list`.
    - **A fresh project from scratch:** `supabase db push` applies `001`–`006` and the timestamped migrations in order (numeric prefixes are accepted by the CLI); or paste each migration in version order in the dashboard SQL editor. `supabase db reset` (local stack) requires Docker.
 4. Existing dev users remain linked through the deterministic backfill. After `20260712001940` is deployed, new Auth users receive only a global account shell; organisation access must come from invitation acceptance or the no-org create-organisation RPC. Do not manually restore email auto-linking.
 5. Copy `.env.example` to `.env` and fill in your project URL and anon key (the anon key is safe to ship in the app; RLS is the security boundary).
