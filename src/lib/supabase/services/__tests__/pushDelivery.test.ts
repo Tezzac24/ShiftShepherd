@@ -8,6 +8,8 @@
  */
 import { getSupabase } from '../../client';
 import { requestChatMessagePushDelivery } from '../pushDelivery';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 jest.mock('../../client', () => ({ getSupabase: jest.fn() }));
 
@@ -77,6 +79,19 @@ describe('requestChatMessagePushDelivery', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       '[pushDelivery] chat push request failed',
       'network down',
+    );
+  });
+
+  it('resolves the sender through the validated active profile for multi-org accounts', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'supabase/functions/send-chat-message-push/index.ts'),
+      'utf8',
+    );
+    expect(source).toContain(".from('user_accounts')");
+    expect(source).toContain(".select('active_profile_id')");
+    expect(source).toContain(".eq('id', account.active_profile_id)");
+    expect(source).not.toMatch(
+      /\.from\('profiles'\)\s*\.select\('id, organisation_id'\)\s*\.eq\('auth_user_id'/,
     );
   });
 });
