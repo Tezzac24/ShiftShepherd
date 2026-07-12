@@ -3,9 +3,9 @@
 ## Status
 
 Implemented locally in commit `c54da51`, with account-scope invalidation hardened in
-`7628569`. The database change is
+`7628569` and cleanup-write serialization in `ad09ae9`. The database change is
 `20260712103321_add_organisation_membership_role_management.sql`; it must not be
-deployed as part of the implementation task. The deterministic suite passes 358 tests
+deployed as part of the implementation task. The deterministic suite passes 359 tests
 across 48 suites. Docker was unavailable, so the SQL has static contract coverage but
 no local runtime execution or advisor result. Manual membership/role QA is pending.
 
