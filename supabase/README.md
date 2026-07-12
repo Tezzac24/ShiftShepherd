@@ -96,7 +96,7 @@ Role change, admin removal, and self-leave lock the same organisation row before
 
 Removed profiles can be invited again through the existing Edge Function. Acceptance requires the same matching verified Auth account, reactivates the same profile ID, clears removal audit fields, defensively removes stale roles/teams/tokens, and inserts `general_member` only. Active unlinked directory profiles retain the existing first-invitation behavior.
 
-Direct authenticated profile/role writes remain revoked and the old permissive role-write policy is dropped. Every new definer function has `search_path = ''`, fully qualified relations, server-derived caller/tenant authority, and explicit ACLs. The local deterministic suite passes 357 tests across 48 suites. SQL runtime execution and advisors remain unverified because Docker was not running; do not claim the migration has passed database execution.
+Direct authenticated profile/role writes remain revoked and the old permissive role-write policy is dropped. Every new definer function has `search_path = ''`, fully qualified relations, server-derived caller/tenant authority, and explicit ACLs. The local deterministic suite passes 358 tests across 48 suites. SQL runtime execution and advisors remain unverified because Docker was not running; do not claim the migration has passed database execution.
 
 ### Deployed invite and multi-organisation foundation
 
@@ -108,7 +108,7 @@ Direct authenticated profile/role writes remain revoked and the old permissive r
 
 Deployment completed in that controlled order: the migration was applied and verified, invitation URL/sender/secrets were configured, `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 were deployed, and non-mutating function smoke tests passed. Disposable-account open-signup, no-org/create-org, first real delivery/acceptance, new/existing invite, wrong-account, OAuth, phone-only, lifecycle, name, multi-org, and regression QA remain deferred. Do not invite real users until this passes.
 
-The pre-membership deterministic regression suite passed 296 tests across 43 suites; the current local implementation passes 357 tests across 48 suites (the deployed Broadcast baseline was 211/31). Edge/Deno runtime and provider delivery are outside Jest; non-mutating identity-function smoke tests passed, while membership SQL runtime execution, member/role manual QA, and first real email delivery/acceptance remain manual gates.
+The pre-membership deterministic regression suite passed 296 tests across 43 suites; the current local implementation passes 358 tests across 48 suites (the deployed Broadcast baseline was 211/31). Edge/Deno runtime and provider delivery are outside Jest; non-mutating identity-function smoke tests passed, while membership SQL runtime execution, member/role manual QA, and first real email delivery/acceptance remain manual gates.
 
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli) and run `supabase init` in the repo root (keeps this folder; generates `config.toml`).
 2. `supabase start` for a local stack, or `supabase link --project-ref <ref>` for a hosted dev project.
