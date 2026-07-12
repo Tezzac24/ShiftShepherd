@@ -1,9 +1,9 @@
 # Supabase Migration Alignment
 
-**Remote status: aligned through `20260711173139` on 2026-07-11. Local status: one pending migration.**
-This document records the completed remote checkpoint through the applied immutable chat read-cursor migration, plus one local-only corrective migration from chat Postgres Changes to secure private Broadcast.
+**Current remote status: aligned through deployed `20260711195143` on 2026-07-12. Current local status: one new pending migration, `20260712001940`.**
+This document preserves the earlier pre-Broadcast checkpoint as history and records the later deployed/QA-complete Broadcast checkpoint plus the new local-only invitation/onboarding identity foundation.
 `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) is pushed and verified; the matching `send-chat-message-push` Edge Function is deployed and ACTIVE with JWT verification.
-`20260711024931_harden_security_definer_functions.sql` through `20260711154134_enable_shared_live_data_realtime.sql` are **pushed and verified**; membership management, membership governance, Leave Team, canonical My Teams, shared Realtime, and foreground catch-up passed manual QA (the two multi-admin removal branches remain deferred until a safe multi-admin fixture exists). `20260711173139_add_team_chat_read_cursor.sql` is also applied and immutable. Only `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` is local-only and must not be treated as live before an explicitly approved push/verification pass.
+`20260711024931_harden_security_definer_functions.sql` through `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` are pushed and verified. Membership governance, shared freshness, server-authoritative unread, and private Broadcast passed their documented manual QA. Only `20260712001940_add_invite_onboarding_identity_foundation.sql` is local-only. Its Edge Function, remote Auth/email configuration, and live QA remain pending.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
 grants, the Auth/profile auto-link `20260709233705`, the chat realtime publication
 `20260710020944`, the chat read-states `20260710031212`, the profile avatar storage
@@ -17,7 +17,7 @@ with explicit approval, verified, and covered by manual QA.
   `001, 002, 003, 004, 005, 006`.
 - Migrations `003`–`006` are applied remotely; `001`–`002` (originally run by hand)
   are back-filled into history.
-- `supabase migration list` shows local/remote alignment through `20260711173139`; it should now show only `20260711195143` as local-only.
+- `supabase migration list` showed local/remote alignment through `20260711195143` before this slice; it should now show only `20260712001940` as local-only.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -79,9 +79,10 @@ with explicit approval, verified, and covered by manual QA.
 - `20260711050344_restrict_profile_editing_to_name.sql` (**pushed + verified**): drops the two-argument `update_own_profile(text, text)` and creates the name-only `update_own_profile(text)` (SECURITY DEFINER, empty search_path, authenticated-only EXECUTE). Phone remains read-only, stored values are untouched, and no phone-auth configuration changed.
 - `20260711063412_add_team_membership_management.sql` (**pushed + verified + manual QA complete**): introduced authenticated-only `add_team_member(uuid, uuid)` and `remove_team_member(uuid, uuid)` with caller/organisation authority derived server-side and no direct membership writes.
 - `20260711154126_refine_team_membership_governance.sql` (**pushed + verified + manual QA complete**): replaces `remove_team_member(uuid, uuid)` and adds `leave_team(uuid)` with identical canonical membership return fields. Target protection uses team role, church admins may remove only non-final team admins, team admins cannot remove peer admins, self-removal routes to Leave Team, and both leader-removal paths lock the team row before membership/count/delete. It explicitly narrows `team_memberships` to authenticated SELECT only and grants both RPCs to authenticated only. (The two multi-admin removal branches remain deferred until a safe multi-admin fixture exists.)
-- `20260711154134_enable_shared_live_data_realtime.sql` (**pushed + verified + manual QA complete**): adds the 13 user-visible shared-data tables for announcements, events, rotas, songs, and directory/session access to `supabase_realtime`. `chat_messages` stays separately published by its earlier migration; no chat duplication, replica-identity change, grant, policy, webhook, function, or data change is included.
+- `20260711154134_enable_shared_live_data_realtime.sql` (**pushed + verified + manual QA complete**): adds the 13 user-visible shared-data tables for announcements, events, rotas, songs, and directory/session access to `supabase_realtime`. Chat was separately published at this historical point; the later Broadcast migration removes only the two chat tables.
 - `20260711173139_add_team_chat_read_cursor.sql` (**applied + immutable**): adds `chat_read_states.last_read_message_id` (server-derived read cursor), a deterministic rollout backfill, narrow authenticated-only SECURITY DEFINER mark/summary RPCs, and read-state write restrictions. Its cursor/RPC/backfill contracts remain unchanged.
-- `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` (**local-only**): adds canonical private `team-chat:<teamId>` and `profile-chat-read:<profileId>` Broadcast authorization through SELECT-only `realtime.messages` policies; adds locked-down database triggers that emit minimal v1 message/read invalidations; and then removes only `chat_messages` and `chat_read_states` from the `supabase_realtime` publication. There is no client send/INSERT policy, no message text or attachment data in payloads, and no change to the 13 non-chat shared-data publication tables, unread RPCs, push delivery, or demo behavior.
+- `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` (**pushed + verified + manual QA complete**): adds canonical private `team-chat:<teamId>` and `profile-chat-read:<profileId>` Broadcast authorization through SELECT-only `realtime.messages` policies; adds locked-down database triggers that emit minimal v1 message/read invalidations; and removes only `chat_messages` and `chat_read_states` from `supabase_realtime`. There is no client send/INSERT policy or sensitive payload data. The two-user/multi-device, membership, reconnect/foreground, image, account-switch, and demo matrix passed.
+- `20260712001940_add_invite_onboarding_identity_foundation.sql` (**local-only, undeployed**): adds account-global identity/active profile, multi-org uniqueness, deterministic backfill, display-name overrides, invitation lifecycle, verified-email acceptance, no-org organisation creation, and active-aware helpers/RPCs. `manage-organisation-invitations` and the push-function compatibility revision are also local/undeployed; no remote Auth/email settings changed.
 
 ## iOS Simulator registration QA correction
 
@@ -167,16 +168,29 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 
 ## Result
 
-The remote dev schema matches the repo through `20260711173139`; migration history is
-tracked and the cursor migration is applied and immutable. Local-only
-`20260711195143_migrate_chat_realtime_to_private_broadcast.sql` awaits explicit
-controlled push approval. Verify both private-topic SELECT policies, canonical topic
-parsing, trigger definitions/privileges, minimal payloads, and removal of only the two
-chat tables from the publication, then run two-user/multi-device, church-admin,
-membership, token-refresh, reconnect/foreground, image-preview, account-switch, and
-demo-isolation QA. The hosted database still emits chat Postgres Changes until that
-migration is applied, while the new client expects Broadcast, so the migration must
-precede or ship with the client. This implementation pass performed no remote write.
+The remote dev schema and migration history are aligned through `20260711195143`.
+Private chat Broadcast is live, its deployment/security checks passed, and the full
+documented manual QA matrix passed; chat no longer uses Postgres Changes. The 13
+unrelated shared-data tables still use Postgres Changes. Expo export passed for
+Android, iOS, and web, and the deployed-slice baseline was 211 tests across 31 suites.
+
+The only local-only migration is now
+`20260712001940_add_invite_onboarding_identity_foundation.sql`. It and the undeployed
+`manage-organisation-invitations` function implement open signup/no-org/create-org,
+global identity, active multi-org profiles, app-owned seven-day invitations, matching
+verified-email acceptance, and display-name ownership. Remote Auth redirects, email
+provider secrets, and sender configuration are unchanged; no live invitation QA or
+remote write occurred in this implementation. The existing push function has a local
+active-profile compatibility revision that must ship in the controlled multi-org
+rollout without changing delivery semantics.
+
+The local deterministic regression suite passes 254 tests across 40 suites, compared
+with the deployed Broadcast baseline of 211/31.
+
+Next: deploy/verify only the new migration, configure invitation secrets/redirects,
+deploy the invitation function and push compatibility revision, then run disposable-
+account open-signup, both invitation paths, lifecycle, wrong-account, OAuth, phone-only,
+names, multi-org, and regression QA. Do not invite real users before it passes.
 Both Announcement Images V1 and Chat Image Attachments V1
 passed manual QA (after the `20260710162415` permission fix: members can send images
 in their teams, admins in teams they administer, non-members stay blocked, and text

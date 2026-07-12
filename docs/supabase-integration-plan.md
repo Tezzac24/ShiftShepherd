@@ -13,14 +13,14 @@ Each step leaves the app fully working. Don't start a step until the previous on
 ### 1. Supabase project & environment setup ✅ (done)
 
 - Create a **dev** project (and later a separate **production** project — never share one).
-- Run migrations in order. Remote history is aligned through applied immutable `20260711173139_add_team_chat_read_cursor.sql`; only `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` is local-only.
+- Run migrations in order. Remote history is aligned through deployed/QA-complete `20260711195143_migrate_chat_realtime_to_private_broadcast.sql`; only `20260712001940_add_invite_onboarding_identity_foundation.sql` is local-only.
 - Run `supabase/seed/dev_seed.sql`, then create Auth users with matching profile emails (see `supabase/seed/README.md`).
 - `npx expo install @supabase/supabase-js`, create the client in `src/lib/supabase/client.ts` from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`).
 - The app still runs 100% on mocks at this point; the client just exists.
 
-> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260711173139`. The cursor migration is applied and immutable. `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` is the only local-only migration. Migrations `001`–`002` were originally run by hand and back-filled into history; later migrations used the normal controlled push workflow. **Do not rename `001`–`006`, rename timestamped migrations, or edit applied migration SQL.** See `docs/supabase-migration-alignment-checkpoint.md`.
+> **Migration history (dev project):** remote history is aligned through `001`–`006` and every timestamped migration through `20260711195143`. Broadcast is deployed and manually QA-complete. `20260712001940_add_invite_onboarding_identity_foundation.sql` is the only local-only migration. Migrations `001`–`002` were originally run by hand and back-filled into history; later migrations used the normal controlled push workflow. **Do not rename `001`–`006`, rename timestamped migrations, or edit applied migration SQL.** See `docs/supabase-migration-alignment-checkpoint.md`.
 
-### 2. Auth + profiles ✅ (done; auto-link migration pushed + QA'd)
+### 2. Auth + profiles ✅ (historical single-profile foundation; superseded locally by step 17)
 
 The single riskiest step — done in its own pass. What shipped:
 
@@ -35,7 +35,7 @@ This infrastructure pass adds safe linking without adding signup or onboarding:
 - A unique expression index on `lower(profiles.email)` prevents ambiguous matches. The existing unique constraint on `profiles.auth_user_id` already prevents one Auth user being linked to multiple profiles, so no redundant auth-link index is added.
 - No profile, organisation role, team membership, organisation, or invitation is created. A missing match or a profile already linked to a different Auth user is left unchanged.
 - There is no email-update trigger and no automatic backfill. Auth users created before this migration may need the one-time manual link in `supabase/seed/README.md`.
-- The migration has since been pushed with explicit approval and passed manual QA — newly created Auth users link automatically on the dev project.
+- The migration was pushed and QA'd, so this remains the current remote behavior until step 17 is deployed. Step 17 drops the auto-link trigger forward-only; open signup then creates no organisation access by email match.
 
 ### 3. Organisations & roles ✅ (done with step 6)
 
@@ -279,7 +279,7 @@ Implemented and pushed 2026-07-11 through `20260711154126_refine_team_membership
 6. One session-scoped shared Postgres Changes channel subscribes to `announcements`, `events`, rota tables, song tables, `organisations`, `profiles`, `teams`, `team_memberships`, and `organisation_roles`. Chat uses its separate private Broadcast lifecycle. Raw shared-data events only choose scoped RLS loaders.
 7. A dependency-free 180 ms scheduler deduplicates domains, permits one in-flight refresh per domain and at most one follow-up, and clears timers on cleanup. Genuine subscription recovery and AppState background/inactive→active enqueue all shared domains. There is no polling, push expansion, Edge Function, webhook, or visible syncing flash.
 8. DELETE delivery can be limited by RLS—especially after a user loses membership—so no flow depends on receiving that event. Mandatory foreground catch-up (and reconnect catch-up when delivered) re-queries authoritative visibility.
-9. The offline regression suite is now **211 tests across 31 suites** (from 108/17), covering service boundaries/errors, canonical state, role/UI rules, Leave Team lifecycle, access loss, shared-data Postgres Changes, chat Broadcast topic/payload/migration security, exact-row fetches, channel/auth lifecycle, token refresh, dynamic membership, reconnect health, coalescing, AppState behavior, stale-fetch suppression, and stale-session cleanup.
+9. The deployed Broadcast baseline was **211 tests across 31 suites** (from 108/17), covering service boundaries/errors, canonical state, role/UI rules, Leave Team lifecycle, access loss, shared-data Postgres Changes, chat Broadcast topic/payload/migration security, exact-row fetches, channel/auth lifecycle, token refresh, dynamic membership, reconnect health, coalescing, AppState behavior, stale-fetch suppression, and stale-session cleanup. Step 17 adds its own local coverage.
 
 ## Risks & edge cases
 
@@ -288,14 +288,14 @@ Implemented and pushed 2026-07-11 through `20260711154126_refine_team_membership
 - **Authored-content deletes**: `created_by`/`added_by`/`sender_id`/`selected_by` are `ON DELETE RESTRICT` — deleting a profile that authored content will fail. That's intentional for V1; GDPR-style removal should anonymise the profile (rename, null contact fields) rather than hard-delete. Revisit before public launch.
 - **Time formats**: Postgres returns `time` as `HH:MM:SS`; the app renders `HH:MM`. Normalise in the rota service (`time.slice(0, 5)`).
 - **Optimistic-update rollback**: every mutating service call needs a rollback path; the scaffold's plain-English error strings already exist for this.
-- **Profiles without auth users** (seed data): fine as authors/assignees, but they cannot sign in or respond as themselves until linked. After the auto-link migration is applied, create a new Auth user with the same email; users created before the trigger still need a one-time manual link.
+- **Profiles without auth users** (seed data): fine as authors/assignees. The deployed historical trigger still auto-links today, but step 17 removes it. After step 17 deployment, link an existing profile only through a matching verified-email invitation; never use signup email as organisation authority.
 - **Clock/timezone**: seed dates are computed in the DB server's timezone (UTC on Supabase); a service starting at "10:00" UTC may render as 11:00 local in the app. Acceptable for dev; production event creation happens through the app with proper timestamptz values.
 - **Two sources of truth during migration**: while some slices are mock and some are live, cross-feature joins (e.g. announcement linked to a live event) can dangle. The integration order above minimises this — announcements→events are adjacent for exactly this reason.
 
 ## What stays mocked until later
 
 - **Event categories** — the app still uses the mock twelve; the events service matches live categories by name.
-- ~~**Unread badges**~~ — live unread tracking shipped (step 9c) and became server-authoritative + session-wide in step 15. The cursor/summary migration `20260711173139_add_team_chat_read_cursor.sql` is applied; only the step-16 Broadcast transport correction is local-only.
+- ~~**Unread badges**~~ — live unread tracking shipped (step 9c), became server-authoritative in step 15, and moved to deployed private Broadcast in step 16.
 - **Notification delivery** — preferences persist, Push Token Registration V1 stores tokens, and Chat Message Push Delivery V1 is deployed. Backend invocation and no-token skips are verified, but real Expo delivery awaits physical iPhone development-build QA for token registration, ticket creation, banner display, no self-notification, and preference-off suppression. Announcements/events/rota/availability delivery stays unimplemented.
 - ~~**Chat images migration/QA**~~ — shipped (step 10c); `20260710124206` plus the `20260710162415` permission fix are pushed and chat images passed manual QA. Arbitrary files and multiple attachments remain out of scope.
 - **Social/phone sign-in** — buttons stay "coming soon" until OAuth/SMS providers are configured; email/password is the wired path first.
@@ -303,7 +303,7 @@ Implemented and pushed 2026-07-11 through `20260711154126_refine_team_membership
 
 ## Recommended immediate next task
 
-Steps 1–16 are implemented in app code. Remote history is aligned through the applied chat read-cursor migration (`20260711173139`); only the section-16 Broadcast transport correction (`20260711195143`) is pending locally. It must be applied before or together with this client. Next, in order of value:
+Steps 1–16 are deployed; step 16 is manually QA-complete. Step 17 is implemented locally only. Remote history is aligned through `20260711195143`; only `20260712001940` is pending. Next, in order of value:
 
 1. ✅ **Done (2026-07-09):** migrations `003`–`006` applied remotely with aligned history; the events grants migration `20260709093129_grant_authenticated_events_api_privileges.sql` is pushed and verified.
 2. ✅ **Done (2026-07-09):** **step 5 — events**, including live `linked_event_id` on announcements.
@@ -329,7 +329,8 @@ Security hardening review (2026-07-11) created `20260711024931_harden_security_d
 17. ✅ **Pushed, verified, and manual-QA complete (2026-07-11):** Organisation Directory + Team Membership Management V1 (`20260711063412`; see step 13).
 18. ✅ **Pushed, verified, and manual-QA complete (2026-07-11):** Membership Governance, Leave Team, AppData Consistency, and Shared Live Data Freshness V1 (`20260711154126` + `20260711154134`; see step 14). The two multi-admin removal branches remain deferred until a safe multi-admin fixture exists.
 19. ✅ **Applied (2026-07-11):** Chat Unread State & Session-Wide Messaging Freshness V1 (`20260711173139`; see step 15 below). The migration is immutable and must not be repaired or edited.
-20. **Implemented (2026-07-11; one migration local-only):** Secure Private Chat Broadcast Transport V1 (`20260711195143`; see step 16 below). Exact next step: controlled push/verification of only this migration, then focused two-user/multi-device QA. Do not ship the Broadcast client before the migration or begin Invite and Onboarding until this slice is live and confirmed.
+20. ✅ **Deployed, verified, and manual-QA complete (2026-07-12):** Secure Private Chat Broadcast Transport V1 (`20260711195143`; see step 16). Chat message/read-state Postgres Changes were replaced with private Broadcast; only the two chat tables left the publication; Expo export and the 211/31 baseline passed; the complete two-user/multi-device QA matrix passed.
+21. **Implemented locally (2026-07-12; undeployed):** Invite, Open Signup Onboarding, No-Organisation State, Organisation Creation, and Multi-Organisation Identity Foundation V1 (`20260712001940`; see step 17). No remote configuration or data changed.
 
 ### 15. Chat Unread State & Session-Wide Messaging Freshness V1 — applied; migration immutable
 
@@ -343,9 +344,9 @@ Implemented and applied 2026-07-11 through immutable `20260711173139_add_team_ch
 6. **Stable client behavior:** `services/chatReadState.ts` wraps both RPCs (rejects demo ids, maps errors calmly, logs no message content). `useSessionChatMessaging.ts` owns session lifecycle, AppState foreground catch-up, and a coalescing single-flight summary reconciliation (`singleFlightScheduler.ts`). Pure reducers in `chatUnread.ts` keep one unread truth (own/duplicate/active-team guards). The open team chat registers itself active so arrivals are marked read; the Messages list never marks read. Demo mode opens no channel and never calls the RPCs.
 7. **Push separation unchanged:** push stays an alert; it is not the unread counter, read cursor, or summary. No new push category and no native app-icon badge sync in this slice.
 
-### 16. Secure Private Chat Broadcast Transport V1 — implemented; one migration local-only
+### 16. Secure Private Chat Broadcast Transport V1 — deployed and QA-complete
 
-Implemented 2026-07-11 behind local-only `20260711195143_migrate_chat_realtime_to_private_broadcast.sql`. It replaces only chat message/read-state Postgres Changes with private database Broadcast; all cursor/RPC/unread/foreground/reconnect/UI/push/demo behavior remains:
+Implemented 2026-07-11 and deployed/QA-completed 2026-07-12 through `20260711195143_migrate_chat_realtime_to_private_broadcast.sql`. It replaces only chat message/read-state Postgres Changes with private database Broadcast; all cursor/RPC/unread/foreground/reconnect/UI/push/demo behavior remains:
 
 1. **Exact private topics and events.** Message invalidations use `team-chat:<teamId>` / `chat_message_inserted`; read invalidations use `profile-chat-read:<profileId>` / `chat_read_state_changed`. Topics accept canonical UUIDs only.
 2. **Minimal server-derived payloads.** The message trigger emits v1 `message_id`, `team_id`, `sender_id`, and `created_at`; the read-state trigger emits v1 `team_id`. Neither sends message text, attachments, profile data, read timestamps, or cursor ids. Topics and payload identity are derived from `NEW`.
@@ -354,4 +355,18 @@ Implemented 2026-07-11 behind local-only `20260711195143_migrate_chat_realtime_t
 5. **Receive-only client manager.** Before any private subscription, the client awaits the current session and `realtime.setAuth(access_token)`. Same-account token refresh updates authorization without duplicating channels; logout or account switch tears down the old channels immediately. It holds one profile read channel plus one channel per canonical accessible team (membership, or every same-org team for a church admin), reconciled set-wise when access changes.
 6. **Exact RLS hydration and bounded work.** A valid message event fetches only `(team_id, id)` through normal chat RLS and the existing bounded attachment join. Strict decoders reject malformed/mismatched payloads; pending/seen dedupe prevents duplicate fetches; removed-team work is discarded. Missing/inaccessible rows and read events schedule the authoritative summary rather than fetching history.
 7. **Freshness and UI unchanged.** Aggregate channel recovery after a genuine drop triggers one reconciliation; initial joins do not. Foreground catch-up, active-chat marking, own-message exclusion, image previews, unread badges, multi-device read convergence, and push separation remain. Demo/logged-out/unlinked sessions create no private channels.
-8. **Deployment gate.** The hosted database continues using chat Postgres Changes until this migration is applied, while this client expects Broadcast. Apply/verify the migration before or together with the client, then QA two users and multiple devices, same-org church-admin access, membership removal/re-add, same-account token refresh, reconnect/foreground repair, image previews, account switching, and demo isolation. No remote write has been performed by this implementation pass.
+8. **Deployment result.** The migration, exact policies/triggers/payloads, publication removal, and absence of a client INSERT path were verified. Two-user/multi-device, same-org church-admin, membership removal/re-add, token refresh, reconnect/foreground, image, account-switch, and demo QA passed. The 13 non-chat shared-data tables remain on Postgres Changes.
+
+### 17. Invite, open signup, no-organisation, organisation creation, and multi-org identity V1 — implemented locally
+
+Implemented 2026-07-12 behind local-only `20260712001940_add_invite_onboarding_identity_foundation.sql` and undeployed `manage-organisation-invitations`:
+
+1. **Identity compatibility.** `auth.users` remains sign-in authority; new `user_accounts` owns global name and validated `active_profile_id`; existing `profiles` remain stable organisation identities. Global Auth/profile uniqueness becomes partial uniqueness per `(auth_user_id, organisation_id)`. Existing IDs and every dependent team, rota, chat, unread, notification, push, role, and directory row remain untouched. Backfill deterministically chooses the oldest linked profile and preserves visible name conflicts as organisation overrides.
+2. **No automatic access.** The historical Auth-email auto-link trigger is dropped forward-only. Signup creates only an account shell. A no-org user confirms a global name, may create one organisation transactionally as its church admin, sees Request to join as a no-backend placeholder, or signs out. Creation is restricted to no-org accounts with a verified email and confirmed name and creates no team/fake member.
+3. **Active isolation and names.** `current_profile_id()` resolves only the account-owned active profile. Switch RPCs reject another user's profile. AppData is keyed by active profile so old rows, unread maps, timers, signed URLs, and shared/chat channels unmount before the new organisation renders. Global name updates non-overridden profiles; the active organisation override is independently editable and clearable.
+4. **Invitation lifecycle.** `organisation_invitations` stores only a unique SHA-256 hash, normalized email, optional unlinked target profile, inviter/audit fields, and pending/accepted/expired/revoked/superseded states. Expiry is seven days; pending email/target uniqueness is indexed; resend supersedes/rotates; revoke blocks immediately; row locking and per-org profile uniqueness make acceptance replay/concurrency safe.
+5. **Trusted delivery.** The Edge Function validates JWTs itself, derives caller identity, repeats church-admin/tenant checks in service-only SQL, generates 32 random bytes, constructs `/invite/accept`, and sends through an isolated Resend adapter. Runtime-only requirements are `RESEND_API_KEY`, `INVITATION_FROM_EMAIL`, and `INVITATION_APP_BASE_URL`. Public preview returns only masked/bounded context; raw tokens are never stored/logged/returned.
+6. **Acceptance.** The database checks server-authoritative `auth.users.email` and `email_confirmed_at`. A matching email/password or already-configured OAuth identity can accept; phone-only, unverified, wrong-email, expired, revoked, or superseded attempts fail. New-person acceptance creates one profile; existing-person acceptance reuses the targeted unlinked profile and preserves its relationships/roles. Only `general_member` is inserted when no role exists; no team/admin/rota/notification/push permission is added. The accepted organisation becomes active.
+7. **Deep link and UI.** `/invite/accept` supports signed-out, mismatch, phone-only, name-confirmation, pending, success, and terminal states. Native pending tokens use SecureStore; web uses sessionStorage; the seven-day state survives intentional sign-out/OAuth redirects and clears on success or terminal invalidation. Church-admin UI supports existing-person invite, Add & invite email-only, history, resend, and revoke. Profile contains global/org name editing and the minimal organisation selector.
+8. **Deployment status/order.** Nothing in this step is live. Review/push only `20260712001940`; verify backfill, constraints, RLS, grants, active profile and migration alignment; configure the sender/secrets/allowed redirect; deploy `manage-organisation-invitations` and the active-profile compatibility revision of `send-chat-message-push`; then run disposable-account open-signup, create-org, both invite paths, lifecycle, wrong-account, OAuth, phone-only, names, multi-org, and full regression QA. Do not invite real users first.
+9. **Automated state.** The deterministic offline suite passes 254 tests across 40 suites, up from the deployed Broadcast baseline of 211/31. Edge/Deno runtime and live email delivery still require the controlled deployment QA above.
