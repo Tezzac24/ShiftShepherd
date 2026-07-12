@@ -1,27 +1,15 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
-import { colors, spacing } from '@/constants/theme';
-import { AppText } from '@/src/components/AppText';
+import { colors } from '@/constants/theme';
 import { ConfirmProvider } from '@/src/components/ConfirmDialog';
+import { StartupScreen } from '@/src/components/StartupScreen';
 import { ToastProvider } from '@/src/components/Toast';
 import { AppDataProvider, useAppData } from '@/src/lib/appData/AppDataContext';
 import { AuthProvider, useAuth } from '@/src/lib/auth/AuthContext';
 import { paperTheme } from '@/src/lib/theme/paperTheme';
-
-/** Calm full-screen loader shown while saved data/session is restored. */
-function StartupScreen() {
-  return (
-    <View style={styles.startup}>
-      <AppText variant="title">Shift Shepherd</AppText>
-      <ActivityIndicator size="large" color={colors.primary} />
-      <AppText tone="secondary">Getting things ready...</AppText>
-    </View>
-  );
-}
 
 function RootStack({ hasStarted }: { hasStarted: React.MutableRefObject<boolean> }) {
   const { user, isLoading, isAuthenticated } = useAuth();
@@ -63,9 +51,14 @@ function RootStack({ hasStarted }: { hasStarted: React.MutableRefObject<boolean>
         <Stack.Screen name="login" options={{ headerShown: false }} />
       </Stack.Protected>
 
-      {/* Signed-in account states that deliberately have no active org data. */}
-      <Stack.Protected guard={isAuthenticated}>
+      {/* Signed-in account states that deliberately have no active org data.
+          "No organisations yet" is only true while there is no active profile:
+          once one resolves, the guard drops the route and index sends the user
+          home rather than stranding them on a stale answer. */}
+      <Stack.Protected guard={isAuthenticated && !user}>
         <Stack.Screen name="no-organisations" options={{ headerShown: false }} />
+      </Stack.Protected>
+      <Stack.Protected guard={isAuthenticated}>
         <Stack.Screen name="organisations/create" />
         <Stack.Screen name="organisations/select" options={{ headerShown: false }} />
       </Stack.Protected>
@@ -131,13 +124,3 @@ export default function RootLayout() {
     </AuthProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  startup: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.background,
-  },
-});

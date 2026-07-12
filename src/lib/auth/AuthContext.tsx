@@ -29,6 +29,16 @@ import * as accountsService from '../supabase/services/accounts';
 
 type AuthMode = 'demo' | 'supabase';
 
+/**
+ * Lifecycle of the signed-in account's organisation context.
+ *
+ * This exists so that "we have not looked yet" can never be mistaken for "we
+ * looked and the account has no organisations". `accountContext === null` means
+ * both, which is why an unresolved context used to route straight to
+ * "No organisations yet" on sign-in.
+ */
+export type AccountStatus = 'idle' | 'loading' | 'ready' | 'error';
+
 interface AuthIdentity {
   id: string;
   email: string | null;
@@ -48,6 +58,7 @@ interface AuthContextValue {
   authMode: AuthMode | null;
   supabaseEnabled: boolean;
   accountContext: AccountContext | null;
+  accountStatus: AccountStatus;
   authIdentity: AuthIdentity | null;
   pendingInvitationToken: string | null;
   signInAsTestUser: (userId: string) => void;
@@ -161,6 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [accountContext, setAccountContext] = useState<AccountContext | null>(null);
+  const [accountStatus, setAccountStatus] = useState<AccountStatus>('idle');
   const [authIdentity, setAuthIdentity] = useState<AuthIdentity | null>(null);
   const [pendingInvitationToken, setPendingInvitationToken] = useState<string | null>(null);
   const authModeRef = useRef<AuthMode | null>(null);
@@ -173,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthMode(session ? 'demo' : null);
     setAuthIdentity(null);
     setAccountContext(null);
+    setAccountStatus('idle');
     setUser(session);
   }, []);
 
@@ -183,30 +196,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthMode(null);
     setAuthIdentity(null);
     setAccountContext(null);
+    setAccountStatus('idle');
     setUser(null);
   }, []);
 
   const bootstrapLiveUser = useCallback(async (authUser: SupabaseAuthUser) => {
     const sequence = ++bootstrapSequenceRef.current;
+    const previousAuthUserId = authUserIdRef.current;
     authModeRef.current = 'supabase';
     authUserIdRef.current = authUser.id;
     setAuthMode('supabase');
     setAuthIdentity(identityFromAuthUser(authUser));
-    const context = await accountsService.fetchAccountContext();
-    if (sequence !== bootstrapSequenceRef.current || authUserIdRef.current !== authUser.id) return;
 
-    // One linked organisation with a missing active pointer is unambiguous and
-    // repaired only through the secure ownership-validating RPC.
-    if (!context.account.active_profile_id && context.organisations.length === 1) {
-      await accountsService.switchActiveProfile(context.organisations[0].profile.id);
-      if (sequence !== bootstrapSequenceRef.current) return;
-      return bootstrapLiveUser(authUser);
+    // A different account must never inherit the previous one's organisation
+    // view, not even for the frame before its own context resolves.
+    if (previousAuthUserId !== authUser.id) {
+      setUser(null);
+      setAccountContext(null);
     }
+    // Authenticated but unresolved. Routing waits on this instead of reading the
+    // still-null context as "this account has no organisations".
+    setAccountStatus('loading');
 
-    const session = await buildSessionForContext(context);
-    if (sequence !== bootstrapSequenceRef.current || authUserIdRef.current !== authUser.id) return;
-    setAccountContext(context);
-    setUser(session);
+    try {
+      const context = await accountsService.fetchAccountContext();
+      if (sequence !== bootstrapSequenceRef.current || authUserIdRef.current !== authUser.id) return;
+
+      // One linked organisation with a missing active pointer is unambiguous and
+      // repaired only through the secure ownership-validating RPC.
+      if (!context.account.active_profile_id && context.organisations.length === 1) {
+        await accountsService.switchActiveProfile(context.organisations[0].profile.id);
+        if (sequence !== bootstrapSequenceRef.current) return;
+        return await bootstrapLiveUser(authUser);
+      }
+
+      const session = await buildSessionForContext(context);
+      if (sequence !== bootstrapSequenceRef.current || authUserIdRef.current !== authUser.id) return;
+      setAccountContext(context);
+      setUser(session);
+      setAccountStatus('ready');
+    } catch (error) {
+      // A failed lookup is a failure, not an empty account. Only the newest
+      // bootstrap for the current user may publish it.
+      if (sequence === bootstrapSequenceRef.current && authUserIdRef.current === authUser.id) {
+        setAccountStatus('error');
+      }
+      throw error;
+    }
   }, []);
 
   const refreshAccountContext = useCallback(async () => {
@@ -503,6 +539,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       authMode,
       supabaseEnabled: isSupabaseConfigured,
       accountContext,
+      accountStatus,
       authIdentity,
       pendingInvitationToken,
       signInAsTestUser,
@@ -526,6 +563,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       authMode,
       accountContext,
+      accountStatus,
       authIdentity,
       pendingInvitationToken,
       signInAsTestUser,
