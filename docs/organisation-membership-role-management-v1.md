@@ -161,11 +161,13 @@ active organisation boundary.
 ## Realtime transition
 
 The local migration adds `user_accounts` to the non-chat Postgres Changes publication.
-RLS lets only the owning account observe its row. If another admin removes the current
-profile, that account-row invalidation causes AppData to refresh account context and
-tear down the old organisation provider and private chat channels before accepting any
-new scoped data. Foreground/reconnect reconciliation remains the fallback. The remote
-baseline remains 13 non-chat publication tables until the migration is deployed.
+RLS lets only the owning account observe its row. Every access removal updates that
+account row, including removal of a non-active organisation where `active_profile_id`
+does not change. The invalidation causes AppData to clear the old scope, refresh account
+context, and tear down the old organisation provider and private chat channels before
+accepting any new scoped data. Foreground/reconnect reconciliation remains the fallback.
+The remote baseline remains 13 non-chat publication tables until the migration is
+deployed.
 
 ## Validation and rollout gates
 

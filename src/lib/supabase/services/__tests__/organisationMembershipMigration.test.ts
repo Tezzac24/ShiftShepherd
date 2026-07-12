@@ -79,6 +79,7 @@ describe('organisation membership and role management migration', () => {
     expect(repair).toContain("'choose_organisation'");
     expect(repair).toContain("'no_organisations'");
     expect(repair).toContain("'active_unchanged'");
+    expect(repair).toContain('set updated_at = now()');
     expect(repair).toContain('security invoker');
   });
 

@@ -66,7 +66,7 @@ interface AuthContextValue {
   signInWithEmail: (email: string, password: string) => Promise<string | null>;
   signUpWithEmail: (fullName: string, email: string, password: string) => Promise<SignUpResult>;
   signOut: (options?: { preservePendingInvitation?: boolean }) => Promise<void>;
-  refreshAccountContext: () => Promise<void>;
+  refreshAccountContext: (options?: { clearCurrentScope?: boolean }) => Promise<void>;
   savePendingInvitation: (token: string) => Promise<void>;
   clearPendingInvitation: () => Promise<void>;
   setGlobalDisplayName: (name: string) => Promise<void>;
@@ -247,11 +247,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const refreshAccountContext = useCallback(async () => {
+  const refreshAccountContext = useCallback(async (options?: { clearCurrentScope?: boolean }) => {
     const supabase = getSupabase();
     if (!supabase || authModeRef.current !== 'supabase') return;
+    if (options?.clearCurrentScope) {
+      // Used after server-observed access loss. Clear before the network lookup
+      // so revoked organisation data and channels cannot remain visible if the
+      // account-context refresh is slow or temporarily fails.
+      setUser(null);
+      setAccountContext(null);
+      setAccountStatus('loading');
+    }
     const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw new Error(OFFLINE_ERROR);
+    if (error || !data.user) {
+      if (options?.clearCurrentScope) setAccountStatus('error');
+      throw new Error(OFFLINE_ERROR);
+    }
     await bootstrapLiveUser(data.user);
   }, [bootstrapLiveUser]);
 

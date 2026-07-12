@@ -69,6 +69,14 @@ jest.mock('../../../components/ConfirmDialog', () => ({
 jest.mock('../../../components/Toast', () => ({
   useToast: () => mockToast,
 }));
+jest.mock('../../../components/TextField', () => {
+  const ReactRuntime = jest.requireActual<typeof import('react')>('react');
+  const { TextInput } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    TextField: ({ label, ...props }: { label?: string }) =>
+      ReactRuntime.createElement(TextInput, { ...props, accessibilityLabel: label }),
+  };
+});
 jest.mock('../../../lib/supabase/services/invitations', () => ({
   listOrganisationInvitations: jest.fn(),
   resendOrganisationInvitation: jest.fn(),

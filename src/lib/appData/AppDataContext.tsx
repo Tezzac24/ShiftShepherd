@@ -1065,7 +1065,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         // RLS result under the old provider key; refresh Auth/account state so
         // the old provider/channels unmount first.
         if (!directory.users.some((profile) => profile.id === requestProfileId)) {
-          await refreshAccountContext();
+          await refreshAccountContext({ clearCurrentScope: true });
           return;
         }
         commitLiveDirectory(directory, requestProfileId);

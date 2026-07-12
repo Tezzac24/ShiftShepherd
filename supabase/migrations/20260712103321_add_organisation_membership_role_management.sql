@@ -385,6 +385,13 @@ begin
     end if;
   end if;
 
+  -- The active pointer is intentionally unchanged when another organisation
+  -- was removed. Touch the owner-readable account row anyway so every access
+  -- loss invalidates that account's organisation selector immediately.
+  update public.user_accounts account
+  set updated_at = now()
+  where account.auth_user_id = p_auth_user_id;
+
   return query select v_current_active_profile_id, v_remaining_count, 'active_unchanged'::text;
 end;
 $$;

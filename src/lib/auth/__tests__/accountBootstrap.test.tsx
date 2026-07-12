@@ -215,6 +215,30 @@ describe('cross-account isolation', () => {
     await waitFor(() => expect(auth.accountStatus).toBe('ready'));
   });
 
+  it('can clear the current scope before a same-account access-loss refresh', async () => {
+    mockFetchAccountContext.mockResolvedValue(ORG_MEMBER_CONTEXT);
+    getSessionMock.mockResolvedValue({ data: { session: { user: AUTH_USER } } });
+    renderAuth();
+    await waitFor(() => expect(auth.user?.supabaseProfileId).toBe('profile-1'));
+
+    const pending = deferredContext();
+    act(() => {
+      void auth.refreshAccountContext({ clearCurrentScope: true });
+    });
+
+    await waitFor(() => expect(auth.accountStatus).toBe('loading'));
+    expect(auth.user).toBeNull();
+    expect(auth.accountContext).toBeNull();
+
+    await act(async () => {
+      pending.resolve({
+        ...NO_ORG_CONTEXT,
+        account: { ...NO_ORG_CONTEXT.account, auth_user_id: 'auth-1' },
+      });
+    });
+    await waitFor(() => expect(auth.accountStatus).toBe('ready'));
+  });
+
   it('returns to idle on sign-out', async () => {
     mockFetchAccountContext.mockResolvedValue(ORG_MEMBER_CONTEXT);
     getSessionMock.mockResolvedValue({ data: { session: { user: AUTH_USER } } });
