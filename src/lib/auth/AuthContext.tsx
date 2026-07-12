@@ -1,24 +1,4 @@
-/**
- * Auth abstraction layer — the only place that knows how a user signs in.
- *
- * Two modes, chosen automatically:
- *
- *  - **Demo mode** (always available): sign in as a mock test user from the
- *    login screen selector. Used for demos and frontend development, and it
- *    is the only mode when Supabase env vars are missing. The selected demo
- *    user is remembered locally so app restarts stay signed in.
- *
- *  - **Supabase mode** (when EXPO_PUBLIC_SUPABASE_URL / _ANON_KEY are set):
- *    real email/password sign-in via Supabase Auth, with session restore on
- *    cold start and an auth-state listener. After login the session is built
- *    entirely from live rows — the `profiles` row (auth_user_id = auth.uid()),
- *    the caller's `organisation_roles` row, and their `team_memberships` —
- *    converted into the same SessionUser shape the rest of the app already
- *    uses, so screens and permission checks never know which mode is active.
- *    All ids in a Supabase session are real database UUIDs (the old bridge
- *    that mapped seeded demo people onto mock identities by email is gone —
- *    people and teams are live now).
- */
+/** Central auth/account abstraction for demo and Supabase modes. */
 import React, {
   createContext,
   useCallback,
@@ -28,47 +8,64 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { User as SupabaseAuthUser } from '@supabase/supabase-js';
 
-import { OrganisationRoleName, SessionUser, TeamMembership, UserProfile } from '../../types';
+import {
+  AccountContext,
+  OrganisationRoleName,
+  SessionUser,
+  TeamMembership,
+  UserProfile,
+} from '../../types';
+import {
+  clearPendingInvitation as clearStoredInvitation,
+  loadPendingInvitation,
+  savePendingInvitation,
+} from '../invitations';
 import { mockMemberships, mockOrganisationRoles, mockUsers } from '../mockData';
 import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../storage/persistence';
 import { getSupabase, isSupabaseConfigured } from '../supabase/client';
+import * as accountsService from '../supabase/services/accounts';
 
 type AuthMode = 'demo' | 'supabase';
 
+interface AuthIdentity {
+  id: string;
+  email: string | null;
+  emailVerified: boolean;
+  suggestedName: string | null;
+}
+
+export interface SignUpResult {
+  error: string | null;
+  needsEmailConfirmation: boolean;
+}
+
 interface AuthContextValue {
   user: SessionUser | null;
-  /** True while the saved session/demo user is being restored at startup. */
   isLoading: boolean;
-  /** How the current user signed in; null when signed out. */
+  isAuthenticated: boolean;
   authMode: AuthMode | null;
-  /** True when Supabase credentials are configured (real login available). */
   supabaseEnabled: boolean;
-  /** Demo-mode login: sign in directly as a mock test user. */
+  accountContext: AccountContext | null;
+  authIdentity: AuthIdentity | null;
+  pendingInvitationToken: string | null;
   signInAsTestUser: (userId: string) => void;
-  /**
-   * Email/password login. Real Supabase Auth when configured; otherwise the
-   * demo fallback (any password for a known mock email). Resolves to a
-   * friendly error message on failure, or null on success.
-   */
   signInWithEmail: (email: string, password: string) => Promise<string | null>;
-  signOut: () => Promise<void>;
-  /**
-   * Patch the signed-in session's profile avatar (storage path in live mode)
-   * after an avatar upload/removal succeeds, so every screen reading
-   * user.profile updates without a re-login. State-only — persistence is the
-   * profile avatars service's job.
-   */
+  signUpWithEmail: (fullName: string, email: string, password: string) => Promise<SignUpResult>;
+  signOut: (options?: { preservePendingInvitation?: boolean }) => Promise<void>;
+  refreshAccountContext: () => Promise<void>;
+  savePendingInvitation: (token: string) => Promise<void>;
+  clearPendingInvitation: () => Promise<void>;
+  setGlobalDisplayName: (name: string) => Promise<void>;
+  setOrganisationDisplayNameOverride: (name: string | null) => Promise<void>;
+  setProfileDisplayNames: (globalName: string, organisationName: string | null) => Promise<void>;
+  switchOrganisation: (profileId: string) => Promise<void>;
+  createOrganisation: (name: string) => Promise<void>;
   applySessionAvatarUrl: (avatarUrl: string | null) => void;
-  /** Patch safe, already-persisted profile fields into the current session. */
   applySessionProfile: (
-    patch: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'avatar_url'>>,
+    patch: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'avatar_url' | 'display_name_override'>>,
   ) => void;
-  /**
-   * Replace the live session's directory-derived identity/authority snapshot.
-   * The profile id guard prevents an old account's refresh from touching a
-   * newly signed-in account.
-   */
   applySessionDirectorySnapshot: (
     profileId: string,
     snapshot: {
@@ -83,18 +80,35 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const GENERIC_LOGIN_ERROR =
   'We couldn’t log you in. Please check your email and password and try again.';
-const NO_PROFILE_ERROR =
-  'You’re signed in, but this email is not linked to a church profile yet. Please ask a church admin to finish setting up your account.';
-const OFFLINE_ERROR =
-  'We couldn’t reach the server. Please check your connection and try again.';
+const OFFLINE_ERROR = 'We couldn’t reach the server. Please check your connection and try again.';
 
 function buildMockSession(userId: string): SessionUser | null {
-  const profile = mockUsers.find((u) => u.id === userId);
+  const profile = mockUsers.find((candidate) => candidate.id === userId);
   if (!profile) return null;
-  const orgRole =
-    mockOrganisationRoles.find((r) => r.user_id === userId)?.role ?? 'general_member';
-  const memberships = mockMemberships.filter((m) => m.user_id === userId);
-  return { profile, orgRole, memberships };
+  return {
+    profile,
+    orgRole:
+      mockOrganisationRoles.find((role) => role.user_id === userId)?.role ?? 'general_member',
+    memberships: mockMemberships.filter((membership) => membership.user_id === userId),
+  };
+}
+
+function suggestedName(user: SupabaseAuthUser): string | null {
+  const metadata = user.user_metadata as Record<string, unknown> | undefined;
+  for (const key of ['full_name', 'name', 'display_name']) {
+    const value = metadata?.[key];
+    if (typeof value === 'string' && value.trim().length >= 2) return value.trim();
+  }
+  return null;
+}
+
+function identityFromAuthUser(user: SupabaseAuthUser): AuthIdentity {
+  return {
+    id: user.id,
+    email: user.email?.trim().toLowerCase() ?? null,
+    emailVerified: !!user.email_confirmed_at,
+    suggestedName: suggestedName(user),
+  };
 }
 
 export function applyDirectorySnapshotToSession(
@@ -115,102 +129,120 @@ export function applyDirectorySnapshotToSession(
   };
 }
 
-/**
- * Build a SessionUser for a signed-in Supabase auth user, entirely from live
- * rows: profile, organisation role, and team memberships (all real UUIDs).
- * Returns null when no linked `profiles` row exists.
- * Throws on network/query failure (callers translate to a friendly message).
- */
-async function buildSupabaseSession(authUserId: string): Promise<SessionUser | null> {
+async function buildSessionForContext(context: AccountContext): Promise<SessionUser | null> {
+  const activeId = context.account.active_profile_id;
+  if (!activeId) return null;
+  const active = context.organisations.find((entry) => entry.profile.id === activeId);
+  if (!active) return null;
   const supabase = getSupabase();
   if (!supabase) return null;
-
-  const { data: profileRow, error: profileError } = await supabase
-    .from('profiles')
-    .select('id, auth_user_id, organisation_id, full_name, email, phone, avatar_url, created_at')
-    .eq('auth_user_id', authUserId)
-    .maybeSingle();
-  if (profileError) throw profileError;
-  if (!profileRow) return null;
-
-  const profile: UserProfile = {
-    id: profileRow.id,
-    auth_user_id: profileRow.auth_user_id,
-    organisation_id: profileRow.organisation_id,
-    full_name: profileRow.full_name,
-    email: profileRow.email,
-    phone: profileRow.phone,
-    avatar_url: profileRow.avatar_url,
-    created_at: profileRow.created_at,
-  };
-  const [roleRes, membershipsRes] = await Promise.all([
-    supabase.from('organisation_roles').select('role').eq('user_id', profileRow.id).maybeSingle(),
+  const [roleResult, membershipResult] = await Promise.all([
+    supabase.from('organisation_roles').select('role').eq('user_id', activeId).maybeSingle(),
     supabase
       .from('team_memberships')
       .select('id, team_id, user_id, role, created_at')
-      .eq('user_id', profileRow.id)
+      .eq('user_id', activeId)
       .order('created_at', { ascending: true }),
   ]);
-  if (roleRes.error) throw roleRes.error;
-  if (membershipsRes.error) throw membershipsRes.error;
-  const orgRole = (roleRes.data?.role ?? 'general_member') as OrganisationRoleName;
-  const memberships = (membershipsRes.data ?? []) as TeamMembership[];
-  return { profile, orgRole, memberships, supabaseProfileId: profileRow.id };
+  if (roleResult.error) throw roleResult.error;
+  if (membershipResult.error) throw membershipResult.error;
+  return {
+    profile: active.profile,
+    orgRole: (roleResult.data?.role ?? 'general_member') as OrganisationRoleName,
+    memberships: (membershipResult.data ?? []) as TeamMembership[],
+    supabaseProfileId: activeId,
+  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
-  // Mirrors authMode for the auth-state listener (avoids stale closures).
+  const [accountContext, setAccountContext] = useState<AccountContext | null>(null);
+  const [authIdentity, setAuthIdentity] = useState<AuthIdentity | null>(null);
+  const [pendingInvitationToken, setPendingInvitationToken] = useState<string | null>(null);
   const authModeRef = useRef<AuthMode | null>(null);
+  const authUserIdRef = useRef<string | null>(null);
+  const bootstrapSequenceRef = useRef(0);
 
-  const applySession = useCallback((session: SessionUser | null, mode: AuthMode | null) => {
-    authModeRef.current = session ? mode : null;
-    setAuthMode(session ? mode : null);
+  const applyDemoSession = useCallback((session: SessionUser | null) => {
+    authModeRef.current = session ? 'demo' : null;
+    authUserIdRef.current = null;
+    setAuthMode(session ? 'demo' : null);
+    setAuthIdentity(null);
+    setAccountContext(null);
     setUser(session);
   }, []);
 
-  // Restore whatever was signed in before: a Supabase session wins, then a
-  // remembered demo user, otherwise start signed out.
+  const clearLiveState = useCallback(() => {
+    bootstrapSequenceRef.current += 1;
+    authUserIdRef.current = null;
+    authModeRef.current = null;
+    setAuthMode(null);
+    setAuthIdentity(null);
+    setAccountContext(null);
+    setUser(null);
+  }, []);
+
+  const bootstrapLiveUser = useCallback(async (authUser: SupabaseAuthUser) => {
+    const sequence = ++bootstrapSequenceRef.current;
+    authModeRef.current = 'supabase';
+    authUserIdRef.current = authUser.id;
+    setAuthMode('supabase');
+    setAuthIdentity(identityFromAuthUser(authUser));
+    const context = await accountsService.fetchAccountContext();
+    if (sequence !== bootstrapSequenceRef.current || authUserIdRef.current !== authUser.id) return;
+
+    // One linked organisation with a missing active pointer is unambiguous and
+    // repaired only through the secure ownership-validating RPC.
+    if (!context.account.active_profile_id && context.organisations.length === 1) {
+      await accountsService.switchActiveProfile(context.organisations[0].profile.id);
+      if (sequence !== bootstrapSequenceRef.current) return;
+      return bootstrapLiveUser(authUser);
+    }
+
+    const session = await buildSessionForContext(context);
+    if (sequence !== bootstrapSequenceRef.current || authUserIdRef.current !== authUser.id) return;
+    setAccountContext(context);
+    setUser(session);
+  }, []);
+
+  const refreshAccountContext = useCallback(async () => {
+    const supabase = getSupabase();
+    if (!supabase || authModeRef.current !== 'supabase') return;
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) throw new Error(OFFLINE_ERROR);
+    await bootstrapLiveUser(data.user);
+  }, [bootstrapLiveUser]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
+        const pending = await loadPendingInvitation();
+        if (!cancelled) setPendingInvitationToken(pending);
         const supabase = getSupabase();
         if (supabase) {
           const { data } = await supabase.auth.getSession();
-          const authUser = data.session?.user;
-          if (authUser) {
+          if (data.session?.user) {
             try {
-              const session = await buildSupabaseSession(authUser.id);
-              if (session) {
-                if (!cancelled) applySession(session, 'supabase');
-                return;
-              }
-              // Signed-in auth user with no linked profile: end the session
-              // cleanly; the login screen explains what to do next.
-              console.warn('[auth] Supabase user has no linked profile; signing out');
-              await supabase.auth.signOut();
+              await bootstrapLiveUser(data.session.user);
+              return;
             } catch (error) {
-              // Profile fetch failed (likely offline). Don't destroy the
-              // session — start signed out this launch and let the user retry.
-              console.warn('[auth] could not restore Supabase session', error);
+              console.warn('[auth] account restore failed', {
+                code: (error as { code?: string })?.code,
+              });
             }
           }
         }
         const demoUserId = await loadPersisted<string>(
           STORAGE_KEYS.demoUser,
-          (d) => typeof d === 'string',
+          (value) => typeof value === 'string',
         );
-        if (demoUserId && !cancelled) {
+        if (!cancelled && demoUserId) {
           const session = buildMockSession(demoUserId);
-          if (session) {
-            applySession(session, 'demo');
-          } else {
-            // Persisted demo user no longer exists in mock data.
-            await clearPersisted(STORAGE_KEYS.demoUser);
-          }
+          if (session) applyDemoSession(session);
+          else await clearPersisted(STORAGE_KEYS.demoUser);
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -219,80 +251,188 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [applySession]);
+  }, [applyDemoSession, bootstrapLiveUser]);
 
-  // Keep the app in step with Supabase Auth (e.g. session revoked/expired).
-  // Sign-ins are handled explicitly in signInWithEmail, so only sign-outs
-  // need mirroring here.
   useEffect(() => {
     const supabase = getSupabase();
     if (!supabase) return;
-    const { data: subscription } = supabase.auth.onAuthStateChange((event) => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' && authModeRef.current === 'supabase') {
-        applySession(null, null);
+        clearLiveState();
+      } else if (
+        (event === 'SIGNED_IN' || event === 'USER_UPDATED') &&
+        session?.user &&
+        authModeRef.current !== 'demo' &&
+        session.user.id !== authUserIdRef.current
+      ) {
+        void bootstrapLiveUser(session.user).catch((error) =>
+          console.warn('[auth] auth-state bootstrap failed', {
+            code: (error as { code?: string })?.code,
+          }),
+        );
       }
     });
-    return () => subscription.subscription.unsubscribe();
-  }, [applySession]);
+    return () => data.subscription.unsubscribe();
+  }, [bootstrapLiveUser, clearLiveState]);
 
   const signInAsTestUser = useCallback(
     (userId: string) => {
       const session = buildMockSession(userId);
       if (!session) return;
-      applySession(session, 'demo');
-      // Remember the choice so restarts stay signed in (demo id only — no secrets).
-      savePersisted(STORAGE_KEYS.demoUser, userId);
+      applyDemoSession(session);
+      void savePersisted(STORAGE_KEYS.demoUser, userId);
     },
-    [applySession],
+    [applyDemoSession],
   );
 
   const signInWithEmail = useCallback(
     async (email: string, password: string): Promise<string | null> => {
-      const trimmed = email.trim().toLowerCase();
-      if (!trimmed || !password) {
-        return 'Please enter your email and password.';
-      }
-
+      const normalized = email.trim().toLowerCase();
+      if (!normalized || !password) return 'Please enter your email and password.';
       const supabase = getSupabase();
       if (!supabase) {
-        // Demo fallback: any password works for a known mock email.
-        const profile = mockUsers.find((u) => u.email.toLowerCase() === trimmed);
+        const profile = mockUsers.find((candidate) => candidate.email.toLowerCase() === normalized);
         if (!profile) return GENERIC_LOGIN_ERROR;
         signInAsTestUser(profile.id);
         return null;
       }
-
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: trimmed,
+        email: normalized,
         password,
       });
-      if (error) {
-        console.warn('[auth] signInWithPassword failed:', error.message);
-        return error.message.toLowerCase().includes('fetch') ? OFFLINE_ERROR : GENERIC_LOGIN_ERROR;
-      }
-
+      if (error) return /fetch/i.test(error.message) ? OFFLINE_ERROR : GENERIC_LOGIN_ERROR;
       try {
-        const session = await buildSupabaseSession(data.user.id);
-        if (!session) {
-          await supabase.auth.signOut();
-          return NO_PROFILE_ERROR;
-        }
-        applySession(session, 'supabase');
+        await bootstrapLiveUser(data.user);
         return null;
-      } catch (fetchError) {
-        console.warn('[auth] profile lookup failed after sign-in', fetchError);
-        await supabase.auth.signOut();
+      } catch (bootstrapError) {
+        console.warn('[auth] account load failed after sign-in', {
+          code: (bootstrapError as { code?: string })?.code,
+        });
         return OFFLINE_ERROR;
       }
     },
-    [applySession, signInAsTestUser],
+    [bootstrapLiveUser, signInAsTestUser],
   );
 
-  const applySessionProfile = useCallback((patch: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'avatar_url'>>) => {
-    setUser((prev) =>
-      prev ? { ...prev, profile: { ...prev.profile, ...patch } } : prev,
-    );
+  const signUpWithEmail = useCallback(
+    async (fullName: string, email: string, password: string): Promise<SignUpResult> => {
+      const name = fullName.trim();
+      const normalized = email.trim().toLowerCase();
+      if (name.length < 2) return { error: 'Please enter your full name.', needsEmailConfirmation: false };
+      if (name.length > 100) {
+        return { error: 'Please keep your name to 100 characters or fewer.', needsEmailConfirmation: false };
+      }
+      if (!normalized || password.length < 6) {
+        return {
+          error: 'Enter a valid email and a password with at least 6 characters.',
+          needsEmailConfirmation: false,
+        };
+      }
+      const supabase = getSupabase();
+      if (!supabase) {
+        return { error: 'Account creation is available when Shift Shepherd is connected.', needsEmailConfirmation: false };
+      }
+      const { data, error } = await supabase.auth.signUp({
+        email: normalized,
+        password,
+        options: { data: { full_name: name } },
+      });
+      if (error) {
+        return {
+          error: /fetch/i.test(error.message)
+            ? OFFLINE_ERROR
+            : 'We couldn’t create your account. Please check the details and try again.',
+          needsEmailConfirmation: false,
+        };
+      }
+      if (!data.session) return { error: null, needsEmailConfirmation: true };
+      try {
+        await accountsService.setGlobalDisplayName(name);
+        await bootstrapLiveUser(data.user!);
+        return { error: null, needsEmailConfirmation: false };
+      } catch {
+        return { error: OFFLINE_ERROR, needsEmailConfirmation: false };
+      }
+    },
+    [bootstrapLiveUser],
+  );
+
+  const savePending = useCallback(async (token: string) => {
+    await savePendingInvitation(token);
+    setPendingInvitationToken(token);
   }, []);
+
+  const clearPending = useCallback(async () => {
+    await clearStoredInvitation();
+    setPendingInvitationToken(null);
+  }, []);
+
+  const setGlobalDisplayName = useCallback(
+    async (name: string) => {
+      await accountsService.setGlobalDisplayName(name);
+      await refreshAccountContext();
+    },
+    [refreshAccountContext],
+  );
+
+  const setOrganisationDisplayNameOverride = useCallback(
+    async (name: string | null) => {
+      await accountsService.setOrganisationDisplayNameOverride(name);
+      await refreshAccountContext();
+    },
+    [refreshAccountContext],
+  );
+
+  const setProfileDisplayNames = useCallback(
+    async (globalName: string, organisationName: string | null) => {
+      await accountsService.setProfileDisplayNames(globalName, organisationName);
+      await refreshAccountContext();
+    },
+    [refreshAccountContext],
+  );
+
+  const switchOrganisation = useCallback(
+    async (profileId: string) => {
+      setUser(null); // immediately tears down every old org-scoped data/channel lifecycle
+      await accountsService.switchActiveProfile(profileId);
+      await refreshAccountContext();
+    },
+    [refreshAccountContext],
+  );
+
+  const createOrganisation = useCallback(
+    async (name: string) => {
+      setUser(null);
+      await accountsService.createOrganisation(name);
+      await refreshAccountContext();
+    },
+    [refreshAccountContext],
+  );
+
+  const applySessionProfile = useCallback(
+    (
+      patch: Partial<
+        Pick<UserProfile, 'full_name' | 'phone' | 'avatar_url' | 'display_name_override'>
+      >,
+    ) => {
+      setUser((previous) =>
+        previous ? { ...previous, profile: { ...previous.profile, ...patch } } : previous,
+      );
+      setAccountContext((previous) =>
+        previous
+          ? {
+              ...previous,
+              organisations: previous.organisations.map((entry) =>
+                entry.profile.id === previous.account.active_profile_id
+                  ? { ...entry, profile: { ...entry.profile, ...patch } }
+                  : entry,
+              ),
+            }
+          : previous,
+      );
+    },
+    [],
+  );
 
   const applySessionAvatarUrl = useCallback(
     (avatarUrl: string | null) => applySessionProfile({ avatar_url: avatarUrl }),
@@ -307,36 +447,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         orgRole: OrganisationRoleName;
         memberships: TeamMembership[];
       },
-    ) => {
-      setUser((prev) => applyDirectorySnapshotToSession(prev, profileId, snapshot));
-    },
+    ) => setUser((previous) => applyDirectorySnapshotToSession(previous, profileId, snapshot)),
     [],
   );
 
-  const signOut = useCallback(async () => {
-    const mode = authModeRef.current;
-    applySession(null, null);
-    await clearPersisted(STORAGE_KEYS.demoUser);
-    if (mode === 'supabase') {
-      try {
-        await getSupabase()?.auth.signOut();
-      } catch (error) {
-        // Local state is already cleared; a failed remote sign-out only means
-        // the token lives until expiry.
-        console.warn('[auth] Supabase sign-out failed', error);
+  const signOut = useCallback(
+    async (options?: { preservePendingInvitation?: boolean }) => {
+      const mode = authModeRef.current;
+      if (mode === 'demo') applyDemoSession(null);
+      else clearLiveState();
+      await clearPersisted(STORAGE_KEYS.demoUser);
+      if (!options?.preservePendingInvitation) await clearPending();
+      if (mode === 'supabase') {
+        try {
+          await getSupabase()?.auth.signOut();
+        } catch {
+          // Local account/org state is already gone; the remote token will expire.
+        }
       }
-    }
-  }, [applySession]);
+    },
+    [applyDemoSession, clearLiveState, clearPending],
+  );
 
-  const value = useMemo(
+  const value = useMemo<AuthContextValue>(
     () => ({
       user,
       isLoading,
+      isAuthenticated: authMode === 'demo' ? !!user : authMode === 'supabase' && !!authIdentity,
       authMode,
       supabaseEnabled: isSupabaseConfigured,
+      accountContext,
+      authIdentity,
+      pendingInvitationToken,
       signInAsTestUser,
       signInWithEmail,
+      signUpWithEmail,
       signOut,
+      refreshAccountContext,
+      savePendingInvitation: savePending,
+      clearPendingInvitation: clearPending,
+      setGlobalDisplayName,
+      setOrganisationDisplayNameOverride,
+      setProfileDisplayNames,
+      switchOrganisation,
+      createOrganisation,
       applySessionAvatarUrl,
       applySessionProfile,
       applySessionDirectorySnapshot,
@@ -345,9 +499,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       isLoading,
       authMode,
+      accountContext,
+      authIdentity,
+      pendingInvitationToken,
       signInAsTestUser,
       signInWithEmail,
+      signUpWithEmail,
       signOut,
+      refreshAccountContext,
+      savePending,
+      clearPending,
+      setGlobalDisplayName,
+      setOrganisationDisplayNameOverride,
+      setProfileDisplayNames,
+      switchOrganisation,
+      createOrganisation,
       applySessionAvatarUrl,
       applySessionProfile,
       applySessionDirectorySnapshot,
@@ -358,14 +524,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  return context;
 }
 
-/** The signed-in user, for screens that are only reachable when logged in. */
 export function useRequiredUser(): SessionUser {
   const { user } = useAuth();
-  if (!user) throw new Error('This screen requires a signed-in user');
+  if (!user) throw new Error('This screen requires a signed-in organisation profile');
   return user;
 }

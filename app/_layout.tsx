@@ -24,7 +24,7 @@ function StartupScreen() {
 }
 
 function RootStack() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isAuthenticated } = useAuth();
   const { isHydrated } = useAppData();
 
   // Never show a blank screen or flash the wrong route: wait until the saved
@@ -45,10 +45,18 @@ function RootStack() {
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="invite/accept" options={{ headerShown: false }} />
 
       {/* Login is only reachable when signed out */}
-      <Stack.Protected guard={!user}>
+      <Stack.Protected guard={!isAuthenticated}>
         <Stack.Screen name="login" options={{ headerShown: false }} />
+      </Stack.Protected>
+
+      {/* Signed-in account states that deliberately have no active org data. */}
+      <Stack.Protected guard={isAuthenticated}>
+        <Stack.Screen name="no-organisations" options={{ headerShown: false }} />
+        <Stack.Screen name="organisations/create" />
+        <Stack.Screen name="organisations/select" options={{ headerShown: false }} />
       </Stack.Protected>
 
       {/* Everything else requires a signed-in user */}
@@ -73,15 +81,30 @@ function RootStack() {
         <Stack.Screen name="teams/[teamId]/songs/[songId]" />
         <Stack.Screen name="teams/[teamId]/songs/edit" />
         <Stack.Screen name="settings/notifications" />
+        <Stack.Screen name="organisations/invitations" />
       </Stack.Protected>
     </Stack>
   );
 }
 
+/**
+ * Organisation data is keyed by the active profile. A switch remounts the
+ * complete provider, synchronously discarding every old row, unread map,
+ * signed URL, timer, and subscription before the new organisation renders.
+ */
+function AccountScopedAppDataProvider({ children }: { children: React.ReactNode }) {
+  const { authMode, user } = useAuth();
+  const scopeKey =
+    authMode === 'supabase'
+      ? `live:${user?.supabaseProfileId ?? 'no-organisation'}`
+      : 'demo-or-signed-out';
+  return <AppDataProvider key={scopeKey}>{children}</AppDataProvider>;
+}
+
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <AppDataProvider>
+      <AccountScopedAppDataProvider>
         <PaperProvider theme={paperTheme}>
           <ConfirmProvider>
             <ToastProvider>
@@ -90,7 +113,7 @@ export default function RootLayout() {
             </ToastProvider>
           </ConfirmProvider>
         </PaperProvider>
-      </AppDataProvider>
+      </AccountScopedAppDataProvider>
     </AuthProvider>
   );
 }

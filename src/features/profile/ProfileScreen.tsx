@@ -34,14 +34,24 @@ const orgRoleLabels: Record<string, string> = {
 export default function ProfileScreen() {
   const router = useRouter();
   const user = useRequiredUser();
-  const { signOut, authMode } = useAuth();
+  const {
+    signOut,
+    authMode,
+    accountContext,
+    setProfileDisplayNames,
+  } = useAuth();
   const data = useAppData();
   const confirm = useConfirm();
   const showToast = useToast();
   const { canManagePhoto, hasPhoto, avatarUri, busy, changePhoto, removePhoto } =
     useProfileAvatar();
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [fullName, setFullName] = useState(user.profile.full_name);
+  const [fullName, setFullName] = useState(
+    accountContext?.account.global_display_name ?? user.profile.full_name,
+  );
+  const [organisationName, setOrganisationName] = useState(
+    user.profile.display_name_override ?? '',
+  );
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -55,14 +65,16 @@ export default function ProfileScreen() {
   );
 
   const beginEditing = () => {
-    setFullName(user.profile.full_name);
+    setFullName(accountContext?.account.global_display_name ?? user.profile.full_name);
+    setOrganisationName(user.profile.display_name_override ?? '');
     setFieldError(null);
     setSaveError(null);
     setIsEditingProfile(true);
   };
 
   const cancelEditing = () => {
-    setFullName(user.profile.full_name);
+    setFullName(accountContext?.account.global_display_name ?? user.profile.full_name);
+    setOrganisationName(user.profile.display_name_override ?? '');
     setFieldError(null);
     setSaveError(null);
     setIsEditingProfile(false);
@@ -75,7 +87,7 @@ export default function ProfileScreen() {
     try {
       const payload = buildProfileUpdatePayload({ full_name: fullName });
       setSaving(true);
-      await data.updateOwnProfile({ full_name: payload.p_full_name });
+      await setProfileDisplayNames(payload.p_full_name, organisationName.trim() || null);
       setIsEditingProfile(false);
       showToast('Profile updated.');
     } catch (error) {
@@ -176,7 +188,7 @@ export default function ProfileScreen() {
             ) : null}
 
             <TextField
-              label="Full name"
+              label="Default name"
               value={fullName}
               onChangeText={(value) => {
                 setFullName(value);
@@ -188,6 +200,16 @@ export default function ProfileScreen() {
               maxLength={100}
               error={fieldError ?? undefined}
               testID="profile-full-name-input"
+            />
+            <TextField
+              label="Name in this organisation (optional)"
+              helper="Leave blank to use your default name. This changes only the current organisation."
+              value={organisationName}
+              onChangeText={setOrganisationName}
+              autoCapitalize="words"
+              autoComplete="name"
+              maxLength={100}
+              testID="profile-organisation-name-input"
             />
             <View style={styles.readOnlyField} testID="profile-contact-details">
               <View style={styles.readOnlyRow}>
@@ -284,6 +306,22 @@ export default function ProfileScreen() {
 
       <SectionHeader title="Settings" />
       <View style={styles.rows}>
+        {(accountContext?.organisations.length ?? 0) > 1 ? (
+          <ListRow
+            icon="swap-horizontal-outline"
+            title="Switch organisation"
+            subtitle={`${accountContext?.organisations.length} organisations available`}
+            onPress={() => router.push('/organisations/select')}
+          />
+        ) : null}
+        {user.orgRole === 'church_admin' && authMode === 'supabase' ? (
+          <ListRow
+            icon="mail-outline"
+            title="Organisation invitations"
+            subtitle="Invite, resend or revoke"
+            onPress={() => router.push('/organisations/invitations')}
+          />
+        ) : null}
         <ListRow
           icon="notifications-outline"
           title="Notification Settings"

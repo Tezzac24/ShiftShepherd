@@ -23,6 +23,7 @@ const mockUseAppData = useAppData as jest.Mock;
 const mockUseAuth = useAuth as jest.Mock;
 const mockUseRequiredUser = useRequiredUser as jest.Mock;
 const mockUseProfileAvatar = useProfileAvatar as jest.Mock;
+const setProfileDisplayNames = jest.fn();
 
 const LIVE_USER = {
   profile: {
@@ -42,7 +43,18 @@ const LIVE_USER = {
 
 beforeEach(() => {
   mockUseRequiredUser.mockReturnValue(LIVE_USER);
-  mockUseAuth.mockReturnValue({ authMode: 'supabase', signOut: jest.fn() });
+  setProfileDisplayNames.mockReset().mockResolvedValue(undefined);
+  mockUseAuth.mockReturnValue({
+    authMode: 'supabase',
+    signOut: jest.fn(),
+    accountContext: {
+      account: { global_display_name: 'Sarah Williams', active_profile_id: 'profile-live' },
+      organisations: [
+        { profile: LIVE_USER.profile, organisation: { id: 'org-live', name: 'Grace' } },
+      ],
+    },
+    setProfileDisplayNames,
+  });
   mockUseProfileAvatar.mockReturnValue({
     canManagePhoto: true,
     hasPhoto: false,
@@ -83,10 +95,11 @@ describe('ProfileScreen edit presentation', () => {
     expect(screen.queryByTestId('profile-edit-form')).toBeNull();
   });
 
-  it('edit mode offers only the name field — phone and email are read-only information', () => {
+  it('edit mode separates the global and organisation names while contacts stay read-only', () => {
     const screen = render(<ProfileScreen />);
     fireEvent.press(screen.getByTestId('edit-profile-action'));
     expect(screen.getByTestId('profile-full-name-input')).toBeTruthy();
+    expect(screen.getByTestId('profile-organisation-name-input')).toBeTruthy();
     expect(screen.queryByTestId('profile-phone-input')).toBeNull();
     const contact = screen.getByTestId('profile-contact-details');
     expect(contact).toBeTruthy();
@@ -114,24 +127,19 @@ describe('ProfileScreen edit presentation', () => {
     expect(screen.getByDisplayValue('Sarah Williams')).toBeTruthy();
   });
 
-  it('saves only the full name through updateOwnProfile', async () => {
-    const updateOwnProfile = jest.fn().mockResolvedValue(undefined);
-    mockUseAppData.mockReturnValue({
-      teams: [],
-      memberships: [],
-      updateOwnProfile,
-      resetDemoData: jest.fn(),
-    });
+  it('saves global and organisation names through separate self-owned actions', async () => {
     const screen = render(<ProfileScreen />);
     fireEvent.press(screen.getByTestId('edit-profile-action'));
     fireEvent.changeText(screen.getByTestId('profile-full-name-input'), 'Sarah W.');
+    fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), 'Sarah Choir');
     fireEvent.press(screen.getByText('Save'));
-    await waitFor(() => expect(updateOwnProfile).toHaveBeenCalledTimes(1));
-    expect(updateOwnProfile).toHaveBeenCalledWith({ full_name: 'Sarah W.' });
+    await waitFor(() =>
+      expect(setProfileDisplayNames).toHaveBeenCalledWith('Sarah W.', 'Sarah Choir'),
+    );
   });
 
   it('keeps demo mode read-only', () => {
-    mockUseAuth.mockReturnValue({ authMode: 'demo', signOut: jest.fn() });
+    mockUseAuth.mockReturnValue({ authMode: 'demo', signOut: jest.fn(), accountContext: null });
     mockUseRequiredUser.mockReturnValue({ ...LIVE_USER, supabaseProfileId: undefined });
     const screen = render(<ProfileScreen />);
     expect(screen.queryByTestId('edit-profile-action')).toBeNull();

@@ -47,7 +47,8 @@
           "backgroundColor": "#EEF3FC"
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-secure-store"
     ],
     "extra": {
       "router": {},

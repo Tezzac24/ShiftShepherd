@@ -21,7 +21,15 @@ import { mockUsers, testAccounts } from '../../lib/mockData';
  */
 export default function LoginScreen() {
   const router = useRouter();
-  const { signInWithEmail, signInAsTestUser, supabaseEnabled } = useAuth();
+  const {
+    signInWithEmail,
+    signUpWithEmail,
+    signInAsTestUser,
+    supabaseEnabled,
+    pendingInvitationToken,
+  } = useAuth();
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -32,9 +40,21 @@ export default function LoginScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      const err = await signInWithEmail(email, password);
-      setError(err);
-      if (!err) router.replace('/(tabs)/home');
+      if (creatingAccount) {
+        const result = await signUpWithEmail(fullName, email, password);
+        setError(result.error);
+        if (!result.error && result.needsEmailConfirmation) {
+          const message = 'Check your email to confirm your account, then return here to sign in.';
+          if (Platform.OS === 'web') setError(message);
+          else Alert.alert('Confirm your email', message);
+        } else if (!result.error) {
+          router.replace(pendingInvitationToken ? '/invite/accept' : '/');
+        }
+      } else {
+        const err = await signInWithEmail(email, password);
+        setError(err);
+        if (!err) router.replace(pendingInvitationToken ? '/invite/accept' : '/');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -51,7 +71,7 @@ export default function LoginScreen() {
 
   const handleTestAccount = (userId: string) => {
     signInAsTestUser(userId);
-    router.replace('/(tabs)/home');
+    router.replace(pendingInvitationToken ? '/invite/accept' : '/(tabs)/home');
   };
 
   return (
@@ -70,6 +90,17 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.form}>
+          {creatingAccount ? (
+            <TextField
+              label="Full name"
+              placeholder="Your name"
+              autoCapitalize="words"
+              autoComplete="name"
+              value={fullName}
+              onChangeText={setFullName}
+              maxLength={100}
+            />
+          ) : null}
           <TextField
             label="Email"
             placeholder="you@example.com"
@@ -87,11 +118,27 @@ export default function LoginScreen() {
             error={error ?? undefined}
           />
           <Button
-            title="Log in"
+            title={creatingAccount ? 'Create account' : 'Log in'}
             onPress={handleEmailLogin}
             icon="log-in-outline"
             loading={submitting}
           />
+
+          {supabaseEnabled ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={creatingAccount ? 'Use an existing account' : 'Create a new account'}
+              onPress={() => {
+                setCreatingAccount((value) => !value);
+                setError(null);
+              }}
+              style={styles.accountModeAction}
+            >
+              <AppText tone="primary" variant="label">
+                {creatingAccount ? 'Already have an account? Log in' : 'New to Shift Shepherd? Create an account'}
+              </AppText>
+            </Pressable>
+          ) : null}
 
           <View style={styles.socialRow}>
             <SocialButton icon="logo-google" label="Google" onPress={() => comingSoon('Google')} />
@@ -109,7 +156,9 @@ export default function LoginScreen() {
 
           <AppText variant="small" tone="muted" style={styles.center}>
             {supabaseEnabled
-              ? 'Log in with the email and password your church gave you, or explore with a demo account below.'
+              ? creatingAccount
+                ? 'Creating an account does not automatically join a church. You can create an organisation or accept an invitation afterward.'
+                : 'Log in with your email and password, or explore with a demo account below.'
               : 'This build isn’t connected to a live server — sign-in is simulated. Use a demo account below, or any mock email with any password.'}
           </AppText>
         </View>
@@ -189,6 +238,7 @@ const styles = StyleSheet.create({
   },
   center: { textAlign: 'center' },
   form: { gap: spacing.md },
+  accountModeAction: { minHeight: touchTarget, alignItems: 'center', justifyContent: 'center' },
   socialRow: { flexDirection: 'row', gap: spacing.sm },
   social: {
     flex: 1,
