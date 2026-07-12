@@ -23,13 +23,24 @@ function StartupScreen() {
   );
 }
 
-function RootStack() {
+function RootStack({ hasStarted }: { hasStarted: React.MutableRefObject<boolean> }) {
   const { user, isLoading, isAuthenticated } = useAuth();
   const { isHydrated } = useAppData();
+  const ready = !isLoading && isHydrated;
 
-  // Never show a blank screen or flash the wrong route: wait until the saved
-  // session and demo data have been restored before mounting the router.
-  if (isLoading || !isHydrated) {
+  React.useEffect(() => {
+    if (ready) hasStarted.current = true;
+  }, [ready, hasStarted]);
+
+  // Never show a blank screen or flash the wrong route: on first launch, wait
+  // until the saved session and demo data have been restored before mounting
+  // the router. Only the first launch waits. AppDataProvider is remounted on
+  // every account-scope change and reports isHydrated: false again while it
+  // re-reads storage; unmounting the navigator there would drop any navigation
+  // dispatched across the transition, which React Navigation then reports as
+  // "REPLACE ... was not handled by any navigator". hasStarted lives above the
+  // remount boundary, so the gate closes exactly once.
+  if (!ready && !hasStarted.current) {
     return <StartupScreen />;
   }
 
@@ -102,13 +113,16 @@ function AccountScopedAppDataProvider({ children }: { children: React.ReactNode 
 }
 
 export default function RootLayout() {
+  // Rendered by Expo Router's own root slot, so this component survives the
+  // account-scoped remount below and can carry the one-time startup gate.
+  const hasStarted = React.useRef(false);
   return (
     <AuthProvider>
       <AccountScopedAppDataProvider>
         <PaperProvider theme={paperTheme}>
           <ConfirmProvider>
             <ToastProvider>
-              <RootStack />
+              <RootStack hasStarted={hasStarted} />
               <StatusBar style="dark" />
             </ToastProvider>
           </ConfirmProvider>

@@ -19,16 +19,32 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
+// In-memory SecureStore. It enforces the same key rule as the native module
+// (expo-secure-store's ensureValidKey: non-empty, and only letters, numbers,
+// ".", "-" and "_"), because a mock that accepted any key let an invalid
+// storage key reach the device and break sign-out.
 jest.mock('expo-secure-store', () => {
   const values = new Map<string, string>();
+  const ensureValidKey = (key: string) => {
+    if (typeof key !== 'string' || !/^[\w.-]+$/.test(key)) {
+      throw new Error(
+        'Invalid key provided to SecureStore. Keys must not be empty and contain only alphanumeric characters, ".", "-", and "_".',
+      );
+    }
+  };
   return {
     WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
     isAvailableAsync: jest.fn(async () => true),
-    getItemAsync: jest.fn(async (key: string) => values.get(key) ?? null),
+    getItemAsync: jest.fn(async (key: string) => {
+      ensureValidKey(key);
+      return values.get(key) ?? null;
+    }),
     setItemAsync: jest.fn(async (key: string, value: string) => {
+      ensureValidKey(key);
       values.set(key, value);
     }),
     deleteItemAsync: jest.fn(async (key: string) => {
+      ensureValidKey(key);
       values.delete(key);
     }),
   };

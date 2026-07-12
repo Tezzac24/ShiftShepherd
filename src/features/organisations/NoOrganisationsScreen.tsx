@@ -60,6 +60,16 @@ export default function NoOrganisationsScreen() {
     }
   };
 
+  // Clearing the session un-guards this route, so the root layout returns to
+  // login on its own — only a failed sign-out needs reporting here.
+  const leave = async () => {
+    try {
+      await signOut();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'We couldn’t complete the sign out.');
+    }
+  };
+
   return (
     <Screen safeTop keyboard>
       <View style={styles.hero}>
@@ -118,7 +128,7 @@ export default function NoOrganisationsScreen() {
         title="Sign out"
         variant="ghost"
         icon="log-out-outline"
-        onPress={() => void signOut().then(() => router.replace('/login'))}
+        onPress={() => void leave()}
       />
     </Screen>
   );

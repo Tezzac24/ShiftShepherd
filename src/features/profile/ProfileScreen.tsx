@@ -123,15 +123,19 @@ export default function ProfileScreen() {
     else Alert.alert('Demo data reset', message);
   };
 
+  // No imperative navigation: clearing the session drops every signed-in route
+  // from the root layout's guards, which returns the app to the login screen.
   const handleLogout = async () => {
     const ok = await confirm({
       title: 'Log out',
       message: 'Are you sure you want to log out?',
       confirmLabel: 'Log out',
     });
-    if (ok) {
+    if (!ok) return;
+    try {
       await signOut();
-      router.replace('/login');
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : 'We couldn’t complete the log out.');
     }
   };
 

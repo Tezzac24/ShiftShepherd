@@ -17,6 +17,8 @@ export default function OrganisationSelectorScreen() {
   const [error, setError] = useState<string | null>(null);
   const organisations = accountContext?.organisations ?? [];
 
+  // This route stays guarded either way (an active profile can still reach it to
+  // switch again), so the destination after a switch has to be explicit.
   const select = async (profileId: string) => {
     if (switching) return;
     setSwitching(profileId);
@@ -28,6 +30,15 @@ export default function OrganisationSelectorScreen() {
       setError(cause instanceof Error ? cause.message : 'We couldn’t switch organisations.');
     } finally {
       setSwitching(null);
+    }
+  };
+
+  // Signing out un-guards this route, so the root layout handles the return to login.
+  const leave = async () => {
+    try {
+      await signOut();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'We couldn’t complete the sign out.');
     }
   };
 
@@ -59,11 +70,7 @@ export default function OrganisationSelectorScreen() {
         />
       )}
       {error ? <AppText tone="danger" accessibilityLiveRegion="polite">{error}</AppText> : null}
-      <Button
-        title="Sign out"
-        variant="ghost"
-        onPress={() => void signOut().then(() => router.replace('/login'))}
-      />
+      <Button title="Sign out" variant="ghost" onPress={() => void leave()} />
     </Screen>
   );
 }

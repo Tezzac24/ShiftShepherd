@@ -46,9 +46,26 @@ export default function InvitationAcceptScreen() {
 
   useEffect(() => {
     if (isInvitationToken(routeToken) && routeToken !== pendingInvitationToken) {
-      void savePendingInvitation(routeToken);
+      void savePendingInvitation(routeToken).catch(() =>
+        setError('We couldn’t keep this invitation ready on this device.'),
+      );
     }
   }, [routeToken, pendingInvitationToken, savePendingInvitation]);
+
+  /**
+   * Wrong-account / demo-account escape hatch. The pending token is deliberately
+   * preserved so the invitation is still waiting after the user signs in with the
+   * invited email. `invite/accept` is not behind an auth guard, so unlike the
+   * other sign-out call sites this one must name its own destination.
+   */
+  const switchAccount = async () => {
+    try {
+      await signOut({ preservePendingInvitation: true });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'We couldn’t complete the sign out.');
+    }
+    router.replace('/login');
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -192,7 +209,7 @@ export default function InvitationAcceptScreen() {
           <AppText tone="secondary">Demo accounts cannot accept live invitations.</AppText>
           <Button
             title="Sign out of demo"
-            onPress={() => void signOut({ preservePendingInvitation: true }).then(() => router.replace('/login'))}
+            onPress={() => void switchAccount()}
           />
         </Card>
       ) : preview?.verifiedEmailPresent === false ? (
@@ -203,7 +220,7 @@ export default function InvitationAcceptScreen() {
           </AppText>
           <Button
             title="Switch account"
-            onPress={() => void signOut({ preservePendingInvitation: true }).then(() => router.replace('/login'))}
+            onPress={() => void switchAccount()}
           />
         </Card>
       ) : preview?.accountMatches === false ? (
@@ -215,7 +232,7 @@ export default function InvitationAcceptScreen() {
           <Button
             title="Switch account"
             icon="swap-horizontal-outline"
-            onPress={() => void signOut({ preservePendingInvitation: true }).then(() => router.replace('/login'))}
+            onPress={() => void switchAccount()}
           />
         </Card>
       ) : (

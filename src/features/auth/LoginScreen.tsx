@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 
@@ -18,16 +17,15 @@ import { mockUsers, testAccounts } from '../../lib/mockData';
  * configured with Supabase credentials; otherwise it falls back to the demo
  * behaviour (any password for a known mock email). The demo account selector
  * is always available. Google/Facebook/phone stay placeholders for now.
+ *
+ * This screen never navigates on success. Authentication state is the single
+ * source of truth for routing: the root layout's `Stack.Protected` guard drops
+ * `login` as soon as the session exists, and `app/index.tsx` then picks the
+ * destination (pending invitation, active organisation, or no organisation).
+ * A second, imperative `router.replace` here would race that transition.
  */
 export default function LoginScreen() {
-  const router = useRouter();
-  const {
-    signInWithEmail,
-    signUpWithEmail,
-    signInAsTestUser,
-    supabaseEnabled,
-    pendingInvitationToken,
-  } = useAuth();
+  const { signInWithEmail, signUpWithEmail, signInAsTestUser, supabaseEnabled } = useAuth();
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -47,13 +45,9 @@ export default function LoginScreen() {
           const message = 'Check your email to confirm your account, then return here to sign in.';
           if (Platform.OS === 'web') setError(message);
           else Alert.alert('Confirm your email', message);
-        } else if (!result.error) {
-          router.replace(pendingInvitationToken ? '/invite/accept' : '/');
         }
       } else {
-        const err = await signInWithEmail(email, password);
-        setError(err);
-        if (!err) router.replace(pendingInvitationToken ? '/invite/accept' : '/');
+        setError(await signInWithEmail(email, password));
       }
     } finally {
       setSubmitting(false);
@@ -71,7 +65,6 @@ export default function LoginScreen() {
 
   const handleTestAccount = (userId: string) => {
     signInAsTestUser(userId);
-    router.replace(pendingInvitationToken ? '/invite/accept' : '/(tabs)/home');
   };
 
   return (

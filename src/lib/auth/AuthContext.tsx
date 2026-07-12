@@ -81,6 +81,8 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const GENERIC_LOGIN_ERROR =
   'We couldn’t log you in. Please check your email and password and try again.';
 const OFFLINE_ERROR = 'We couldn’t reach the server. Please check your connection and try again.';
+export const SIGN_OUT_ERROR =
+  'You are signed out on this device, but we couldn’t reach the server to end the session everywhere. Please check your connection.';
 
 function buildMockSession(userId: string): SessionUser | null {
   const profile = mockUsers.find((candidate) => candidate.id === userId);
@@ -362,8 +364,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setPendingInvitationToken(token);
   }, []);
 
+  // Dropping the stored token is local cleanup: a keychain failure must not turn
+  // into a user-facing error or an unhandled rejection in a screen effect.
   const clearPending = useCallback(async () => {
-    await clearStoredInvitation();
+    await clearStoredInvitation().catch(() => undefined);
     setPendingInvitationToken(null);
   }, []);
 
@@ -453,20 +457,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(
     async (options?: { preservePendingInvitation?: boolean }) => {
+      // Read the mode before clearing state so a second tap becomes a no-op
+      // rather than a second Supabase call.
       const mode = authModeRef.current;
+      const supabase = mode === 'supabase' ? getSupabase() : null;
+      const preserveInvitation = !!options?.preservePendingInvitation;
+
+      // The UI leaves immediately; the session removal below decides whether the
+      // user is *actually* signed out.
       if (mode === 'demo') applyDemoSession(null);
       else clearLiveState();
-      await clearPersisted(STORAGE_KEYS.demoUser);
-      if (!options?.preservePendingInvitation) await clearPending();
-      if (mode === 'supabase') {
-        try {
-          await getSupabase()?.auth.signOut();
-        } catch {
-          // Local account/org state is already gone; the remote token will expire.
+
+      // Ancillary cleanup is best-effort. It runs alongside the sign-out and its
+      // failure must never be able to leave a live session on the device — that
+      // is what previously kept the user signed in after a restart.
+      const cleanup = Promise.allSettled([
+        clearPersisted(STORAGE_KEYS.demoUser),
+        preserveInvitation ? Promise.resolve() : clearStoredInvitation(),
+      ]);
+
+      let authFailure: Error | null = null;
+      if (supabase) {
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+          // Revoking the refresh token server-side failed (typically offline).
+          // Drop the device session anyway so a restart cannot restore it, then
+          // report the failure instead of pretending sign-out fully succeeded.
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+          authFailure = new Error(SIGN_OUT_ERROR);
         }
       }
+
+      await cleanup;
+      if (!preserveInvitation) setPendingInvitationToken(null);
+      if (authFailure) throw authFailure;
     },
-    [applyDemoSession, clearLiveState, clearPending],
+    [applyDemoSession, clearLiveState],
   );
 
   const value = useMemo<AuthContextValue>(
