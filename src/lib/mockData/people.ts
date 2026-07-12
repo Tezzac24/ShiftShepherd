@@ -32,6 +32,7 @@ const profile = (
   auth_user_id: `auth-${id}`,
   organisation_id: ORG_ID,
   full_name,
+  display_name_override: null,
   email,
   phone,
   avatar_url: null,

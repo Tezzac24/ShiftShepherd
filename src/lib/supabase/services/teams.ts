@@ -63,6 +63,7 @@ interface ProfileRow {
   auth_user_id: string | null;
   organisation_id: string;
   full_name: string;
+  display_name_override: string | null;
   email: string;
   phone: string | null;
   avatar_url: string | null;
@@ -120,6 +121,7 @@ function toAppProfile(row: ProfileRow): UserProfile {
     auth_user_id: row.auth_user_id ?? '',
     organisation_id: row.organisation_id,
     full_name: row.full_name,
+    display_name_override: row.display_name_override,
     email: row.email,
     phone: row.phone,
     avatar_url: row.avatar_url,
@@ -142,7 +144,7 @@ export async function fetchTeamsDirectory(currentProfileId: string): Promise<Tea
         .maybeSingle(),
       supabase
         .from('profiles')
-        .select('id, auth_user_id, organisation_id, full_name, email, phone, avatar_url, created_at')
+        .select('id, auth_user_id, organisation_id, full_name, display_name_override, email, phone, avatar_url, created_at')
         .order('full_name', { ascending: true }),
       supabase
         .from('teams')

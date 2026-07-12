@@ -25,6 +25,8 @@ export interface UserProfile {
   auth_user_id: ID;
   organisation_id: ID;
   full_name: string;
+  /** Optional organisation-only name; full_name remains the effective name. */
+  display_name_override?: string | null;
   email: string;
   phone: string | null;
   /**
@@ -34,6 +36,47 @@ export interface UserProfile {
    */
   avatar_url: string | null;
   created_at: string;
+}
+
+/** One account-global identity per Supabase Auth user. */
+export interface UserAccount {
+  auth_user_id: ID;
+  global_display_name: string | null;
+  name_confirmed_at: string | null;
+  active_profile_id: ID | null;
+}
+
+/** One organisation/profile available to the signed-in account. */
+export interface AccountOrganisation {
+  profile: UserProfile;
+  organisation: Pick<Organisation, 'id' | 'name'>;
+}
+
+export interface AccountContext {
+  account: UserAccount;
+  organisations: AccountOrganisation[];
+}
+
+export type OrganisationInvitationStatus =
+  | 'pending'
+  | 'accepted'
+  | 'expired'
+  | 'revoked'
+  | 'superseded';
+
+export interface OrganisationInvitation {
+  id: ID;
+  invited_email: string;
+  target_profile_id: ID | null;
+  target_display_name: string | null;
+  status: OrganisationInvitationStatus;
+  created_at: string;
+  last_sent_at: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  send_count: number;
+  invited_by_display_name: string;
 }
 
 export type TeamType = 'generic' | 'choir' | 'media';

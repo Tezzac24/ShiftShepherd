@@ -185,11 +185,25 @@ Deno.serve(async (req) => {
     return jsonResponse(401, { error: 'Not signed in' });
   }
 
-  const { data: profile, error: profileError } = await admin
-    .from('profiles')
-    .select('id, organisation_id')
+  // Multi-organisation accounts may own several profiles. Resolve exactly the
+  // server-validated active profile; never select an arbitrary auth_user_id row.
+  const { data: account, error: accountError } = await admin
+    .from('user_accounts')
+    .select('active_profile_id')
     .eq('auth_user_id', userData.user.id)
     .maybeSingle();
+  if (accountError) {
+    console.error('[send-chat-message-push] account lookup failed', accountError.code);
+    return jsonResponse(500, { error: 'Could not process this request' });
+  }
+  const { data: profile, error: profileError } = account?.active_profile_id
+    ? await admin
+        .from('profiles')
+        .select('id, organisation_id')
+        .eq('id', account.active_profile_id)
+        .eq('auth_user_id', userData.user.id)
+        .maybeSingle()
+    : { data: null, error: null };
   if (profileError) {
     console.error('[send-chat-message-push] profile lookup failed', profileError.code);
     return jsonResponse(500, { error: 'Could not process this request' });

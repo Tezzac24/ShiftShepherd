@@ -391,6 +391,12 @@ deno_version = 2
 enabled = true
 verify_jwt = true
 
+# Preview is authenticated by the app-owned bearer token. Every admin/accept
+# action validates the Supabase user JWT inside the handler with auth.getUser.
+[functions.manage-organisation-invitations]
+enabled = true
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
