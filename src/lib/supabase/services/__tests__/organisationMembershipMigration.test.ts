@@ -187,6 +187,22 @@ describe('organisation membership and role management migration', () => {
     const addTeam = functionSql(migration, 'add_team_member');
     expect(addTeam).toContain("profile.access_status = 'active'");
     expect(addTeam).toContain('profile.auth_user_id is not null');
+    expect(addTeam).toContain('for update');
+  });
+
+  it('serializes push registration with access removal on the same profile row', () => {
+    const register = functionSql(migration, 'register_push_token');
+    expect(register).toContain('v_profile_id uuid := public.current_profile_id()');
+    expect(register).toContain("profile.access_status = 'active'");
+    expect(register).toContain('profile.auth_user_id = v_auth_user_id');
+    expect(register).toContain('for update');
+    expect(register).toContain('organisation_access_removed');
+    expect(normalized).toContain(
+      'revoke all on function public.register_push_token(text, text) from public, anon, authenticated',
+    );
+    expect(normalized).toContain(
+      'grant execute on function public.register_push_token(text, text) to authenticated',
+    );
   });
 
   it('publishes only the owner-RLS account row as an active-scope invalidation', () => {

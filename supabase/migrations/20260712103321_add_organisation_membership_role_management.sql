@@ -731,6 +731,18 @@ begin
   where organisation.id = v_organisation_id
   for update;
 
+  -- Serialize self-removal against team additions and push registration,
+  -- which lock this same profile before creating current-access rows.
+  perform 1
+  from public.profiles profile
+  where profile.id = v_caller_profile_id
+    and profile.auth_user_id = v_auth_user_id
+    and profile.access_status = 'active'
+  for update;
+  if not found then
+    raise exception using errcode = 'P0001', message = 'ORGANISATION_ACCESS_REMOVED';
+  end if;
+
   select role_row.role into v_caller_role
   from public.organisation_roles role_row
   where role_row.organisation_id = v_organisation_id
@@ -782,7 +794,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 5. Existing team membership writes reject removed profiles.
+-- 5. Current-access writes serialize with removal and reject removed profiles.
 -- ---------------------------------------------------------------------------
 
 create or replace function public.add_team_member(
@@ -819,13 +831,17 @@ begin
   if not coalesce(public.can_manage_team(p_team_id), false) then
     raise exception using errcode = 'P0001', message = 'NOT_AUTHORISED';
   end if;
-  if not exists (
-    select 1 from public.profiles profile
+  -- The target profile lock makes this eligibility decision atomic with
+  -- organisation removal. If add wins, removal waits and deletes the new row;
+  -- if removal wins, this check resumes against removed state and rejects.
+  perform 1
+  from public.profiles profile
     where profile.id = p_profile_id
       and profile.organisation_id = v_team_organisation_id
       and profile.auth_user_id is not null
       and profile.access_status = 'active'
-  ) then
+    for update;
+  if not found then
     raise exception using errcode = 'P0001', message = 'PROFILE_NOT_ELIGIBLE';
   end if;
   return query
@@ -835,6 +851,52 @@ begin
   do update set team_id = membership.team_id
   returning membership.id, membership.team_id, membership.user_id,
     membership.role, membership.created_at;
+end;
+$$;
+
+-- Push registration is another current-access write. Locking the active
+-- profile prevents a token from being inserted after removal cleanup.
+create or replace function public.register_push_token(p_token text, p_platform text)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_auth_user_id uuid := (select auth.uid());
+  v_profile_id uuid := public.current_profile_id();
+  v_registered_at timestamptz;
+begin
+  if v_profile_id is null then
+    raise exception using errcode = 'P0001', message = 'NO_LINKED_PROFILE';
+  end if;
+  if p_token is null
+     or pg_catalog.char_length(p_token) > 512
+     or p_token !~ '^Expo(nent)?PushToken\[[^\s\[\]]+\]$' then
+    raise exception using errcode = 'P0001', message = 'INVALID_EXPO_PUSH_TOKEN';
+  end if;
+  if p_platform is null or p_platform not in ('ios', 'android', 'web') then
+    raise exception using errcode = 'P0001', message = 'UNSUPPORTED_PLATFORM';
+  end if;
+
+  perform 1
+  from public.profiles profile
+  where profile.id = v_profile_id
+    and profile.auth_user_id = v_auth_user_id
+    and profile.access_status = 'active'
+  for update;
+  if not found then
+    raise exception using errcode = 'P0001', message = 'ORGANISATION_ACCESS_REMOVED';
+  end if;
+
+  insert into public.push_tokens as token_row (user_id, token, platform)
+  values (v_profile_id, p_token, p_platform::public.push_platform)
+  on conflict (token) do update
+    set user_id = excluded.user_id,
+        platform = excluded.platform
+  returning token_row.updated_at into v_registered_at;
+
+  return v_registered_at;
 end;
 $$;
 
@@ -1228,6 +1290,7 @@ revoke all on function public.set_organisation_member_role(uuid, text) from publ
 revoke all on function public.remove_organisation_member(uuid) from public, anon, authenticated;
 revoke all on function public.leave_organisation() from public, anon, authenticated;
 revoke all on function public.add_team_member(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.register_push_token(text, text) from public, anon, authenticated;
 revoke all on function public.validate_organisation_invitation() from public, anon, authenticated;
 revoke all on function public.issue_organisation_invitation_internal(uuid, uuid, uuid, text, text)
   from public, anon, authenticated;
@@ -1243,6 +1306,7 @@ grant execute on function public.set_organisation_member_role(uuid, text) to aut
 grant execute on function public.remove_organisation_member(uuid) to authenticated;
 grant execute on function public.leave_organisation() to authenticated;
 grant execute on function public.add_team_member(uuid, uuid) to authenticated;
+grant execute on function public.register_push_token(text, text) to authenticated;
 grant execute on function public.issue_organisation_invitation_internal(uuid, uuid, uuid, text, text)
   to service_role;
 grant execute on function public.accept_organisation_invitation_internal(uuid, text, text)

@@ -131,6 +131,12 @@ not count. Role changes, admin removal, and admin self-leave all lock the same
 organisation row before counting, so concurrent operations cannot reduce an
 organisation to zero effective church admins.
 
+Current-access creation is serialized with removal too. `add_team_member` and
+`register_push_token` lock the same target profile row before confirming active access
+and writing. If creation wins, removal waits and deletes the new row; if removal wins,
+creation resumes against removed state and fails. Self-leave locks its own profile in
+the same order after the organisation lock.
+
 ## Security boundary
 
 The client receives bounded member summaries through an admin-only RPC and performs
