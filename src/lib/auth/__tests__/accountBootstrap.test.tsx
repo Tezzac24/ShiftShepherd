@@ -40,6 +40,11 @@ jest.mock('../../supabase/services/accounts', () => ({
   createOrganisation: jest.fn(),
 }));
 
+const mockLeaveOrganisation = jest.fn();
+jest.mock('../../supabase/services/organisationMemberships', () => ({
+  leaveOrganisation: (...args: unknown[]) => mockLeaveOrganisation(...args),
+}));
+
 const AUTH_USER = { id: 'auth-1', email: 'member@example.com', email_confirmed_at: 'now' };
 const OTHER_AUTH_USER = { id: 'auth-2', email: 'other@example.com', email_confirmed_at: 'now' };
 
@@ -85,6 +90,7 @@ beforeEach(() => {
   signOutMock.mockResolvedValue({ error: null });
   getSessionMock.mockResolvedValue({ data: { session: null } });
   getUserMock.mockResolvedValue({ data: { user: AUTH_USER }, error: null });
+  mockLeaveOrganisation.mockResolvedValue({ transition: 'no_organisations' });
 });
 
 describe('account bootstrap status', () => {
@@ -221,5 +227,71 @@ describe('cross-account isolation', () => {
     expect(auth.accountContext).toBeNull();
     expect(auth.user).toBeNull();
     expect(auth.isAuthenticated).toBe(false);
+  });
+});
+
+describe('Leave organisation account transitions', () => {
+  beforeEach(() => {
+    mockFetchAccountContext.mockResolvedValue(ORG_MEMBER_CONTEXT);
+    getSessionMock.mockResolvedValue({ data: { session: { user: AUTH_USER } } });
+  });
+
+  it('drops old organisation data/channels before the resulting account context resolves', async () => {
+    renderAuth();
+    await waitFor(() => expect(auth.user?.supabaseProfileId).toBe('profile-1'));
+
+    const pending = deferredContext();
+    act(() => {
+      void auth.leaveOrganisation();
+    });
+
+    await waitFor(() => expect(mockLeaveOrganisation).toHaveBeenCalledTimes(1));
+    expect(auth.accountStatus).toBe('loading');
+    expect(auth.user).toBeNull();
+    expect(auth.accountContext).toBeNull();
+
+    await act(async () => pending.resolve(NO_ORG_CONTEXT));
+    await waitFor(() => expect(auth.accountStatus).toBe('ready'));
+  });
+
+  it('boots one remaining active organisation directly into its Home scope', async () => {
+    renderAuth();
+    await waitFor(() => expect(auth.user?.supabaseProfileId).toBe('profile-1'));
+    const remaining = {
+      account: { ...ORG_MEMBER_CONTEXT.account, active_profile_id: 'profile-2' },
+      organisations: [
+        { profile: { id: 'profile-2', full_name: 'Member Two' }, organisation: { id: 'org-2', name: 'Second Church' } },
+      ],
+    };
+    mockFetchAccountContext.mockResolvedValue(remaining);
+    await act(async () => auth.leaveOrganisation());
+    expect(auth.accountStatus).toBe('ready');
+    expect(auth.user?.supabaseProfileId).toBe('profile-2');
+  });
+
+  it('keeps several remaining organisations unresolved for the existing selector', async () => {
+    renderAuth();
+    await waitFor(() => expect(auth.user?.supabaseProfileId).toBe('profile-1'));
+    mockFetchAccountContext.mockResolvedValue({
+      account: { ...ORG_MEMBER_CONTEXT.account, active_profile_id: null },
+      organisations: [
+        { profile: { id: 'profile-2', full_name: 'Two' }, organisation: { id: 'org-2', name: 'Two' } },
+        { profile: { id: 'profile-3', full_name: 'Three' }, organisation: { id: 'org-3', name: 'Three' } },
+      ],
+    });
+    await act(async () => auth.leaveOrganisation());
+    expect(auth.accountStatus).toBe('ready');
+    expect(auth.user).toBeNull();
+    expect(auth.accountContext?.organisations).toHaveLength(2);
+  });
+
+  it('reaches the genuine no-organisation state after leaving the last organisation', async () => {
+    renderAuth();
+    await waitFor(() => expect(auth.user?.supabaseProfileId).toBe('profile-1'));
+    mockFetchAccountContext.mockResolvedValue({ ...NO_ORG_CONTEXT, account: { ...NO_ORG_CONTEXT.account, auth_user_id: 'auth-1' } });
+    await act(async () => auth.leaveOrganisation());
+    expect(auth.accountStatus).toBe('ready');
+    expect(auth.user).toBeNull();
+    expect(auth.accountContext?.organisations).toHaveLength(0);
   });
 });

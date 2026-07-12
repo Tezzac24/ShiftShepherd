@@ -67,6 +67,10 @@ interface ProfileRow {
   email: string;
   phone: string | null;
   avatar_url: string | null;
+  access_status?: 'active' | 'removed';
+  access_removed_at?: string | null;
+  access_removed_by?: string | null;
+  access_removal_reason?: 'admin_removed' | 'self_left' | null;
   created_at: string;
 }
 
@@ -125,6 +129,10 @@ function toAppProfile(row: ProfileRow): UserProfile {
     email: row.email,
     phone: row.phone,
     avatar_url: row.avatar_url,
+    access_status: row.access_status ?? 'active',
+    access_removed_at: row.access_removed_at ?? null,
+    access_removed_by: row.access_removed_by ?? null,
+    access_removal_reason: row.access_removal_reason ?? null,
     created_at: row.created_at,
   };
 }
@@ -144,7 +152,7 @@ export async function fetchTeamsDirectory(currentProfileId: string): Promise<Tea
         .maybeSingle(),
       supabase
         .from('profiles')
-        .select('id, auth_user_id, organisation_id, full_name, display_name_override, email, phone, avatar_url, created_at')
+        .select('id, auth_user_id, organisation_id, full_name, display_name_override, email, phone, avatar_url, access_status, access_removed_at, access_removed_by, access_removal_reason, created_at')
         .order('full_name', { ascending: true }),
       supabase
         .from('teams')

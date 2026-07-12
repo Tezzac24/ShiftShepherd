@@ -35,8 +35,16 @@ export interface UserProfile {
    * demo/mock data may carry a plain URL (currently always null).
    */
   avatar_url: string | null;
+  /** Current organisation access; removed profiles remain for directory/history attribution. */
+  access_status: OrganisationAccessStatus;
+  access_removed_at: string | null;
+  access_removed_by: ID | null;
+  access_removal_reason: OrganisationAccessRemovalReason | null;
   created_at: string;
 }
+
+export type OrganisationAccessStatus = 'active' | 'removed';
+export type OrganisationAccessRemovalReason = 'admin_removed' | 'self_left';
 
 /** One account-global identity per Supabase Auth user. */
 export interface UserAccount {
@@ -77,6 +85,37 @@ export interface OrganisationInvitation {
   revoked_at: string | null;
   send_count: number;
   invited_by_display_name: string;
+}
+
+/** Bounded row returned by the church-admin member-management RPC. */
+export interface OrganisationMemberSummary {
+  profile_id: ID;
+  full_name: string;
+  email: string;
+  avatar_url: string | null;
+  access_status: OrganisationAccessStatus;
+  access_removed_at: string | null;
+  access_removal_reason: OrganisationAccessRemovalReason | null;
+  linked: boolean;
+  role: OrganisationRoleName | null;
+  team_count: number;
+  pending_invitation_status: OrganisationInvitationStatus | null;
+  is_current_user: boolean;
+  is_last_church_admin: boolean;
+}
+
+export type OrganisationAccessTransition =
+  | 'active_unchanged'
+  | 'selected_remaining'
+  | 'choose_organisation'
+  | 'no_organisations';
+
+export interface OrganisationAccessMutationResult {
+  profile_id: ID;
+  access_status: 'removed';
+  active_profile_id: ID | null;
+  remaining_profile_count: number;
+  transition: OrganisationAccessTransition;
 }
 
 export type TeamType = 'generic' | 'choir' | 'media';

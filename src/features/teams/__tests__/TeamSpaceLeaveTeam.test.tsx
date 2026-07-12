@@ -48,6 +48,10 @@ const PROFILE: UserProfile = {
   email: 'hannah@example.church',
   phone: null,
   avatar_url: null,
+  access_status: 'active',
+  access_removed_at: null,
+  access_removed_by: null,
+  access_removal_reason: null,
   created_at: '',
 };
 

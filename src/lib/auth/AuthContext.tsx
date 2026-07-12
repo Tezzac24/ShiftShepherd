@@ -26,6 +26,7 @@ import { mockMemberships, mockOrganisationRoles, mockUsers } from '../mockData';
 import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../storage/persistence';
 import { getSupabase, isSupabaseConfigured } from '../supabase/client';
 import * as accountsService from '../supabase/services/accounts';
+import * as organisationMembershipsService from '../supabase/services/organisationMemberships';
 
 type AuthMode = 'demo' | 'supabase';
 
@@ -73,6 +74,7 @@ interface AuthContextValue {
   setProfileDisplayNames: (globalName: string, organisationName: string | null) => Promise<void>;
   switchOrganisation: (profileId: string) => Promise<void>;
   createOrganisation: (name: string) => Promise<void>;
+  leaveOrganisation: () => Promise<void>;
   applySessionAvatarUrl: (avatarUrl: string | null) => void;
   applySessionProfile: (
     patch: Partial<Pick<UserProfile, 'full_name' | 'phone' | 'avatar_url' | 'display_name_override'>>,
@@ -449,6 +451,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [refreshAccountContext],
   );
 
+  const leaveOrganisation = useCallback(async () => {
+    await organisationMembershipsService.leaveOrganisation();
+    // The server has atomically removed the old scope and repaired the active
+    // profile. Drop every old organisation row/channel before bootstrapping the
+    // resulting Home, selector, or no-organisations state.
+    setUser(null);
+    setAccountContext(null);
+    setAccountStatus('loading');
+    await refreshAccountContext().catch((error) => {
+      // The membership mutation already committed. bootstrapLiveUser publishes
+      // the retryable account error state; do not misreport the leave as failed.
+      console.warn('[auth] account refresh failed after leaving organisation', {
+        code: (error as { code?: string })?.code,
+      });
+    });
+  }, [refreshAccountContext]);
+
   const applySessionProfile = useCallback(
     (
       patch: Partial<
@@ -554,6 +573,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfileDisplayNames,
       switchOrganisation,
       createOrganisation,
+      leaveOrganisation,
       applySessionAvatarUrl,
       applySessionProfile,
       applySessionDirectorySnapshot,
@@ -578,6 +598,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfileDisplayNames,
       switchOrganisation,
       createOrganisation,
+      leaveOrganisation,
       applySessionAvatarUrl,
       applySessionProfile,
       applySessionDirectorySnapshot,

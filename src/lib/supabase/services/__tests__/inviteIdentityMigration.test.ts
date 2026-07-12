@@ -5,6 +5,7 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const MIGRATIONS = join(ROOT, 'supabase/migrations');
 const NEW_NAME = '20260712001940_add_invite_onboarding_identity_foundation.sql';
+const MEMBERSHIP_NAME = '20260712103321_add_organisation_membership_role_management.sql';
 const MIGRATION = join(MIGRATIONS, NEW_NAME);
 
 function text(path: string): string {
@@ -26,10 +27,11 @@ describe('invite/onboarding identity foundation migration', () => {
 
   it('adds exactly one forward migration and preserves every historical migration byte', () => {
     const files = readdirSync(MIGRATIONS).filter((name) => name.endsWith('.sql')).sort();
-    expect(files.at(-1)).toBe(NEW_NAME);
-    expect(files).toHaveLength(29);
+    expect(files).toContain(NEW_NAME);
+    expect(files.at(-1)).toBe(MEMBERSHIP_NAME);
+    expect(files).toHaveLength(30);
 
-    const historical = files.filter((name) => name !== NEW_NAME);
+    const historical = files.filter((name) => name !== NEW_NAME && name !== MEMBERSHIP_NAME);
     const hash = createHash('sha256');
     for (const name of historical) {
       hash.update(name);

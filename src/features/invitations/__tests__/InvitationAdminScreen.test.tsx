@@ -39,6 +39,24 @@ jest.mock('../../../lib/appData/AppDataContext', () => ({
         email: 'alex@example.com',
         phone: null,
         avatar_url: null,
+        access_status: 'active',
+        access_removed_at: null,
+        access_removed_by: null,
+        access_removal_reason: null,
+        created_at: '2026-07-01T00:00:00Z',
+      },
+      {
+        id: 'removed-profile',
+        auth_user_id: 'removed-auth-user',
+        organisation_id: 'org-1',
+        full_name: 'Former Member',
+        email: 'former@example.com',
+        phone: null,
+        avatar_url: null,
+        access_status: 'removed',
+        access_removed_at: '2026-07-11T00:00:00Z',
+        access_removed_by: 'admin-profile',
+        access_removal_reason: 'admin_removed',
         created_at: '2026-07-01T00:00:00Z',
       },
     ],
@@ -119,11 +137,24 @@ it('supports Add & invite and an existing unlinked directory person', async () =
   );
   await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
 
-  fireEvent.press(screen.getByText('Invite'));
+  fireEvent.press(screen.getAllByText('Invite')[0]!);
   await waitFor(() =>
     expect(mockSend).toHaveBeenCalledWith({
       organisationId: 'org-1',
       targetProfileId: 'unlinked-profile',
+    }),
+  );
+});
+
+it('offers a removed profile for baseline-only re-invitation', async () => {
+  render(<InvitationAdminScreen />);
+  await screen.findByText('Former Member');
+  expect(screen.getByText(/restores baseline access only/i)).toBeTruthy();
+  fireEvent.press(screen.getAllByText('Invite')[1]!);
+  await waitFor(() =>
+    expect(mockSend).toHaveBeenCalledWith({
+      organisationId: 'org-1',
+      targetProfileId: 'removed-profile',
     }),
   );
 });

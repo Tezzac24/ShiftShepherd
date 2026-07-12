@@ -17,6 +17,7 @@ export const SHARED_TABLE_DOMAINS = {
   teams: ['directory'],
   team_memberships: ['directory'],
   organisation_roles: ['directory'],
+  user_accounts: ['directory'],
 } as const satisfies Record<string, readonly SharedRefreshDomain[]>;
 
 export type SharedRealtimeTable = keyof typeof SHARED_TABLE_DOMAINS;

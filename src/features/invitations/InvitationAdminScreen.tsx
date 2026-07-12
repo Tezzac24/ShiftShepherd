@@ -51,7 +51,11 @@ export default function InvitationAdminScreen() {
   const canManage = authMode === 'supabase' && isChurchAdmin(user);
 
   const eligibleProfiles = useMemo(
-    () => data.users.filter((profile) => !profile.auth_user_id && !!profile.email.trim()),
+    () => data.users.filter(
+      (profile) =>
+        !!profile.email.trim() &&
+        (!profile.auth_user_id || profile.access_status === 'removed'),
+    ),
     [data.users],
   );
   const pendingTargetIds = useMemo(
@@ -200,6 +204,11 @@ export default function InvitationAdminScreen() {
                   <View style={styles.flex}>
                     <AppText variant="bodyBold">{profile.full_name}</AppText>
                     <AppText variant="small" tone="secondary">{profile.email}</AppText>
+                    {profile.access_status === 'removed' ? (
+                      <AppText variant="small" tone="muted">
+                        Previously removed. Re-invitation restores baseline access only.
+                      </AppText>
+                    ) : null}
                   </View>
                   {pending ? (
                     <Badge label="Pending" tone="accent" />

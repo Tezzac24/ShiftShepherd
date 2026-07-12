@@ -33,6 +33,10 @@ const users: UserProfile[] = [SELF_ID, OTHER_ID].map((id) => ({
   email: `${id}@example.church`,
   phone: null,
   avatar_url: null,
+  access_status: 'active',
+  access_removed_at: null,
+  access_removed_by: null,
+  access_removal_reason: null,
   created_at: '',
 }));
 

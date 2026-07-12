@@ -56,6 +56,10 @@ function person(id: string, name: string): UserProfile {
     email: `${name.split(' ')[0]?.toLowerCase()}@example.church`,
     phone: null,
     avatar_url: null,
+    access_status: 'active',
+    access_removed_at: null,
+    access_removed_by: null,
+    access_removal_reason: null,
     created_at: '2026-07-11T00:00:00Z',
   };
 }

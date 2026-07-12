@@ -23,6 +23,7 @@ interface AccountContextRow {
   profile_phone: string | null;
   profile_avatar_url: string | null;
   profile_created_at: string | null;
+  profile_access_status?: 'active';
 }
 
 interface NameRow {
@@ -113,6 +114,10 @@ export function mapAccountContext(rows: AccountContextRow[]): AccountContext | n
         email: row.profile_email,
         phone: row.profile_phone,
         avatar_url: row.profile_avatar_url,
+        access_status: row.profile_access_status ?? 'active',
+        access_removed_at: null,
+        access_removed_by: null,
+        access_removal_reason: null,
         created_at: row.profile_created_at,
       };
       return [{ profile, organisation: { id: row.organisation_id, name: row.organisation_name } }];

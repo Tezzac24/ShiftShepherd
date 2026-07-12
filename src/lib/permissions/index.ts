@@ -7,6 +7,7 @@
  */
 import {
   Announcement,
+  OrganisationRoleName,
   RotaAssignment,
   RotaEntry,
   SessionUser,
@@ -17,6 +18,42 @@ import {
 
 export function isChurchAdmin(user: SessionUser): boolean {
   return user.orgRole === 'church_admin';
+}
+
+export interface OrganisationRoleOption {
+  value: OrganisationRoleName;
+  label: string;
+  description: string;
+  highPrivilege?: boolean;
+}
+
+/** The complete schema-backed, single-role organisation catalog. */
+export const ORGANISATION_ROLE_OPTIONS: OrganisationRoleOption[] = [
+  {
+    value: 'general_member',
+    label: 'Church Member',
+    description: 'Baseline organisation access without extra management permissions.',
+  },
+  {
+    value: 'announcement_manager',
+    label: 'Announcement Manager',
+    description: 'Can create and manage church-wide announcements.',
+  },
+  {
+    value: 'event_manager',
+    label: 'Event Manager',
+    description: 'Can create and manage organisation events and categories.',
+  },
+  {
+    value: 'church_admin',
+    label: 'Church Admin',
+    description: 'High privilege: can manage invitations, members, roles, and organisation content.',
+    highPrivilege: true,
+  },
+];
+
+export function canManageOrganisationMembers(user: SessionUser): boolean {
+  return isChurchAdmin(user);
 }
 
 export function isMemberOfTeam(user: SessionUser, teamId: string): boolean {

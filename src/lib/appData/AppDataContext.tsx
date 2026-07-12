@@ -493,6 +493,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     applySessionAvatarUrl,
     applySessionProfile,
     applySessionDirectorySnapshot,
+    refreshAccountContext,
   } = useAuth();
   const supabaseProfileId =
     authMode === 'supabase' ? (user?.supabaseProfileId ?? null) : null;
@@ -1059,6 +1060,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         liveDataEnabledRef.current &&
         supabaseProfileIdRef.current === requestProfileId
       ) {
+        // A user_accounts invalidation can mean this profile was removed or a
+        // different organisation became active. Never commit another scope's
+        // RLS result under the old provider key; refresh Auth/account state so
+        // the old provider/channels unmount first.
+        if (!directory.users.some((profile) => profile.id === requestProfileId)) {
+          await refreshAccountContext();
+          return;
+        }
         commitLiveDirectory(directory, requestProfileId);
       }
     } catch (error) {
@@ -1080,7 +1089,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         if (!options?.quiet) setTeamsLoading(false);
       }
     }
-  }, [commitLiveDirectory]);
+  }, [commitLiveDirectory, refreshAccountContext]);
 
   const commitMemberships = useCallback(
     (memberships: TeamMembership[]) => {

@@ -86,6 +86,8 @@ function RootStack({ hasStarted }: { hasStarted: React.MutableRefObject<boolean>
         <Stack.Screen name="teams/[teamId]/songs/edit" />
         <Stack.Screen name="settings/notifications" />
         <Stack.Screen name="organisations/invitations" />
+        <Stack.Screen name="organisations/members/index" />
+        <Stack.Screen name="organisations/members/[profileId]" />
       </Stack.Protected>
     </Stack>
   );

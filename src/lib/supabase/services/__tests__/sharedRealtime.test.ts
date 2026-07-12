@@ -65,6 +65,7 @@ describe('subscribeToSharedDataChanges', () => {
     expect(new Set(callbacks.keys())).toEqual(new Set(SHARED_REALTIME_TABLES));
     expect(callbacks.has('chat_messages')).toBe(false);
     expect(callbacks.has('chat_attachments')).toBe(false);
+    expect(SHARED_TABLE_DOMAINS.user_accounts).toEqual(['directory']);
   });
 
   it('maps each table event to its declared refresh domains', () => {

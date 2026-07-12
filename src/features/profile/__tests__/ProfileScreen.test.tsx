@@ -1,5 +1,6 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
+import { useConfirm } from '../../../components/ConfirmDialog';
 import { useAppData } from '../../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../../lib/auth/AuthContext';
 import ProfileScreen from '../ProfileScreen';
@@ -13,7 +14,7 @@ jest.mock('../../../lib/auth/AuthContext', () => ({
   useRequiredUser: jest.fn(),
 }));
 jest.mock('../useProfileAvatar', () => ({ useProfileAvatar: jest.fn() }));
-jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: () => jest.fn() }));
+jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: jest.fn() }));
 jest.mock('../../../components/Toast', () => ({ useToast: () => jest.fn() }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
@@ -23,7 +24,9 @@ const mockUseAppData = useAppData as jest.Mock;
 const mockUseAuth = useAuth as jest.Mock;
 const mockUseRequiredUser = useRequiredUser as jest.Mock;
 const mockUseProfileAvatar = useProfileAvatar as jest.Mock;
+const mockUseConfirm = useConfirm as jest.Mock;
 const setProfileDisplayNames = jest.fn();
+const leaveOrganisation = jest.fn();
 
 const LIVE_USER = {
   profile: {
@@ -34,6 +37,10 @@ const LIVE_USER = {
     email: 'sarah@example.com',
     phone: '+44 7700 900104',
     avatar_url: null,
+    access_status: 'active',
+    access_removed_at: null,
+    access_removed_by: null,
+    access_removal_reason: null,
     created_at: '2026-07-11T00:00:00Z',
   },
   orgRole: 'general_member',
@@ -44,6 +51,8 @@ const LIVE_USER = {
 beforeEach(() => {
   mockUseRequiredUser.mockReturnValue(LIVE_USER);
   setProfileDisplayNames.mockReset().mockResolvedValue(undefined);
+  leaveOrganisation.mockReset().mockResolvedValue(undefined);
+  mockUseConfirm.mockReturnValue(jest.fn().mockResolvedValue(true));
   mockUseAuth.mockReturnValue({
     authMode: 'supabase',
     signOut: jest.fn(),
@@ -54,6 +63,7 @@ beforeEach(() => {
       ],
     },
     setProfileDisplayNames,
+    leaveOrganisation,
   });
   mockUseProfileAvatar.mockReturnValue({
     canManagePhoto: true,
@@ -66,6 +76,7 @@ beforeEach(() => {
   mockUseAppData.mockReturnValue({
     teams: [],
     memberships: [],
+    organisation: { id: 'org-live', name: 'Grace' },
     updateOwnProfile: jest.fn(),
     resetDemoData: jest.fn(),
   });
@@ -139,10 +150,55 @@ describe('ProfileScreen edit presentation', () => {
   });
 
   it('keeps demo mode read-only', () => {
-    mockUseAuth.mockReturnValue({ authMode: 'demo', signOut: jest.fn(), accountContext: null });
+    mockUseAuth.mockReturnValue({ authMode: 'demo', signOut: jest.fn(), accountContext: null, leaveOrganisation });
     mockUseRequiredUser.mockReturnValue({ ...LIVE_USER, supabaseProfileId: undefined });
     const screen = render(<ProfileScreen />);
     expect(screen.queryByTestId('edit-profile-action')).toBeNull();
     expect(screen.queryByTestId('profile-full-name-input')).toBeNull();
+  });
+});
+
+describe('ProfileScreen organisation actions', () => {
+  it('shows member management only to live church admins', () => {
+    mockUseRequiredUser.mockReturnValue({ ...LIVE_USER, orgRole: 'church_admin' });
+    const admin = render(<ProfileScreen />);
+    expect(admin.getByText('Organisation members')).toBeTruthy();
+    admin.unmount();
+
+    mockUseRequiredUser.mockReturnValue(LIVE_USER);
+    const member = render(<ProfileScreen />);
+    expect(member.queryByText('Organisation members')).toBeNull();
+  });
+
+  it('requires a detailed confirmation and calls the state-owned leave action once', async () => {
+    const confirm = jest.fn().mockResolvedValue(true);
+    mockUseConfirm.mockReturnValue(confirm);
+    let resolve!: () => void;
+    leaveOrganisation.mockReturnValue(new Promise<void>((done) => { resolve = done; }));
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByText('Leave organisation'));
+    await waitFor(() => expect(leaveOrganisation).toHaveBeenCalledTimes(1));
+    fireEvent.press(screen.getByText('Leave organisation'));
+    expect(leaveOrganisation).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Leave Grace?',
+      confirmLabel: 'Leave organisation',
+      destructive: true,
+    }));
+    expect(confirm.mock.calls[0][0].message).toMatch(/profile, messages, rota history, global account/i);
+    resolve();
+  });
+
+  it('hides Leave organisation in demo mode', () => {
+    mockUseAuth.mockReturnValue({
+      authMode: 'demo',
+      signOut: jest.fn(),
+      accountContext: null,
+      leaveOrganisation,
+      setProfileDisplayNames,
+    });
+    mockUseRequiredUser.mockReturnValue({ ...LIVE_USER, supabaseProfileId: undefined });
+    const screen = render(<ProfileScreen />);
+    expect(screen.queryByText('Leave organisation')).toBeNull();
   });
 });

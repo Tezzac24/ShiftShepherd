@@ -39,6 +39,7 @@ export default function ProfileScreen() {
     authMode,
     accountContext,
     setProfileDisplayNames,
+    leaveOrganisation,
   } = useAuth();
   const data = useAppData();
   const confirm = useConfirm();
@@ -55,6 +56,7 @@ export default function ProfileScreen() {
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [leavingOrganisation, setLeavingOrganisation] = useState(false);
 
   const canEditProfile = authMode === 'supabase' && !!user.supabaseProfileId;
   const currentMemberships = data.memberships.filter(
@@ -136,6 +138,35 @@ export default function ProfileScreen() {
       await signOut();
     } catch (cause) {
       showToast(cause instanceof Error ? cause.message : 'We couldn’t complete the log out.');
+    }
+  };
+
+  const handleLeaveOrganisation = async () => {
+    if (leavingOrganisation || authMode !== 'supabase') return;
+    const otherOrganisationCount = Math.max(
+      (accountContext?.organisations.length ?? 1) - 1,
+      0,
+    );
+    const ok = await confirm({
+      title: `Leave ${data.organisation.name}?`,
+      message: `${
+        user.orgRole === 'church_admin'
+          ? 'If you are the final church admin, another church admin must be appointed first. '
+          : ''
+      }You will lose this organisation and all team access, and your roles and registered notification devices for it will be removed. Your profile, messages, rota history, global account${
+        otherOrganisationCount > 0 ? ', and your other organisations' : ''
+      } will be kept. You can return only with a new invitation.`,
+      confirmLabel: 'Leave organisation',
+      destructive: true,
+    });
+    if (!ok || leavingOrganisation) return;
+    setLeavingOrganisation(true);
+    try {
+      await leaveOrganisation();
+      showToast('You have left the organisation.');
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : 'We couldnâ€™t leave this organisation.');
+      setLeavingOrganisation(false);
     }
   };
 
@@ -319,12 +350,20 @@ export default function ProfileScreen() {
           />
         ) : null}
         {user.orgRole === 'church_admin' && authMode === 'supabase' ? (
-          <ListRow
-            icon="mail-outline"
-            title="Organisation invitations"
-            subtitle="Invite, resend or revoke"
-            onPress={() => router.push('/organisations/invitations')}
-          />
+          <>
+            <ListRow
+              icon="people-circle-outline"
+              title="Organisation members"
+              subtitle="Manage access and roles"
+              onPress={() => router.push('/organisations/members')}
+            />
+            <ListRow
+              icon="mail-outline"
+              title="Organisation invitations"
+              subtitle="Invite, resend or revoke"
+              onPress={() => router.push('/organisations/invitations')}
+            />
+          </>
         ) : null}
         <ListRow
           icon="notifications-outline"
@@ -347,6 +386,17 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.logoutWrap}>
+        {authMode === 'supabase' ? (
+          <Button
+            title="Leave organisation"
+            variant="destructive"
+            icon="exit-outline"
+            onPress={() => void handleLeaveOrganisation()}
+            loading={leavingOrganisation}
+            disabled={leavingOrganisation}
+            accessibilityHint="Removes this organisation access while retaining your global account and history"
+          />
+        ) : null}
         <Button title="Log Out" variant="destructive" icon="log-out-outline" onPress={handleLogout} />
         <AppText variant="small" tone="muted" style={styles.footer}>
           {authMode === 'supabase'

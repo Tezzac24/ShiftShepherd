@@ -36,6 +36,10 @@ const profile = (
   email,
   phone,
   avatar_url: null,
+  access_status: 'active',
+  access_removed_at: null,
+  access_removed_by: null,
+  access_removal_reason: null,
   created_at: iso(daysAgo(90)),
 });
 

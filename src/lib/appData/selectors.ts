@@ -90,6 +90,7 @@ export function eligibleTeamProfiles(
     if (
       profile.organisation_id !== team.organisation_id ||
       !profile.auth_user_id.trim() ||
+      profile.access_status !== 'active' ||
       memberIds.has(profile.id)
     ) {
       continue;

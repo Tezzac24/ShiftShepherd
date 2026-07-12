@@ -24,6 +24,10 @@ function profile(
     email: `${id}@example.church`,
     phone: null,
     avatar_url: null,
+    access_status: 'active',
+    access_removed_at: null,
+    access_removed_by: null,
+    access_removal_reason: null,
     created_at: '2026-07-11T00:00:00Z',
     ...overrides,
   };
@@ -74,11 +78,17 @@ describe('eligibleTeamProfiles', () => {
   const zara = profile('zara', 'Zara Young');
   const current = profile('current', 'Current Member');
   const unlinked = profile('unlinked', 'Unlinked Person', { auth_user_id: '' });
+  const removed = profile('removed', 'Removed Person', {
+    access_status: 'removed',
+    access_removed_at: '2026-07-12T00:00:00Z',
+    access_removed_by: 'current',
+    access_removal_reason: 'admin_removed',
+  });
   const external = profile('external', 'External Person', { organisation_id: 'org-b' });
-  const users = [zara, current, alexTwo, unlinked, external, alexOne, alexOne];
+  const users = [zara, current, alexTwo, unlinked, removed, external, alexOne, alexOne];
   const memberships = [membership('current-membership', current.id)];
 
-  it('excludes current, unlinked, cross-organisation, and duplicate profiles', () => {
+  it('excludes current, unlinked, removed, cross-organisation, and duplicate profiles', () => {
     const result = eligibleTeamProfiles(TEAM, memberships, users);
     expect(result.map((person) => person.id)).toEqual(['alex-1', 'alex-2', 'zara']);
   });
