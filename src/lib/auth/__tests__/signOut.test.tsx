@@ -5,7 +5,14 @@ import { Text } from 'react-native';
 
 import { AuthProvider, SIGN_OUT_ERROR, useAuth } from '../AuthContext';
 import * as pendingInvitation from '../../invitations/pendingInvitation';
-import { runPushRegistrationOperation } from '../../notifications/pushRegistrationOperations';
+import {
+  PUSH_CLEANUP_STEP_DEADLINE_MS,
+  rememberDurablePushRegistration,
+  resetPushRegistrationOperationsForTests,
+  runPushRegistrationOperation,
+  synchronizePushRegistrationScope,
+} from '../../notifications/pushRegistrationOperations';
+import * as pushPersistence from '../../storage/persistence';
 import {
   loadPushRegistration,
   savePushRegistration,
@@ -80,6 +87,7 @@ async function renderSignedIn() {
 }
 
 beforeEach(async () => {
+  resetPushRegistrationOperationsForTests();
   jest.clearAllMocks();
   await AsyncStorage.clear();
   jest.clearAllMocks();
@@ -90,6 +98,7 @@ beforeEach(async () => {
 // clearMocks does not undo spyOn implementations — restore so a stubbed
 // cleanup failure cannot leak into the next test.
 afterEach(() => {
+  jest.useRealTimers();
   jest.restoreAllMocks();
 });
 
@@ -101,6 +110,7 @@ describe('sign-out', () => {
       token: PUSH_TOKEN,
       platform: 'ios',
       registeredAt: '2026-07-14T12:00:00.000Z',
+      lifecycleGeneration: 1,
     });
   }
 
@@ -232,6 +242,7 @@ describe('sign-out', () => {
   });
 
   it('continues sign-out when unregister returns false', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockUnregisterPushToken.mockResolvedValue(false);
     await persistPush();
     await renderSignedIn();
@@ -258,6 +269,166 @@ describe('sign-out', () => {
     await act(async () => auth.signOut());
     expect(warn.mock.calls.map((args) => JSON.stringify(args)).join(' ')).not.toContain(
       PUSH_TOKEN,
+    );
+  });
+
+  it('reaches Auth sign-out after the deadline when lifecycle work never settles', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await renderSignedIn();
+    void runPushRegistrationOperation(AUTH_USER.id, () => new Promise<void>(() => {}));
+
+    let signOutPromise!: Promise<void>;
+    act(() => {
+      signOutPromise = auth.signOut();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(PUSH_CLEANUP_STEP_DEADLINE_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+    await act(async () => signOutPromise);
+    jest.useRealTimers();
+  });
+
+  it('reaches Auth sign-out when unregister never settles', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await persistPush();
+    mockUnregisterPushToken.mockImplementation(() => new Promise<boolean>(() => {}));
+    await renderSignedIn();
+
+    let signOutPromise!: Promise<void>;
+    act(() => {
+      signOutPromise = auth.signOut();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(PUSH_CLEANUP_STEP_DEADLINE_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+    await act(async () => signOutPromise);
+    jest.useRealTimers();
+  });
+
+  it('uses the matching durable snapshot without waiting for a stuck storage read', async () => {
+    const registration = {
+      authUserId: AUTH_USER.id,
+      profileId: PROFILE.id,
+      token: PUSH_TOKEN,
+      platform: 'ios' as const,
+      registeredAt: '2026-07-14T12:00:00.000Z',
+      lifecycleGeneration: 1,
+    };
+    const scope = synchronizePushRegistrationScope(AUTH_USER.id, PROFILE.id)!;
+    rememberDurablePushRegistration(scope, registration);
+    jest.spyOn(pushPersistence, 'loadPushRegistration').mockImplementation(
+      () => new Promise<null>(() => {}),
+    );
+    await renderSignedIn();
+
+    await act(async () => auth.signOut());
+
+    expect(mockUnregisterPushToken).toHaveBeenCalledWith(PUSH_TOKEN);
+    expect(pushPersistence.loadPushRegistration).not.toHaveBeenCalled();
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reaches Auth sign-out when storage read never settles without a snapshot', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const load = jest.spyOn(pushPersistence, 'loadPushRegistration').mockImplementation(
+      () => new Promise<null>(() => {}),
+    );
+    await renderSignedIn();
+
+    let signOutPromise!: Promise<void>;
+    act(() => {
+      signOutPromise = auth.signOut();
+    });
+    await act(async () => {
+      for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    });
+    expect(load).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(PUSH_CLEANUP_STEP_DEADLINE_MS);
+      for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    });
+
+    expect(mockUnregisterPushToken).not.toHaveBeenCalled();
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+    await act(async () => signOutPromise);
+    jest.useRealTimers();
+  });
+
+  it('reaches Auth sign-out when local push clear never settles', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const clear = jest.spyOn(pushPersistence, 'clearPushRegistration').mockImplementation(
+      () => new Promise<void>(() => {}),
+    );
+    await renderSignedIn();
+
+    let signOutPromise!: Promise<void>;
+    act(() => {
+      signOutPromise = auth.signOut();
+    });
+    await act(async () => {
+      for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    });
+    expect(clear).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(PUSH_CLEANUP_STEP_DEADLINE_MS);
+      for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    });
+
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+    await act(async () => signOutPromise);
+    jest.useRealTimers();
+  });
+
+  it('records a push storage read failure and still signs out without a snapshot', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest
+      .spyOn(pushPersistence, 'loadPushRegistration')
+      .mockRejectedValue(new pushPersistence.PushRegistrationPersistenceError('read'));
+    await renderSignedIn();
+
+    await act(async () => auth.signOut());
+
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+    expect(mockUnregisterPushToken).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[auth] push registration read failed during sign-out',
+      { code: 'PUSH_REGISTRATION_STORAGE_READ_FAILED' },
+    );
+  });
+
+  it('records a push storage clear failure and still signs out', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest
+      .spyOn(pushPersistence, 'clearPushRegistration')
+      .mockRejectedValue(new pushPersistence.PushRegistrationPersistenceError('clear'));
+    await renderSignedIn();
+
+    await act(async () => auth.signOut());
+
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[auth] push registration clear failed during sign-out',
+      { code: 'PUSH_REGISTRATION_STORAGE_CLEAR_FAILED' },
     );
   });
 });

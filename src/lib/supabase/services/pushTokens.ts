@@ -73,6 +73,30 @@ function accessErrorCode(error: unknown): PushRegistrationAccessErrorCode | null
   return null;
 }
 
+function isValidRegistrationTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string' || !value || value !== value.trim()) return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(
+    value,
+  );
+  if (!match) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, offsetHourText, offsetMinuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  return (
+    calendarDate.getUTCFullYear() === year &&
+    calendarDate.getUTCMonth() === month - 1 &&
+    calendarDate.getUTCDate() === day &&
+    Number(hourText) <= 23 &&
+    Number(minuteText) <= 59 &&
+    Number(secondText) <= 59 &&
+    (!offsetHourText || Number(offsetHourText) <= 23) &&
+    (!offsetMinuteText || Number(offsetMinuteText) <= 59) &&
+    !Number.isNaN(Date.parse(value))
+  );
+}
+
 /**
  * Register (or refresh) this device for the signed-in active profile. The
  * profile id is used only to reject demo ids; server ownership comes from the
@@ -102,7 +126,11 @@ export async function registerPushToken(
     if (isNetworkError(error)) throw new Error(OFFLINE_ERROR);
     throw new Error(REGISTER_ERROR);
   }
-  return typeof data === 'string' ? data : new Date().toISOString();
+  if (!isValidRegistrationTimestamp(data)) {
+    console.warn('[pushTokens] register returned an invalid response');
+    throw new Error(REGISTER_ERROR);
+  }
+  return data;
 }
 
 /**

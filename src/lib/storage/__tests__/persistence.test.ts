@@ -2,10 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   clearPushRegistration,
+  clearPushRegistrationIfMatches,
   isPersistedPushRegistration,
   loadPushRegistration,
   PERSISTENCE_VERSION,
   PersistedPushRegistration,
+  PushRegistrationPersistenceError,
   pushRegistrationMatchesScope,
   savePushRegistration,
   STORAGE_KEYS,
@@ -17,6 +19,7 @@ const REGISTRATION: PersistedPushRegistration = {
   token: 'ExponentPushToken[persisted-test-token]',
   platform: 'ios',
   registeredAt: '2026-07-14T12:00:00.000Z',
+  lifecycleGeneration: 1,
 };
 
 let warnSpy: jest.SpyInstance;
@@ -104,15 +107,41 @@ describe('persisted push registration', () => {
     await expect(loadPushRegistration()).resolves.toBeNull();
   });
 
-  it('falls back to unregistered when storage reading fails', async () => {
+  it('distinguishes a storage read failure from missing state', async () => {
     jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(loadPushRegistration()).rejects.toMatchObject({
+      name: 'PushRegistrationPersistenceError',
+      operation: 'read',
+      code: 'PUSH_REGISTRATION_STORAGE_READ_FAILED',
+    });
+  });
+
+  it('reports storage writing and clearing failures through the push-only contract', async () => {
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+    await expect(savePushRegistration(REGISTRATION)).rejects.toBeInstanceOf(
+      PushRegistrationPersistenceError,
+    );
+    jest.spyOn(AsyncStorage, 'removeItem').mockRejectedValueOnce(new Error('storage locked'));
+    await expect(clearPushRegistration()).rejects.toMatchObject({ operation: 'clear' });
+  });
+
+  it('conditionally clears only the exact stale record', async () => {
+    await savePushRegistration(REGISTRATION);
+    const newer = { ...REGISTRATION, profileId: 'profile-newer', lifecycleGeneration: 2 };
+    await expect(clearPushRegistrationIfMatches(newer)).resolves.toBe(false);
+    await expect(loadPushRegistration()).resolves.toEqual(REGISTRATION);
+    await expect(clearPushRegistrationIfMatches(REGISTRATION)).resolves.toBe(true);
     await expect(loadPushRegistration()).resolves.toBeNull();
   });
 
-  it('does not crash when storage writing or clearing fails', async () => {
-    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
-    await expect(savePushRegistration(REGISTRATION)).resolves.toBeUndefined();
-    jest.spyOn(AsyncStorage, 'removeItem').mockRejectedValueOnce(new Error('storage locked'));
-    await expect(clearPushRegistration()).resolves.toBeUndefined();
+  it('never includes a raw token in sanitized storage failures or logs', async () => {
+    jest
+      .spyOn(AsyncStorage, 'setItem')
+      .mockRejectedValueOnce(new Error(`disk failure ${REGISTRATION.token}`));
+    const failure = await savePushRegistration(REGISTRATION).catch((error) => error);
+    expect(String(failure)).not.toContain(REGISTRATION.token);
+    expect(warnSpy.mock.calls.map((call) => JSON.stringify(call)).join(' ')).not.toContain(
+      REGISTRATION.token,
+    );
   });
 });

@@ -68,6 +68,21 @@ describe('registerPushToken', () => {
     });
   });
 
+  it.each([
+    ['null', null],
+    ['empty string', ''],
+    ['invalid date string', 'not-a-date'],
+    ['unexpected non-string', { registered_at: '2026-07-11T12:00:00+00:00' }],
+  ])('rejects a malformed %s success response', async (_label, data) => {
+    mockClient({ data, error: null });
+    await expect(registerPushToken(LIVE_PROFILE_ID, TOKEN, 'ios')).rejects.toThrow(
+      "We couldn't register this device for notifications. Please try again.",
+    );
+    expect(warnSpy.mock.calls.map((args) => JSON.stringify(args)).join(' ')).not.toContain(
+      TOKEN,
+    );
+  });
+
   it('maps a missing RPC (migration not applied) to the friendly setup message', async () => {
     mockClient({
       data: null,

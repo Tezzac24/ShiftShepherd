@@ -8,10 +8,18 @@ import {
 } from '../../../lib/notifications';
 import {
   clearPushRegistration,
+  clearPushRegistrationIfMatches,
   loadPushRegistration,
   PersistedPushRegistration,
   savePushRegistration,
 } from '../../../lib/storage/persistence';
+import {
+  beginPushRegistrationSignOut,
+  finishPushRegistrationSignOut,
+  getDurablePushRegistrationSnapshot,
+  resetPushRegistrationOperationsForTests,
+  synchronizePushRegistrationScope,
+} from '../../../lib/notifications/pushRegistrationOperations';
 import {
   registerPushToken,
   unregisterPushToken,
@@ -29,6 +37,7 @@ jest.mock('../../../lib/notifications', () => ({
 }));
 jest.mock('../../../lib/storage/persistence', () => ({
   clearPushRegistration: jest.fn(),
+  clearPushRegistrationIfMatches: jest.fn(),
   loadPushRegistration: jest.fn(),
   savePushRegistration: jest.fn(),
 }));
@@ -60,6 +69,7 @@ const STORED_A: PersistedPushRegistration = {
   token: TOKEN_A,
   platform: 'ios',
   registeredAt: REGISTERED_A,
+  lifecycleGeneration: 1,
 };
 
 const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
@@ -76,12 +86,17 @@ const mockSaveRegistration = savePushRegistration as jest.MockedFunction<
 const mockClearRegistration = clearPushRegistration as jest.MockedFunction<
   typeof clearPushRegistration
 >;
+const mockConditionalClearRegistration =
+  clearPushRegistrationIfMatches as jest.MockedFunction<
+    typeof clearPushRegistrationIfMatches
+  >;
 const mockRegisterToken = registerPushToken as jest.MockedFunction<typeof registerPushToken>;
 const mockUnregisterToken = unregisterPushToken as jest.MockedFunction<
   typeof unregisterPushToken
 >;
 
 let currentAuth: ReturnType<typeof useAuth>;
+let storedRegistration: PersistedPushRegistration | null;
 
 function liveAuth(authUserId = AUTH_A, profileId: string | null = PROFILE_A) {
   return {
@@ -145,12 +160,30 @@ function renderLifecycle() {
 }
 
 beforeEach(() => {
+  resetPushRegistrationOperationsForTests();
   jest.clearAllMocks();
   currentAuth = liveAuth();
+  storedRegistration = null;
   mockUseAuth.mockImplementation(() => currentAuth);
-  mockLoadRegistration.mockResolvedValue(null);
-  mockSaveRegistration.mockResolvedValue(undefined);
-  mockClearRegistration.mockResolvedValue(undefined);
+  mockLoadRegistration.mockImplementation(async () => storedRegistration);
+  mockSaveRegistration.mockImplementation(async (registration) => {
+    storedRegistration = registration;
+  });
+  mockClearRegistration.mockImplementation(async () => {
+    storedRegistration = null;
+  });
+  mockConditionalClearRegistration.mockImplementation(async (expected) => {
+    if (
+      storedRegistration?.authUserId === expected.authUserId &&
+      storedRegistration.profileId === expected.profileId &&
+      storedRegistration.token === expected.token &&
+      storedRegistration.lifecycleGeneration === expected.lifecycleGeneration
+    ) {
+      storedRegistration = null;
+      return true;
+    }
+    return false;
+  });
   mockGetExistingToken.mockResolvedValue({
     status: 'obtained',
     token: TOKEN_A,
@@ -163,6 +196,10 @@ beforeEach(() => {
   });
   mockRegisterToken.mockResolvedValue(REGISTERED_B);
   mockUnregisterToken.mockResolvedValue(false);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 describe('push registration lifecycle', () => {
@@ -185,7 +222,7 @@ describe('push registration lifecycle', () => {
   });
 
   it('hydrates a matching account/profile/token as registered without a duplicate RPC', async () => {
-    mockLoadRegistration.mockResolvedValue(STORED_A);
+    storedRegistration = STORED_A;
     const { result } = renderLifecycle();
     await waitFor(() => expect(result.current.state.kind).toBe('registered'));
     expect(result.current.state).toEqual({
@@ -211,6 +248,7 @@ describe('push registration lifecycle', () => {
       token: TOKEN_A,
       platform: 'ios',
       registeredAt: REGISTERED_B,
+      lifecycleGeneration: 1,
     });
   });
 
@@ -276,7 +314,7 @@ describe('push registration lifecycle', () => {
 
   it('rebinds the unchanged token to a new active profile without unregistering or prompting', async () => {
     currentAuth = liveAuth(AUTH_A, PROFILE_B);
-    mockLoadRegistration.mockResolvedValue(STORED_A);
+    storedRegistration = STORED_A;
     const { result } = renderLifecycle();
     await waitFor(() => expect(result.current.state.kind).toBe('registered'));
     expect(mockRegisterToken).toHaveBeenCalledWith(PROFILE_B, TOKEN_A, 'ios');
@@ -297,7 +335,7 @@ describe('push registration lifecycle', () => {
 
   it('clears another Auth account record and leaves the new account unregistered', async () => {
     currentAuth = liveAuth(AUTH_B, PROFILE_B);
-    mockLoadRegistration.mockResolvedValue(STORED_A);
+    storedRegistration = STORED_A;
     const { result } = renderLifecycle();
     await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
     expect(mockClearRegistration).toHaveBeenCalledTimes(1);
@@ -307,7 +345,7 @@ describe('push registration lifecycle', () => {
   });
 
   it('registers a rotated token first, then best-effort removes the obsolete same-account token', async () => {
-    mockLoadRegistration.mockResolvedValue(STORED_A);
+    storedRegistration = STORED_A;
     mockGetExistingToken.mockResolvedValue({
       status: 'obtained',
       token: TOKEN_B,
@@ -326,7 +364,7 @@ describe('push registration lifecycle', () => {
   });
 
   it('revokes best-effort and clears locally when permission is no longer granted', async () => {
-    mockLoadRegistration.mockResolvedValue(STORED_A);
+    storedRegistration = STORED_A;
     mockGetExistingToken.mockResolvedValue({ status: 'permissionDenied' });
     const { result } = renderLifecycle();
     await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
@@ -338,7 +376,7 @@ describe('push registration lifecycle', () => {
 
   it('revokes and clears an existing opt-in when there is no active profile', async () => {
     currentAuth = liveAuth(AUTH_A, null);
-    mockLoadRegistration.mockResolvedValue(STORED_A);
+    storedRegistration = STORED_A;
     const { result } = renderLifecycle();
     await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
     expect(mockUnregisterToken).toHaveBeenCalledWith(TOKEN_A);
@@ -351,7 +389,7 @@ describe('push registration lifecycle', () => {
     'clears %s failures and does not retry through rerenders',
     async (code) => {
       currentAuth = liveAuth(AUTH_A, PROFILE_B);
-      mockLoadRegistration.mockResolvedValue(STORED_A);
+      storedRegistration = STORED_A;
       mockRegisterToken.mockRejectedValue({ code });
       const { result, rerender } = renderLifecycle();
       await waitFor(() => expect(result.current.state.kind).toBe('failed'));
@@ -364,7 +402,7 @@ describe('push registration lifecycle', () => {
   );
 
   it('does not repeat reconciliation calls on ordinary rerenders', async () => {
-    mockLoadRegistration.mockResolvedValue(STORED_A);
+    storedRegistration = STORED_A;
     const { result, rerender } = renderLifecycle();
     await waitFor(() => expect(result.current.state.kind).toBe('registered'));
     rerender(undefined);
@@ -376,7 +414,7 @@ describe('push registration lifecycle', () => {
 
   it('serializes quick profile changes so the newest profile wins and stale results are not saved', async () => {
     currentAuth = liveAuth(AUTH_A, PROFILE_B);
-    mockLoadRegistration.mockResolvedValue(STORED_A);
+    storedRegistration = STORED_A;
     let resolveFirst: (value: string) => void = () => undefined;
     const first = new Promise<string>((resolve) => {
       resolveFirst = resolve;
@@ -403,7 +441,7 @@ describe('push registration lifecycle', () => {
 
   it('cannot persist an old in-flight result after the Auth user changes', async () => {
     currentAuth = liveAuth(AUTH_A, PROFILE_B);
-    mockLoadRegistration.mockResolvedValue(STORED_A);
+    storedRegistration = STORED_A;
     let resolveRegistration: (value: string) => void = () => undefined;
     mockRegisterToken.mockImplementationOnce(
       () =>
@@ -419,5 +457,237 @@ describe('push registration lifecycle', () => {
     await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
     expect(mockSaveRegistration).not.toHaveBeenCalled();
     expect(mockClearRegistration).toHaveBeenCalled();
+  });
+
+  it('rolls back server registration when an explicit durable save fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSaveRegistration.mockRejectedValueOnce(
+      new Error("We couldn't save notification setup on this device. Please try again."),
+    );
+    const { result } = renderLifecycle();
+    await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
+
+    act(() => result.current.register());
+
+    await waitFor(() => expect(result.current.state.kind).toBe('failed'));
+    expect(mockRegisterToken).toHaveBeenCalledWith(PROFILE_A, TOKEN_A, 'ios');
+    expect(mockUnregisterToken).toHaveBeenCalledWith(TOKEN_A);
+    expect(storedRegistration).toBeNull();
+    const scope = synchronizePushRegistrationScope(AUTH_A, PROFILE_A)!;
+    expect(getDurablePushRegistrationSnapshot(scope)).toBeNull();
+    const visibleText = JSON.stringify({ state: result.current.state, logs: warn.mock.calls });
+    expect(visibleText).not.toContain(TOKEN_A);
+    warn.mockRestore();
+  });
+
+  it('keeps a failed profile rebind unregistered and rolls back the rebound token', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    currentAuth = liveAuth(AUTH_A, PROFILE_B);
+    storedRegistration = STORED_A;
+    mockSaveRegistration.mockRejectedValueOnce(new Error('storage unavailable'));
+    const { result } = renderLifecycle();
+
+    await waitFor(() => expect(result.current.state.kind).toBe('failed'));
+    expect(mockRegisterToken).toHaveBeenCalledWith(PROFILE_B, TOKEN_A, 'ios');
+    expect(mockUnregisterToken).toHaveBeenCalledWith(TOKEN_A);
+    expect(storedRegistration).toEqual(STORED_A);
+    expect(result.current.state.kind).not.toBe('registered');
+  });
+
+  it('preserves the old durable token when rotated-token persistence fails', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    storedRegistration = STORED_A;
+    mockGetExistingToken.mockResolvedValue({
+      status: 'obtained',
+      token: TOKEN_B,
+      platform: 'ios',
+    });
+    mockSaveRegistration.mockRejectedValueOnce(new Error('storage unavailable'));
+    const { result } = renderLifecycle();
+
+    await waitFor(() => expect(result.current.state.kind).toBe('failed'));
+    expect(mockRegisterToken).toHaveBeenCalledWith(PROFILE_A, TOKEN_B, 'ios');
+    expect(mockUnregisterToken).toHaveBeenCalledTimes(1);
+    expect(mockUnregisterToken).toHaveBeenCalledWith(TOKEN_B);
+    expect(storedRegistration).toEqual(STORED_A);
+  });
+
+  it('surfaces hydration read failure without opting the account in', async () => {
+    mockLoadRegistration.mockRejectedValueOnce(
+      new Error("We couldn't check saved notification setup on this device. Please try again."),
+    );
+    const { result } = renderLifecycle();
+
+    await waitFor(() => expect(result.current.state.kind).toBe('failed'));
+    expect(mockGetExistingToken).not.toHaveBeenCalled();
+    expect(mockRegisterToken).not.toHaveBeenCalled();
+    expect(result.current.state.kind).not.toBe('registered');
+  });
+
+  it('does not trust another account record when its local clear fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    currentAuth = liveAuth(AUTH_B, PROFILE_B);
+    storedRegistration = STORED_A;
+    mockClearRegistration.mockRejectedValue(new Error('storage locked'));
+    const first = renderLifecycle();
+
+    await waitFor(() => expect(first.result.current.state.kind).toBe('notSetUp'));
+    expect(storedRegistration).toEqual(STORED_A);
+    expect(mockRegisterToken).not.toHaveBeenCalled();
+    first.unmount();
+
+    const second = renderLifecycle();
+    await waitFor(() => expect(second.result.current.state.kind).toBe('notSetUp'));
+    expect(mockRegisterToken).not.toHaveBeenCalled();
+    expect(mockGetExistingToken).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[pushRegistration] account-replacement local clear failed',
+      expect.any(Object),
+    );
+    warn.mockRestore();
+  });
+
+  it('cleans a delayed Account A save after Account B initializes unregistered', async () => {
+    let resolveSave: () => void = () => undefined;
+    mockSaveRegistration.mockImplementationOnce(
+      (registration) =>
+        new Promise<void>((resolve) => {
+          resolveSave = () => {
+            storedRegistration = registration;
+            resolve();
+          };
+        }),
+    );
+    const { result, rerender } = renderLifecycle();
+    await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
+    act(() => result.current.register());
+    await waitFor(() => expect(mockSaveRegistration).toHaveBeenCalledTimes(1));
+
+    currentAuth = liveAuth(AUTH_B, PROFILE_B);
+    rerender(undefined);
+    await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
+    act(() => resolveSave());
+
+    await waitFor(() => expect(storedRegistration).toBeNull());
+    expect(result.current.state.kind).toBe('notSetUp');
+    expect(mockConditionalClearRegistration).toHaveBeenCalled();
+  });
+
+  it('cannot persist or publish a delayed save after sign-out invalidation', async () => {
+    let resolveSave: () => void = () => undefined;
+    mockSaveRegistration.mockImplementationOnce(
+      (registration) =>
+        new Promise<void>((resolve) => {
+          resolveSave = () => {
+            storedRegistration = registration;
+            resolve();
+          };
+        }),
+    );
+    const { result } = renderLifecycle();
+    await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
+    act(() => result.current.register());
+    await waitFor(() => expect(mockSaveRegistration).toHaveBeenCalledTimes(1));
+
+    const signOut = beginPushRegistrationSignOut(AUTH_A);
+    act(() => resolveSave());
+    await signOut.quiesced;
+
+    await waitFor(() => expect(storedRegistration).toBeNull());
+    expect(result.current.state.kind).not.toBe('registered');
+    expect(mockUnregisterToken).toHaveBeenCalledWith(TOKEN_A);
+    finishPushRegistrationSignOut(AUTH_A);
+  });
+
+  it('rolls back a delayed rotation RPC that finishes after sign-out starts', async () => {
+    storedRegistration = STORED_A;
+    mockGetExistingToken.mockResolvedValue({
+      status: 'obtained',
+      token: TOKEN_B,
+      platform: 'ios',
+    });
+    let resolveRegistration: (value: string) => void = () => undefined;
+    mockRegisterToken.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveRegistration = resolve;
+        }),
+    );
+    renderLifecycle();
+    await waitFor(() => expect(mockRegisterToken).toHaveBeenCalledTimes(1));
+
+    const signOut = beginPushRegistrationSignOut(AUTH_A);
+    act(() => resolveRegistration(REGISTERED_B));
+    await signOut.quiesced;
+
+    expect(mockSaveRegistration).not.toHaveBeenCalled();
+    expect(mockUnregisterToken).toHaveBeenCalledWith(TOKEN_B);
+    finishPushRegistrationSignOut(AUTH_A);
+  });
+
+  it('repairs Account B after Account A delayed save completes over B newer state', async () => {
+    let resolveSaveA: () => void = () => undefined;
+    mockSaveRegistration.mockImplementationOnce(
+      (registration) =>
+        new Promise<void>((resolve) => {
+          resolveSaveA = () => {
+            storedRegistration = registration;
+            resolve();
+          };
+        }),
+    );
+    const { result, rerender } = renderLifecycle();
+    await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
+    act(() => result.current.register());
+    await waitFor(() => expect(mockSaveRegistration).toHaveBeenCalledTimes(1));
+
+    currentAuth = liveAuth(AUTH_B, PROFILE_B);
+    rerender(undefined);
+    await waitFor(() => expect(result.current.state.kind).toBe('notSetUp'));
+    act(() => result.current.register());
+    await waitFor(() => expect(result.current.state.kind).toBe('registered'));
+    expect(storedRegistration?.authUserId).toBe(AUTH_B);
+
+    act(() => resolveSaveA());
+    await waitFor(() => expect(storedRegistration?.authUserId).toBe(AUTH_B));
+    expect(storedRegistration?.profileId).toBe(PROFILE_B);
+  });
+
+  it('converges delayed same-account profile saves on the newest profile', async () => {
+    currentAuth = liveAuth(AUTH_A, PROFILE_B);
+    storedRegistration = STORED_A;
+    let resolveB: () => void = () => undefined;
+    let resolveC: () => void = () => undefined;
+    mockSaveRegistration
+      .mockImplementationOnce(
+        (registration) =>
+          new Promise<void>((resolve) => {
+            resolveB = () => {
+              storedRegistration = registration;
+              resolve();
+            };
+          }),
+      )
+      .mockImplementationOnce(
+        (registration) =>
+          new Promise<void>((resolve) => {
+            resolveC = () => {
+              storedRegistration = registration;
+              resolve();
+            };
+          }),
+      );
+    const { rerender } = renderLifecycle();
+    await waitFor(() => expect(mockSaveRegistration).toHaveBeenCalledTimes(1));
+
+    currentAuth = liveAuth(AUTH_A, PROFILE_C);
+    rerender(undefined);
+    await waitFor(() => expect(mockSaveRegistration).toHaveBeenCalledTimes(2));
+    act(() => resolveC());
+    await waitFor(() => expect(storedRegistration?.profileId).toBe(PROFILE_C));
+    act(() => resolveB());
+
+    await waitFor(() => expect(storedRegistration?.profileId).toBe(PROFILE_C));
+    expect(storedRegistration?.authUserId).toBe(AUTH_A);
   });
 });

@@ -15,25 +15,34 @@ import React, {
 } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 
+import { useAuth } from '../../lib/auth/AuthContext';
 import {
   getDevicePushSupport,
   getExistingExpoPushToken,
   obtainExpoPushToken,
   ObtainExpoPushTokenResult,
 } from '../../lib/notifications';
-import { runPushRegistrationOperation } from '../../lib/notifications/pushRegistrationOperations';
+import {
+  clearDurablePushRegistration,
+  getDurablePushRegistrationSnapshot,
+  invalidateDurablePushRegistration,
+  isPushRegistrationScopeCurrent,
+  persistDurablePushRegistration,
+  PushRegistrationScope,
+  rememberDurablePushRegistration,
+  runPushRegistrationOperation,
+  synchronizePushRegistrationScope,
+} from '../../lib/notifications/pushRegistrationOperations';
 import {
   clearPushRegistration,
   loadPushRegistration,
   PersistedPushRegistration,
-  savePushRegistration,
 } from '../../lib/storage/persistence';
 import {
   isPushRegistrationAccessError,
   registerPushToken,
   unregisterPushToken,
 } from '../../lib/supabase/services/pushTokens';
-import { useAuth } from '../../lib/auth/AuthContext';
 
 export type DevicePushRegistrationState =
   | { kind: 'hydrating' }
@@ -51,9 +60,10 @@ interface DevicePushRegistrationValue {
   register: () => void;
 }
 
-interface Scope {
+interface RenderScope {
   authUserId: string | null;
   profileId: string | null;
+  generation: number;
 }
 
 const DevicePushRegistrationContext =
@@ -99,39 +109,68 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
       ? (accountContext?.account.active_profile_id ?? null)
       : null;
 
+  // Account replacement is fenced during render. An unresolved same-account
+  // profile keeps its previous generation until the authoritative profile
+  // arrives; local scope matching still prevents old work from publishing.
+  const lifecycleScope = synchronizePushRegistrationScope(
+    authUserId,
+    authUserId && accountStatus !== 'ready' ? undefined : profileId,
+  );
+  const renderScope: RenderScope = {
+    authUserId,
+    profileId,
+    generation: lifecycleScope?.generation ?? 0,
+  };
+
   const [state, setState] = useState<DevicePushRegistrationState>({ kind: 'hydrating' });
   const [foregroundSequence, setForegroundSequence] = useState(0);
-  const scopeRef = useRef<Scope>({ authUserId, profileId });
-  const registrationRef = useRef<PersistedPushRegistration | null>(null);
+  const scopeRef = useRef<RenderScope>(renderScope);
   const operationQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const explicitWorkingRef = useRef(false);
+  const queueGenerationRef = useRef(renderScope.generation);
+  const explicitSequenceRef = useRef(0);
+  const explicitWorkingRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-  scopeRef.current = { authUserId, profileId };
+  scopeRef.current = renderScope;
 
-  const scopeMatches = useCallback((scope: Scope) => {
+  if (queueGenerationRef.current !== renderScope.generation) {
+    // A never-settling old scope must not hold the new account/profile queue.
+    queueGenerationRef.current = renderScope.generation;
+    operationQueueRef.current = Promise.resolve();
+    explicitWorkingRef.current = null;
+  }
+
+  const currentLifecycleScope = useCallback((): PushRegistrationScope | null => {
+    const scope = scopeRef.current;
+    if (!scope.authUserId) return null;
+    return {
+      authUserId: scope.authUserId,
+      profileId: scope.profileId,
+      generation: scope.generation,
+    };
+  }, []);
+
+  const scopeMatches = useCallback((scope: PushRegistrationScope) => {
     const current = scopeRef.current;
     return (
-      current.authUserId === scope.authUserId && current.profileId === scope.profileId
+      current.authUserId === scope.authUserId &&
+      current.profileId === scope.profileId &&
+      current.generation === scope.generation &&
+      isPushRegistrationScopeCurrent(scope)
     );
   }, []);
 
   const enqueue = useCallback(<T,>(
-    operationAuthUserId: string,
+    scope: PushRegistrationScope,
     operation: () => Promise<T>,
   ): Promise<T | undefined> => {
-    const run = () => runPushRegistrationOperation(operationAuthUserId, operation);
+    const run = () => runPushRegistrationOperation(scope.authUserId, operation);
     const next = operationQueueRef.current.then(run, run);
     operationQueueRef.current = next.then(
       () => undefined,
       () => undefined,
     );
     return next;
-  }, []);
-
-  const clearLocal = useCallback(async () => {
-    registrationRef.current = null;
-    await clearPushRegistration();
   }, []);
 
   const revokeBestEffort = useCallback(async (token: string, reason: string) => {
@@ -143,6 +182,20 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
       });
     }
   }, []);
+
+  const clearLocal = useCallback(
+    async (scope: PushRegistrationScope, reason: string): Promise<boolean> => {
+      try {
+        return await clearDurablePushRegistration(scope);
+      } catch (error) {
+        console.warn(`[pushRegistration] ${reason} local clear failed`, {
+          code: safeErrorCode(error),
+        });
+        return false;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -164,7 +217,7 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
 
   useEffect(() => {
     let cancelled = false;
-    const scope = { authUserId, profileId };
+    const scope = currentLifecycleScope();
 
     if (isLoading) {
       setState({ kind: 'hydrating' });
@@ -173,12 +226,17 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
       };
     }
 
-    if (authMode !== 'supabase' || !authUserId) {
-      registrationRef.current = null;
+    if (authMode !== 'supabase' || !authUserId || !scope) {
       setState(idleState());
-      // Cold start with no authenticated account, or an external session
-      // expiry, must not leave local state available to a later account.
-      if (!isAuthenticated) void clearPushRegistration();
+      // Cold start without Auth, external expiry, and demo mode cannot leave a
+      // record available for a later account. Failure is logged but harmless.
+      if (!isAuthenticated) {
+        void clearPushRegistration().catch((error) =>
+          console.warn('[pushRegistration] signed-out local clear failed', {
+            code: safeErrorCode(error),
+          }),
+        );
+      }
       return () => {
         cancelled = true;
       };
@@ -193,39 +251,52 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
 
     setState({ kind: 'hydrating' });
     void (async () => {
-      const stored = await loadPushRegistration();
-      if (cancelled || scopeRef.current.authUserId !== authUserId) return;
-      registrationRef.current = stored;
+      let stored: PersistedPushRegistration | null;
+      try {
+        stored = await loadPushRegistration();
+      } catch (error) {
+        if (!cancelled && scopeMatches(scope)) {
+          setState({
+            kind: 'failed',
+            message: error instanceof Error ? error.message : TOKEN_FAILURE,
+          });
+        }
+        return;
+      }
+      if (cancelled || !scopeMatches(scope)) return;
 
       if (!stored) {
+        invalidateDurablePushRegistration(scope);
         setState(idleState());
         return;
       }
 
       if (stored.authUserId !== authUserId) {
-        await clearLocal();
+        await clearLocal(scope, 'account-replacement');
         if (!cancelled && scopeMatches(scope)) setState(idleState());
         return;
       }
 
       if (!profileId) {
-        await enqueue(authUserId, async () => {
+        await enqueue(scope, async () => {
           if (!scopeMatches(scope)) return;
           await revokeBestEffort(stored.token, 'missing-profile');
-          if (scopeMatches(scope)) await clearLocal();
+          if (scopeMatches(scope)) await clearLocal(scope, 'missing-profile');
         });
         if (!cancelled && scopeMatches(scope)) setState(idleState());
         return;
       }
 
+      rememberDurablePushRegistration(scope, stored);
       const device = await getExistingExpoPushToken();
       if (cancelled || !scopeMatches(scope)) return;
 
       if (device.status === 'permissionDenied') {
-        await enqueue(authUserId, async () => {
+        invalidateDurablePushRegistration(scope);
+        await enqueue(scope, async () => {
           if (!scopeMatches(scope)) return;
           await revokeBestEffort(stored.token, 'permission');
-          if (scopeMatches(scope)) await clearLocal();
+          if (scopeMatches(scope)) await clearLocal(scope, 'permission');
         });
         if (!cancelled && scopeMatches(scope)) setState({ kind: 'notSetUp' });
         return;
@@ -246,24 +317,48 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
       }
 
       try {
-        const registeredAt = await enqueue(authUserId, async () => {
+        const registeredAt = await enqueue(scope, async () => {
           if (!scopeMatches(scope)) return null;
           const timestamp = await registerPushToken(profileId, device.token, device.platform);
-          if (!scopeMatches(scope)) return null;
+          if (!scopeMatches(scope)) {
+            const activeScope = currentLifecycleScope();
+            if (
+              !activeScope ||
+              !isPushRegistrationScopeCurrent(activeScope) ||
+              activeScope.authUserId !== scope.authUserId
+            ) {
+              await revokeBestEffort(device.token, 'stale-scope');
+            }
+            return null;
+          }
+
           const registration: PersistedPushRegistration = {
             authUserId,
             profileId,
             token: device.token,
             platform: device.platform,
             registeredAt: timestamp,
+            lifecycleGeneration: scope.generation,
           };
-          await savePushRegistration(registration);
-          if (!scopeMatches(scope)) return null;
-          registrationRef.current = registration;
+          try {
+            const durable = await persistDurablePushRegistration(scope, registration);
+            if (!durable) {
+              const activeScope = currentLifecycleScope();
+              if (
+                !activeScope ||
+                !isPushRegistrationScopeCurrent(activeScope) ||
+                activeScope.authUserId !== scope.authUserId
+              ) {
+                await revokeBestEffort(device.token, 'stale-scope');
+              }
+              return null;
+            }
+          } catch (error) {
+            await revokeBestEffort(device.token, 'persistence-rollback');
+            throw error;
+          }
 
-          // Rotation cleanup is safe only because the stored account matches
-          // the current authenticated account, and it happens after the new
-          // token is registered so delivery has no avoidable gap.
+          // Do not remove the old token until the replacement is durable.
           if (stored.token !== device.token) {
             await revokeBestEffort(stored.token, 'rotated-token');
           }
@@ -275,7 +370,8 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
       } catch (error) {
         if (cancelled || !scopeMatches(scope)) return;
         if (isPushRegistrationAccessError(error)) {
-          await clearLocal();
+          invalidateDurablePushRegistration(scope);
+          await clearLocal(scope, 'access-change');
           if (scopeMatches(scope)) setState({ kind: 'failed', message: ACCESS_CHANGED });
           return;
         }
@@ -294,6 +390,7 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
     authMode,
     authUserId,
     clearLocal,
+    currentLifecycleScope,
     enqueue,
     foregroundSequence,
     isAuthenticated,
@@ -304,23 +401,25 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
   ]);
 
   const register = useCallback(() => {
-    const scope = { ...scopeRef.current };
+    const initialScope = currentLifecycleScope();
     if (
       authMode !== 'supabase' ||
       accountStatus !== 'ready' ||
-      !scope.authUserId ||
-      !scope.profileId ||
-      explicitWorkingRef.current
+      !initialScope?.authUserId ||
+      !initialScope.profileId ||
+      explicitWorkingRef.current !== null
     ) {
       return;
     }
-    const explicitAuthUserId = scope.authUserId;
 
-    explicitWorkingRef.current = true;
+    const explicitAuthUserId = initialScope.authUserId;
+    const explicitId = ++explicitSequenceRef.current;
+    explicitWorkingRef.current = explicitId;
     setState({ kind: 'working' });
-    void enqueue(explicitAuthUserId, async () => {
+
+    void enqueue(initialScope, async () => {
       try {
-        if (!scopeMatches(scope)) return;
+        if (!scopeMatches(initialScope)) return;
         const device = await obtainExpoPushToken();
         if (scopeRef.current.authUserId !== explicitAuthUserId) return;
         if (device.status !== 'obtained') {
@@ -338,24 +437,44 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
           return;
         }
 
-        const previous = registrationRef.current;
-        let targetProfileId = scopeRef.current.profileId;
+        const previous = getDurablePushRegistrationSnapshot(initialScope);
 
-        // Permission was granted by this explicit action. If the same account
-        // changes active profile while an RPC or storage write is in flight,
-        // keep registering the token until the newest settled profile owns it.
-        // A different Auth user never inherits this opt-in.
-        while (scopeRef.current.authUserId === explicitAuthUserId && targetProfileId) {
+        // Explicit permission belongs to this Auth account. Follow quick
+        // same-account profile changes, but never carry opt-in to another user.
+        while (scopeRef.current.authUserId === explicitAuthUserId) {
+          const iterationScope = currentLifecycleScope();
+          if (
+            !iterationScope?.profileId ||
+            !isPushRegistrationScopeCurrent(iterationScope)
+          ) {
+            return;
+          }
+          const targetProfileId = iterationScope.profileId;
           const registeredAt = await registerPushToken(
             targetProfileId,
             device.token,
             device.platform,
           );
-          const afterRegistration = { ...scopeRef.current };
-          if (afterRegistration.authUserId !== explicitAuthUserId) return;
-          if (!afterRegistration.profileId) return;
-          if (afterRegistration.profileId !== targetProfileId) {
-            targetProfileId = afterRegistration.profileId;
+
+          const afterRegistration = currentLifecycleScope();
+          if (scopeRef.current.authUserId !== explicitAuthUserId) {
+            await revokeBestEffort(device.token, 'stale-account');
+            return;
+          }
+          if (
+            !afterRegistration?.profileId ||
+            !isPushRegistrationScopeCurrent(afterRegistration) ||
+            afterRegistration.profileId !== targetProfileId ||
+            afterRegistration.generation !== iterationScope.generation
+          ) {
+            if (
+              !afterRegistration ||
+              !isPushRegistrationScopeCurrent(afterRegistration) ||
+              afterRegistration.authUserId !== explicitAuthUserId
+            ) {
+              await revokeBestEffort(device.token, 'stale-scope');
+              return;
+            }
             continue;
           }
 
@@ -365,27 +484,32 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
             token: device.token,
             platform: device.platform,
             registeredAt,
+            lifecycleGeneration: iterationScope.generation,
           };
-          await savePushRegistration(registration);
+          let durable: boolean;
+          try {
+            durable = await persistDurablePushRegistration(iterationScope, registration);
+          } catch (error) {
+            await revokeBestEffort(device.token, 'persistence-rollback');
+            throw error;
+          }
 
-          const afterPersistence = { ...scopeRef.current };
-          if (afterPersistence.authUserId !== explicitAuthUserId) {
-            registrationRef.current = null;
-            await clearPushRegistration();
-            return;
-          }
-          if (!afterPersistence.profileId) {
-            await clearLocal();
-            return;
-          }
-          if (afterPersistence.profileId !== targetProfileId) {
-            targetProfileId = afterPersistence.profileId;
+          if (!durable) {
+            const activeScope = currentLifecycleScope();
+            if (
+              !activeScope ||
+              !isPushRegistrationScopeCurrent(activeScope) ||
+              activeScope.authUserId !== explicitAuthUserId
+            ) {
+              await revokeBestEffort(device.token, 'stale-scope');
+              return;
+            }
             continue;
           }
 
-          registrationRef.current = registration;
-          if (mountedRef.current) setState({ kind: 'registered', registeredAt });
-
+          if (mountedRef.current && scopeMatches(iterationScope)) {
+            setState({ kind: 'registered', registeredAt });
+          }
           if (
             previous?.authUserId === explicitAuthUserId &&
             previous.token !== device.token
@@ -396,12 +520,11 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
         }
       } catch (error) {
         if (scopeRef.current.authUserId !== explicitAuthUserId) return;
+        const scope = currentLifecycleScope();
         if (isPushRegistrationAccessError(error)) {
-          await clearLocal();
-          if (
-            mountedRef.current &&
-            scopeRef.current.authUserId === explicitAuthUserId
-          ) {
+          if (scope) invalidateDurablePushRegistration(scope);
+          if (scope) await clearLocal(scope, 'access-change');
+          if (mountedRef.current && scopeRef.current.authUserId === explicitAuthUserId) {
             setState({ kind: 'failed', message: ACCESS_CHANGED });
           }
           return;
@@ -413,13 +536,16 @@ export function PushRegistrationProvider({ children }: { children: React.ReactNo
           });
         }
       } finally {
-        explicitWorkingRef.current = false;
+        if (explicitWorkingRef.current === explicitId) {
+          explicitWorkingRef.current = null;
+        }
       }
     });
   }, [
     accountStatus,
     authMode,
     clearLocal,
+    currentLifecycleScope,
     enqueue,
     revokeBestEffort,
     scopeMatches,

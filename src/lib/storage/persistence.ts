@@ -31,6 +31,26 @@ export interface PersistedPushRegistration {
   token: string;
   platform: PushRegistrationPlatform;
   registeredAt: string;
+  lifecycleGeneration: number;
+}
+
+export type PushRegistrationPersistenceOperation = 'read' | 'write' | 'clear';
+
+/** Sanitized push-only storage failure; never includes stored values or tokens. */
+export class PushRegistrationPersistenceError extends Error {
+  readonly code: string;
+
+  constructor(public readonly operation: PushRegistrationPersistenceOperation) {
+    super(
+      operation === 'read'
+        ? "We couldn't check saved notification setup on this device. Please try again."
+        : operation === 'write'
+          ? "We couldn't save notification setup on this device. Please try again."
+          : "We couldn't clear notification setup on this device.",
+    );
+    this.name = 'PushRegistrationPersistenceError';
+    this.code = `PUSH_REGISTRATION_STORAGE_${operation.toUpperCase()}_FAILED`;
+  }
 }
 
 interface Envelope<T> {
@@ -104,7 +124,10 @@ export function isPersistedPushRegistration(
       registration.platform === 'web') &&
     typeof registration.registeredAt === 'string' &&
     registration.registeredAt.length > 0 &&
-    !Number.isNaN(Date.parse(registration.registeredAt))
+    !Number.isNaN(Date.parse(registration.registeredAt)) &&
+    typeof registration.lifecycleGeneration === 'number' &&
+    Number.isSafeInteger(registration.lifecycleGeneration) &&
+    registration.lifecycleGeneration >= 0
   );
 }
 
@@ -116,20 +139,100 @@ export function pushRegistrationMatchesScope(
   return registration.authUserId === authUserId && registration.profileId === profileId;
 }
 
-/** Load the validated device registration, or null on any storage problem. */
-export function loadPushRegistration(): Promise<PersistedPushRegistration | null> {
-  return loadPersisted<PersistedPushRegistration>(
-    STORAGE_KEYS.pushRegistration,
-    isPersistedPushRegistration,
+function pushEnvelope(registration: PersistedPushRegistration): string {
+  return JSON.stringify({ version: PERSISTENCE_VERSION, data: registration });
+}
+
+function registrationsMatch(
+  first: PersistedPushRegistration,
+  second: PersistedPushRegistration,
+): boolean {
+  return (
+    first.authUserId === second.authUserId &&
+    first.profileId === second.profileId &&
+    first.token === second.token &&
+    first.platform === second.platform &&
+    first.registeredAt === second.registeredAt &&
+    first.lifecycleGeneration === second.lifecycleGeneration
   );
 }
 
-/** Save the device registration through the existing versioned envelope. */
-export function savePushRegistration(registration: PersistedPushRegistration): Promise<void> {
-  return savePersisted(STORAGE_KEYS.pushRegistration, registration);
+function discardInvalidPushRegistration(reason: 'version' | 'shape' | 'json') {
+  console.warn('[persistence] discarding push registration', { reason });
+  // Invalid data is still an unregistered validation result. Its best-effort
+  // cleanup is detached so a broken remove operation cannot block hydration.
+  void AsyncStorage.removeItem(STORAGE_KEYS.pushRegistration).catch(() => {
+    console.warn('[persistence] failed to discard invalid push registration');
+  });
 }
 
-/** Idempotently clear this installation's device registration. */
-export function clearPushRegistration(): Promise<void> {
-  return clearPersisted(STORAGE_KEYS.pushRegistration);
+/**
+ * Load a valid push registration. Missing/invalid data is unregistered, while
+ * an AsyncStorage transport failure is observable to lifecycle callers.
+ */
+export async function loadPushRegistration(): Promise<PersistedPushRegistration | null> {
+  let raw: string | null;
+  try {
+    raw = await AsyncStorage.getItem(STORAGE_KEYS.pushRegistration);
+  } catch {
+    console.warn('[persistence] failed to read push registration');
+    throw new PushRegistrationPersistenceError('read');
+  }
+  if (!raw) return null;
+
+  let envelope: Envelope<unknown>;
+  try {
+    envelope = JSON.parse(raw) as Envelope<unknown>;
+  } catch {
+    discardInvalidPushRegistration('json');
+    return null;
+  }
+  if (envelope?.version !== PERSISTENCE_VERSION) {
+    discardInvalidPushRegistration('version');
+    return null;
+  }
+  if (!isPersistedPushRegistration(envelope.data)) {
+    discardInvalidPushRegistration('shape');
+    return null;
+  }
+  return envelope.data;
+}
+
+/** Save only after AsyncStorage confirms the versioned record was written. */
+export async function savePushRegistration(
+  registration: PersistedPushRegistration,
+): Promise<void> {
+  try {
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.pushRegistration,
+      pushEnvelope(registration),
+    );
+  } catch {
+    console.warn('[persistence] failed to save push registration');
+    throw new PushRegistrationPersistenceError('write');
+  }
+}
+
+/** Idempotently clear only after AsyncStorage confirms removal. */
+export async function clearPushRegistration(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEYS.pushRegistration);
+  } catch {
+    console.warn('[persistence] failed to clear push registration');
+    throw new PushRegistrationPersistenceError('clear');
+  }
+}
+
+/**
+ * Compensate a stale completed write without deleting a newer record. The
+ * lifecycle coordinator re-verifies/re-publishes its newest desired record
+ * after this compare-and-clear to close an interleaving between read/remove.
+ */
+export async function clearPushRegistrationIfMatches(
+  expected: PersistedPushRegistration,
+): Promise<boolean> {
+  const current = await loadPushRegistration();
+  if (!current || !registrationsMatch(current, expected)) return false;
+  await clearPushRegistration();
+  return true;
 }

@@ -24,8 +24,9 @@ import {
 } from '../invitations';
 import { mockMemberships, mockOrganisationRoles, mockUsers } from '../mockData';
 import {
-  pausePushRegistrationOperations,
-  resumePushRegistrationOperations,
+  awaitPushCleanupStep,
+  beginPushRegistrationSignOut,
+  finishPushRegistrationSignOut,
 } from '../notifications/pushRegistrationOperations';
 import {
   clearPersisted,
@@ -546,33 +547,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const supabase = mode === 'supabase' ? getSupabase() : null;
         const preserveInvitation = !!options?.preservePendingInvitation;
 
-        if (mode === 'supabase' && authUserId) {
-          await pausePushRegistrationOperations(authUserId);
-        }
+        // This invalidates the lifecycle generation synchronously before any
+        // await. The matching durable snapshot is captured first, then cleared
+        // from the coordinator so late work cannot republish it.
+        const pushSignOut =
+          mode === 'supabase' && authUserId
+            ? beginPushRegistrationSignOut(authUserId)
+            : null;
 
         try {
-          // Push revocation is load-bearing privacy cleanup: capture the persisted
-          // registration and attempt account-scoped deletion while the JWT still
-          // exists. Failure (including an expired/offline session or false result)
-          // never blocks sign-out, and raw token values are never logged.
-          const registration = await loadPushRegistration();
+          if (pushSignOut) {
+            await awaitPushCleanupStep('quiesce', pushSignOut.quiesced);
+          }
+
+          // Prefer the latest record known to have been durably saved. Only
+          // read storage when no matching in-memory fallback exists; read
+          // transport failure is not interpreted as an absent registration.
+          let registration = pushSignOut?.snapshot ?? null;
+          if (!registration) {
+            const read = await awaitPushCleanupStep('read', loadPushRegistration());
+            if (read.status === 'fulfilled') registration = read.value;
+            else if (read.status === 'rejected') {
+              console.warn('[auth] push registration read failed during sign-out', {
+                code: (read.error as { code?: unknown })?.code,
+              });
+            }
+          }
+
           if (
             mode === 'supabase' &&
             authUserId &&
             registration?.authUserId === authUserId
           ) {
-            try {
-              await unregisterPushToken(registration.token);
-            } catch (error) {
+            const revocation = await awaitPushCleanupStep(
+              'revoke',
+              unregisterPushToken(registration.token),
+            );
+            if (revocation.status === 'rejected') {
               console.warn('[auth] push registration revocation failed during sign-out', {
-                code: (error as { code?: unknown })?.code,
+                code: (revocation.error as { code?: unknown })?.code,
               });
+            } else if (
+              revocation.status === 'fulfilled' &&
+              revocation.value === false
+            ) {
+              console.warn('[auth] push registration was not revoked during sign-out');
             }
           }
-          await clearPushRegistration();
 
-          // The UI leaves after local push state is cleared; the Auth call below
-          // then decides whether the server-side session ended successfully.
+          const localClear = await awaitPushCleanupStep(
+            'clear',
+            clearPushRegistration(),
+          );
+          if (localClear.status === 'rejected') {
+            console.warn('[auth] push registration clear failed during sign-out', {
+              code: (localClear.error as { code?: unknown })?.code,
+            });
+          }
+
+          // Push cleanup is best-effort and deadline-bounded. The UI and Auth
+          // session always proceed even when any dependency failed or timed out.
           if (mode === 'demo') applyDemoSession(null);
           else clearLiveState();
 
@@ -600,7 +634,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (!preserveInvitation) setPendingInvitationToken(null);
           if (authFailure) throw authFailure;
         } finally {
-          if (authUserId) resumePushRegistrationOperations(authUserId);
+          if (authUserId) finishPushRegistrationSignOut(authUserId);
         }
       })();
 
