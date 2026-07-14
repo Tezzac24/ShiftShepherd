@@ -19,7 +19,19 @@ export const PERSISTENCE_VERSION = 1;
 export const STORAGE_KEYS = {
   appData: 'shift-shepherd/app-data',
   demoUser: 'shift-shepherd/demo-user',
+  pushRegistration: 'shift-shepherd/push-registration',
 } as const;
+
+export type PushRegistrationPlatform = 'ios' | 'android' | 'web';
+
+/** The one device token registration this installation can reconcile. */
+export interface PersistedPushRegistration {
+  authUserId: string;
+  profileId: string;
+  token: string;
+  platform: PushRegistrationPlatform;
+  registeredAt: string;
+}
 
 interface Envelope<T> {
   version: number;
@@ -72,4 +84,52 @@ export async function clearPersisted(key: string): Promise<void> {
   } catch (error) {
     console.warn(`[persistence] failed to clear "${key}"`, error);
   }
+}
+
+export function isPersistedPushRegistration(
+  value: unknown,
+): value is PersistedPushRegistration {
+  if (!value || typeof value !== 'object') return false;
+  const registration = value as Partial<PersistedPushRegistration>;
+  return (
+    typeof registration.authUserId === 'string' &&
+    registration.authUserId.length > 0 &&
+    typeof registration.profileId === 'string' &&
+    registration.profileId.length > 0 &&
+    typeof registration.token === 'string' &&
+    registration.token.length > 0 &&
+    registration.token.length <= 512 &&
+    (registration.platform === 'ios' ||
+      registration.platform === 'android' ||
+      registration.platform === 'web') &&
+    typeof registration.registeredAt === 'string' &&
+    registration.registeredAt.length > 0 &&
+    !Number.isNaN(Date.parse(registration.registeredAt))
+  );
+}
+
+export function pushRegistrationMatchesScope(
+  registration: PersistedPushRegistration,
+  authUserId: string,
+  profileId: string,
+): boolean {
+  return registration.authUserId === authUserId && registration.profileId === profileId;
+}
+
+/** Load the validated device registration, or null on any storage problem. */
+export function loadPushRegistration(): Promise<PersistedPushRegistration | null> {
+  return loadPersisted<PersistedPushRegistration>(
+    STORAGE_KEYS.pushRegistration,
+    isPersistedPushRegistration,
+  );
+}
+
+/** Save the device registration through the existing versioned envelope. */
+export function savePushRegistration(registration: PersistedPushRegistration): Promise<void> {
+  return savePersisted(STORAGE_KEYS.pushRegistration, registration);
+}
+
+/** Idempotently clear this installation's device registration. */
+export function clearPushRegistration(): Promise<void> {
+  return clearPersisted(STORAGE_KEYS.pushRegistration);
 }

@@ -1,9 +1,21 @@
 import { act, render, screen, waitFor } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React from 'react';
 import { Text } from 'react-native';
 
 import { AuthProvider, SIGN_OUT_ERROR, useAuth } from '../AuthContext';
 import * as pendingInvitation from '../../invitations/pendingInvitation';
+import { runPushRegistrationOperation } from '../../notifications/pushRegistrationOperations';
+import {
+  loadPushRegistration,
+  savePushRegistration,
+  STORAGE_KEYS,
+} from '../../storage/persistence';
+import { unregisterPushToken } from '../../supabase/services/pushTokens';
+
+jest.mock('../../supabase/services/pushTokens', () => ({
+  unregisterPushToken: jest.fn(),
+}));
 
 const signOutMock = jest.fn();
 const getSessionMock = jest.fn();
@@ -42,6 +54,10 @@ jest.mock('../../supabase/services/accounts', () => ({
 const AUTH_USER = { id: 'auth-1', email: 'person@example.com', email_confirmed_at: 'now' };
 const PROFILE = { id: 'profile-1', full_name: 'Person', email: 'person@example.com' };
 const TOKEN = 'A'.repeat(43);
+const PUSH_TOKEN = 'ExponentPushToken[sign-out-test-token]';
+const mockUnregisterPushToken = unregisterPushToken as jest.MockedFunction<
+  typeof unregisterPushToken
+>;
 
 let auth: ReturnType<typeof useAuth>;
 function Probe() {
@@ -63,9 +79,12 @@ async function renderSignedIn() {
   await waitFor(() => expect(screen.getByText('in')).toBeTruthy());
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  jest.clearAllMocks();
+  await AsyncStorage.clear();
   jest.clearAllMocks();
   signOutMock.mockResolvedValue({ error: null });
+  mockUnregisterPushToken.mockResolvedValue(true);
 });
 
 // clearMocks does not undo spyOn implementations — restore so a stubbed
@@ -75,6 +94,16 @@ afterEach(() => {
 });
 
 describe('sign-out', () => {
+  async function persistPush(authUserId = AUTH_USER.id) {
+    await savePushRegistration({
+      authUserId,
+      profileId: PROFILE.id,
+      token: PUSH_TOKEN,
+      platform: 'ios',
+      registeredAt: '2026-07-14T12:00:00.000Z',
+    });
+  }
+
   it('clears the authenticated session state', async () => {
     await renderSignedIn();
     await act(async () => auth.signOut());
@@ -130,13 +159,106 @@ describe('sign-out', () => {
   });
 
   it('is safe to invoke twice', async () => {
+    await persistPush();
     await renderSignedIn();
     await act(async () => {
       await Promise.all([auth.signOut(), auth.signOut()]);
     });
 
+    expect(mockUnregisterPushToken).toHaveBeenCalledTimes(1);
+    await expect(loadPushRegistration()).resolves.toBeNull();
     expect(signOutMock).toHaveBeenCalledTimes(1);
     expect(auth.isAuthenticated).toBe(false);
+  });
+
+  it('orders push revocation, local registration clear, then Auth sign-out', async () => {
+    await persistPush();
+    await renderSignedIn();
+    await act(async () => auth.signOut());
+
+    const removeItem = AsyncStorage.removeItem as jest.Mock;
+    const registrationClearIndex = removeItem.mock.calls.findIndex(
+      ([key]) => key === STORAGE_KEYS.pushRegistration,
+    );
+    expect(registrationClearIndex).toBeGreaterThanOrEqual(0);
+    expect(mockUnregisterPushToken.mock.invocationCallOrder[0]).toBeLessThan(
+      removeItem.mock.invocationCallOrder[registrationClearIndex],
+    );
+    expect(removeItem.mock.invocationCallOrder[registrationClearIndex]).toBeLessThan(
+      signOutMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('quiesces an active lifecycle write before reading and revoking the token', async () => {
+    await persistPush();
+    await renderSignedIn();
+    let finishLifecycle: () => void = () => undefined;
+    const activeLifecycle = runPushRegistrationOperation(
+      AUTH_USER.id,
+      () =>
+        new Promise<void>((resolve) => {
+          finishLifecycle = resolve;
+        }),
+    );
+
+    await act(async () => {
+      const signOut = auth.signOut();
+      await Promise.resolve();
+      expect(mockUnregisterPushToken).not.toHaveBeenCalled();
+      expect(signOutMock).not.toHaveBeenCalled();
+      finishLifecycle();
+      await activeLifecycle;
+      await signOut;
+    });
+
+    expect(mockUnregisterPushToken).toHaveBeenCalledTimes(1);
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips server revocation when there is no persisted record', async () => {
+    await renderSignedIn();
+    await act(async () => auth.signOut());
+    expect(mockUnregisterPushToken).not.toHaveBeenCalled();
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('never sends another Auth account record to unregister', async () => {
+    await persistPush('auth-someone-else');
+    await renderSignedIn();
+    await act(async () => auth.signOut());
+    expect(mockUnregisterPushToken).not.toHaveBeenCalled();
+    await expect(loadPushRegistration()).resolves.toBeNull();
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues sign-out when unregister returns false', async () => {
+    mockUnregisterPushToken.mockResolvedValue(false);
+    await persistPush();
+    await renderSignedIn();
+    await act(async () => auth.signOut());
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+    await expect(loadPushRegistration()).resolves.toBeNull();
+  });
+
+  it('continues sign-out and clears locally after unregister rejects', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockUnregisterPushToken.mockRejectedValue(new Error('session expired'));
+    await persistPush();
+    await renderSignedIn();
+    await act(async () => auth.signOut());
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+    await expect(loadPushRegistration()).resolves.toBeNull();
+  });
+
+  it('never logs the raw token when best-effort revocation fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockUnregisterPushToken.mockRejectedValue(new Error(`network failure ${PUSH_TOKEN}`));
+    await persistPush();
+    await renderSignedIn();
+    await act(async () => auth.signOut());
+    expect(warn.mock.calls.map((args) => JSON.stringify(args)).join(' ')).not.toContain(
+      PUSH_TOKEN,
+    );
   });
 });
 

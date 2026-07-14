@@ -7,6 +7,7 @@ import { colors } from '@/constants/theme';
 import { ConfirmProvider } from '@/src/components/ConfirmDialog';
 import { StartupScreen } from '@/src/components/StartupScreen';
 import { ToastProvider } from '@/src/components/Toast';
+import { PushRegistrationProvider } from '@/src/features/notifications/useDevicePushRegistration';
 import { AppDataProvider, useAppData } from '@/src/lib/appData/AppDataContext';
 import { AuthProvider, useAuth } from '@/src/lib/auth/AuthContext';
 import { paperTheme } from '@/src/lib/theme/paperTheme';
@@ -113,16 +114,18 @@ export default function RootLayout() {
   const hasStarted = React.useRef(false);
   return (
     <AuthProvider>
-      <AccountScopedAppDataProvider>
-        <PaperProvider theme={paperTheme}>
-          <ConfirmProvider>
-            <ToastProvider>
-              <RootStack hasStarted={hasStarted} />
-              <StatusBar style="dark" />
-            </ToastProvider>
-          </ConfirmProvider>
-        </PaperProvider>
-      </AccountScopedAppDataProvider>
+      <PushRegistrationProvider>
+        <AccountScopedAppDataProvider>
+          <PaperProvider theme={paperTheme}>
+            <ConfirmProvider>
+              <ToastProvider>
+                <RootStack hasStarted={hasStarted} />
+                <StatusBar style="dark" />
+              </ToastProvider>
+            </ConfirmProvider>
+          </PaperProvider>
+        </AccountScopedAppDataProvider>
+      </PushRegistrationProvider>
     </AuthProvider>
   );
 }

@@ -1,12 +1,12 @@
 /**
- * Device-side push notification registration (V1: register only).
+ * Device-side Expo push-token acquisition.
  *
  * This module owns every expo-notifications / expo-device / expo-constants
  * call so screens and services never touch those APIs directly. It obtains
  * an Expo push token for this device; persisting it belongs to
- * src/lib/supabase/services/pushTokens.ts, and nothing is ever *delivered*
- * yet — there is deliberately no notification handler, no listeners, no
- * scheduling, and no Expo Push API call in this build.
+ * src/lib/supabase/services/pushTokens.ts. Delivery remains the separate,
+ * existing chat-push server flow; this module has no notification handler,
+ * listeners, scheduling, or Expo Push API call.
  *
  * Ground rules:
  *  - Permission is only requested from an explicit user action (the
@@ -25,9 +25,9 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 export type DevicePushSupport =
-  /** Physical iOS/Android device in a build that can register. */
+  /** Supported iOS runtime or physical Android device in a build that can register. */
   | 'supported'
-  /** Web, or an iOS simulator / Android emulator — no push token exists. */
+  /** Web or Android emulator; supported iOS simulators may attempt registration. */
   | 'unsupportedDevice'
   /** Running inside Expo Go, which cannot receive remote pushes since SDK 53. */
   | 'needsDevelopmentBuild'
@@ -66,31 +66,19 @@ export function getDevicePushSupport(): DevicePushSupport {
 }
 
 /**
- * Ask for notification permission (OS prompt only if not yet granted) and
- * fetch this device's Expo push token. Call this exclusively from a
- * user-initiated action. The caller persists the token; it is never logged.
+ * Read permission and fetch the current Expo token. `requestPermission` must
+ * only be true from the explicit registration control.
  */
-export async function obtainExpoPushToken(): Promise<ObtainExpoPushTokenResult> {
+async function readExpoPushToken(
+  requestPermission: boolean,
+): Promise<ObtainExpoPushTokenResult> {
   const support = getDevicePushSupport();
   if (support !== 'supported') return { status: support };
-
-  // Android needs a channel before the permission prompt / token can behave
-  // sensibly (Android 8+). Failure here shouldn't block registration.
-  if (Platform.OS === 'android') {
-    try {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'Church updates',
-        importance: Notifications.AndroidImportance.DEFAULT,
-      });
-    } catch (error) {
-      console.warn('[notifications] could not set the Android channel', error);
-    }
-  }
 
   try {
     const existing = await Notifications.getPermissionsAsync();
     let granted = existing.granted;
-    if (!granted) {
+    if (!granted && requestPermission) {
       const requested = await Notifications.requestPermissionsAsync();
       granted = requested.granted;
     }
@@ -119,4 +107,32 @@ export async function obtainExpoPushToken(): Promise<ObtainExpoPushTokenResult> 
     console.warn('[notifications] could not get an Expo push token', error);
     return { status: 'tokenFailed' };
   }
+}
+
+/**
+ * Ask for notification permission (only if needed) and obtain the token.
+ * This entry point is exclusively for the existing explicit user action.
+ */
+export async function obtainExpoPushToken(): Promise<ObtainExpoPushTokenResult> {
+  // Android needs a channel before the permission prompt/token flow. Failure
+  // here is non-fatal and does not change the explicit-consent boundary.
+  if (Platform.OS === 'android' && getDevicePushSupport() === 'supported') {
+    try {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Church updates',
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
+    } catch (error) {
+      console.warn('[notifications] could not set the Android channel', error);
+    }
+  }
+  return readExpoPushToken(true);
+}
+
+/**
+ * Inspect an already-authorised registration without ever requesting
+ * permission. Used only to hydrate/rebind an existing persisted opt-in.
+ */
+export function getExistingExpoPushToken(): Promise<ObtainExpoPushTokenResult> {
+  return readExpoPushToken(false);
 }

@@ -81,9 +81,7 @@ export default function NotificationSettingsScreen() {
   const prefs = data.getNotificationPreferences(user.profile.id);
   const saving = pendingKey !== null;
 
-  const { state: deviceState, register: registerDevice } = useDevicePushRegistration(
-    prefsLive ? (user.supabaseProfileId ?? null) : null,
-  );
+  const { state: deviceState, register: registerDevice } = useDevicePushRegistration();
 
   const showLoading = prefsLive && data.notificationPrefsLoading;
   const showLoadError =
@@ -187,7 +185,14 @@ export default function NotificationSettingsScreen() {
             <Card style={styles.deviceCard}>
               <AppText variant="bodyBold">Device notifications</AppText>
 
-              {deviceState.kind === 'registered' ? (
+              {deviceState.kind === 'hydrating' ? (
+                <View style={styles.deviceStatusRow}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <AppText variant="small" tone="secondary" style={styles.deviceStatusText}>
+                    Checking this device…
+                  </AppText>
+                </View>
+              ) : deviceState.kind === 'registered' ? (
                 <>
                   <View style={styles.deviceStatusRow}>
                     <Ionicons name="checkmark-circle" size={22} color={colors.success} />

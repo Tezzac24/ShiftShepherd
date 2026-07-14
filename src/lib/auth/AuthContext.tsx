@@ -23,10 +23,22 @@ import {
   savePendingInvitation,
 } from '../invitations';
 import { mockMemberships, mockOrganisationRoles, mockUsers } from '../mockData';
-import { clearPersisted, loadPersisted, savePersisted, STORAGE_KEYS } from '../storage/persistence';
+import {
+  pausePushRegistrationOperations,
+  resumePushRegistrationOperations,
+} from '../notifications/pushRegistrationOperations';
+import {
+  clearPersisted,
+  clearPushRegistration,
+  loadPersisted,
+  loadPushRegistration,
+  savePersisted,
+  STORAGE_KEYS,
+} from '../storage/persistence';
 import { getSupabase, isSupabaseConfigured } from '../supabase/client';
 import * as accountsService from '../supabase/services/accounts';
 import * as organisationMembershipsService from '../supabase/services/organisationMemberships';
+import { unregisterPushToken } from '../supabase/services/pushTokens';
 
 type AuthMode = 'demo' | 'supabase';
 
@@ -180,6 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const authModeRef = useRef<AuthMode | null>(null);
   const authUserIdRef = useRef<string | null>(null);
   const bootstrapSequenceRef = useRef(0);
+  const signOutPromiseRef = useRef<Promise<void> | null>(null);
 
   const applyDemoSession = useCallback((session: SessionUser | null) => {
     authModeRef.current = session ? 'demo' : null;
@@ -522,41 +535,85 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signOut = useCallback(
-    async (options?: { preservePendingInvitation?: boolean }) => {
-      // Read the mode before clearing state so a second tap becomes a no-op
-      // rather than a second Supabase call.
-      const mode = authModeRef.current;
-      const supabase = mode === 'supabase' ? getSupabase() : null;
-      const preserveInvitation = !!options?.preservePendingInvitation;
+    (options?: { preservePendingInvitation?: boolean }): Promise<void> => {
+      if (signOutPromiseRef.current) return signOutPromiseRef.current;
 
-      // The UI leaves immediately; the session removal below decides whether the
-      // user is *actually* signed out.
-      if (mode === 'demo') applyDemoSession(null);
-      else clearLiveState();
+      const task = (async () => {
+        // Read the mode before clearing state so a second tap becomes a no-op
+        // rather than a second Supabase call.
+        const mode = authModeRef.current;
+        const authUserId = authUserIdRef.current;
+        const supabase = mode === 'supabase' ? getSupabase() : null;
+        const preserveInvitation = !!options?.preservePendingInvitation;
 
-      // Ancillary cleanup is best-effort. It runs alongside the sign-out and its
-      // failure must never be able to leave a live session on the device — that
-      // is what previously kept the user signed in after a restart.
-      const cleanup = Promise.allSettled([
-        clearPersisted(STORAGE_KEYS.demoUser),
-        preserveInvitation ? Promise.resolve() : clearStoredInvitation(),
-      ]);
-
-      let authFailure: Error | null = null;
-      if (supabase) {
-        const { error } = await supabase.auth.signOut();
-        if (error) {
-          // Revoking the refresh token server-side failed (typically offline).
-          // Drop the device session anyway so a restart cannot restore it, then
-          // report the failure instead of pretending sign-out fully succeeded.
-          await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
-          authFailure = new Error(SIGN_OUT_ERROR);
+        if (mode === 'supabase' && authUserId) {
+          await pausePushRegistrationOperations(authUserId);
         }
-      }
 
-      await cleanup;
-      if (!preserveInvitation) setPendingInvitationToken(null);
-      if (authFailure) throw authFailure;
+        try {
+          // Push revocation is load-bearing privacy cleanup: capture the persisted
+          // registration and attempt account-scoped deletion while the JWT still
+          // exists. Failure (including an expired/offline session or false result)
+          // never blocks sign-out, and raw token values are never logged.
+          const registration = await loadPushRegistration();
+          if (
+            mode === 'supabase' &&
+            authUserId &&
+            registration?.authUserId === authUserId
+          ) {
+            try {
+              await unregisterPushToken(registration.token);
+            } catch (error) {
+              console.warn('[auth] push registration revocation failed during sign-out', {
+                code: (error as { code?: unknown })?.code,
+              });
+            }
+          }
+          await clearPushRegistration();
+
+          // The UI leaves after local push state is cleared; the Auth call below
+          // then decides whether the server-side session ended successfully.
+          if (mode === 'demo') applyDemoSession(null);
+          else clearLiveState();
+
+          // Ancillary cleanup is best-effort. It runs alongside the sign-out and its
+          // failure must never be able to leave a live session on the device — that
+          // is what previously kept the user signed in after a restart.
+          const cleanup = Promise.allSettled([
+            clearPersisted(STORAGE_KEYS.demoUser),
+            preserveInvitation ? Promise.resolve() : clearStoredInvitation(),
+          ]);
+
+          let authFailure: Error | null = null;
+          if (supabase) {
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+              // Revoking the refresh token server-side failed (typically offline).
+              // Drop the device session anyway so a restart cannot restore it, then
+              // report the failure instead of pretending sign-out fully succeeded.
+              await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+              authFailure = new Error(SIGN_OUT_ERROR);
+            }
+          }
+
+          await cleanup;
+          if (!preserveInvitation) setPendingInvitationToken(null);
+          if (authFailure) throw authFailure;
+        } finally {
+          if (authUserId) resumePushRegistrationOperations(authUserId);
+        }
+      })();
+
+      signOutPromiseRef.current = task;
+      void task.then(
+        () => {
+          if (signOutPromiseRef.current === task) signOutPromiseRef.current = null;
+        },
+        () => {
+          if (signOutPromiseRef.current === task) signOutPromiseRef.current = null;
+        },
+      );
+      return task;
     },
     [applyDemoSession, clearLiveState],
   );

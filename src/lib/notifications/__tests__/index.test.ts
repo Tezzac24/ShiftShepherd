@@ -6,7 +6,11 @@
  * Guards the friendly support states and the iOS-simulator regression
  * (Device.isDevice must not gate iOS registration).
  */
-import { getDevicePushSupport, obtainExpoPushToken } from '../index';
+import {
+  getDevicePushSupport,
+  getExistingExpoPushToken,
+  obtainExpoPushToken,
+} from '../index';
 
 jest.mock('react-native', () => ({
   Platform: { OS: 'ios' },
@@ -138,5 +142,29 @@ describe('obtainExpoPushToken', () => {
     notifications.getPermissionsAsync.mockResolvedValue({ granted: true });
     notifications.getExpoPushTokenAsync.mockResolvedValue({ data: '' });
     await expect(obtainExpoPushToken()).resolves.toEqual({ status: 'tokenFailed' });
+  });
+});
+
+describe('getExistingExpoPushToken', () => {
+  it('never requests permission during lifecycle hydration', async () => {
+    notifications.getPermissionsAsync.mockResolvedValue({ granted: false });
+    await expect(getExistingExpoPushToken()).resolves.toEqual({
+      status: 'permissionDenied',
+    });
+    expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+    expect(notifications.getExpoPushTokenAsync).not.toHaveBeenCalled();
+  });
+
+  it('returns the current token when permission is already granted', async () => {
+    notifications.getPermissionsAsync.mockResolvedValue({ granted: true });
+    notifications.getExpoPushTokenAsync.mockResolvedValue({
+      data: 'ExponentPushToken[existing-test-token]',
+    });
+    await expect(getExistingExpoPushToken()).resolves.toEqual({
+      status: 'obtained',
+      token: 'ExponentPushToken[existing-test-token]',
+      platform: 'ios',
+    });
+    expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
   });
 });

@@ -1,21 +1,10 @@
 /**
- * Push token service - live Supabase slice for push_tokens (V1: register
- * only).
+ * Narrow live Supabase service for Expo push-token registration/revocation.
  *
- * Persists this device's Expo push token for the signed-in profile. All
- * writes go through the `register_push_token` RPC (migration
- * 20260710171200): a narrow SECURITY DEFINER upsert keyed on the globally
- * unique token column, so re-registering refreshes updated_at and a device
- * that changes hands moves to its new owner. The authenticated role has no
- * table-level privileges on push_tokens at all — the RPC is the only write
- * path, and RLS (002, strictly personal) remains the table's authority.
- *
- * Obtaining the token (permissions, device/build checks) lives in
- * src/lib/notifications/ — this service only persists it. Nothing is
- * delivered yet: no Expo Push API call, no Edge Function, no receipts.
- *
- * Push tokens are sensitive-ish device identifiers: this module never logs
- * one, and callers must not surface one in the UI.
+ * Registration atomically moves the globally unique token to the current
+ * active profile. Revocation deletes it only when the owning profile belongs
+ * to auth.uid(). Neither RPC accepts a caller/profile/organisation id, and
+ * this module never logs or surfaces a raw token.
  */
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -23,45 +12,71 @@ import { getSupabase } from '../client';
 
 const REGISTER_ERROR =
   "We couldn't register this device for notifications. Please try again.";
+const UNREGISTER_ERROR =
+  "We couldn't remove this device's notification registration. Please try again.";
 const OFFLINE_ERROR =
   "We couldn't reach the server. Please check your connection and try again.";
 const SETUP_ERROR =
   'Device registration is not switched on for your church yet. Please try again after the next update.';
 
-function requireClient(): SupabaseClient {
-  const supabase = getSupabase();
-  if (!supabase) {
-    throw new Error(OFFLINE_ERROR);
+export type PushRegistrationAccessErrorCode =
+  | 'ORGANISATION_ACCESS_REMOVED'
+  | 'NO_LINKED_PROFILE';
+
+export class PushRegistrationAccessError extends Error {
+  constructor(public readonly code: PushRegistrationAccessErrorCode) {
+    super('This account does not currently have an active organisation profile.');
+    this.name = 'PushRegistrationAccessError';
   }
-  return supabase;
 }
 
-function isNetworkError(error: unknown): boolean {
-  const message =
-    error instanceof Error ? error.message : String((error as { message?: string })?.message ?? '');
-  return /fetch|network|timeout/i.test(message);
-}
-
-/**
- * The register_push_token function is created by the local-only migration
- * 20260710171200_add_push_token_registration.sql. Until that is pushed (and
- * on any project without it), PostgREST reports the missing function —
- * treated as "not switched on yet", never as a scary raw error.
- */
-function isMissingFunctionError(error: unknown): boolean {
-  const e = error as { code?: string; message?: string };
+export function isPushRegistrationAccessError(
+  error: unknown,
+): error is PushRegistrationAccessError {
+  const code = (error as { code?: unknown })?.code;
   return (
-    e?.code === 'PGRST202' ||
-    e?.code === '42883' ||
-    /could not find the function|function .* does not exist/i.test(e?.message ?? '')
+    error instanceof PushRegistrationAccessError ||
+    code === 'ORGANISATION_ACCESS_REMOVED' ||
+    code === 'NO_LINKED_PROFILE'
   );
 }
 
+function requireClient(): SupabaseClient {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error(OFFLINE_ERROR);
+  return supabase;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : String((error as { message?: string })?.message ?? '');
+}
+
+function isNetworkError(error: unknown): boolean {
+  return /fetch|network|timeout/i.test(messageOf(error));
+}
+
+function isMissingFunctionError(error: unknown): boolean {
+  const code = (error as { code?: string })?.code;
+  return (
+    code === 'PGRST202' ||
+    code === '42883' ||
+    /could not find the function|function .* does not exist/i.test(messageOf(error))
+  );
+}
+
+function accessErrorCode(error: unknown): PushRegistrationAccessErrorCode | null {
+  const message = messageOf(error);
+  if (/ORGANISATION_ACCESS_REMOVED/i.test(message)) return 'ORGANISATION_ACCESS_REMOVED';
+  if (/NO_LINKED_PROFILE/i.test(message)) return 'NO_LINKED_PROFILE';
+  return null;
+}
+
 /**
- * Register (or refresh) this device's Expo push token for the signed-in
- * profile. Returns the server-side registration timestamp. The profile id is
- * only used to refuse demo/mock sessions — the database derives the owner
- * from the authenticated user itself.
+ * Register (or refresh) this device for the signed-in active profile. The
+ * profile id is used only to reject demo ids; server ownership comes from the
+ * authenticated account.
  */
 export async function registerPushToken(
   liveProfileId: string,
@@ -78,14 +93,41 @@ export async function registerPushToken(
     p_platform: platform,
   });
   if (error) {
-    // Log code/message only — never the arguments.
     console.warn('[pushTokens] register failed', {
       code: (error as { code?: string }).code,
-      message: error.message,
     });
+    const accessCode = accessErrorCode(error);
+    if (accessCode) throw new PushRegistrationAccessError(accessCode);
     if (isMissingFunctionError(error)) throw new Error(SETUP_ERROR);
     if (isNetworkError(error)) throw new Error(OFFLINE_ERROR);
     throw new Error(REGISTER_ERROR);
   }
   return typeof data === 'string' ? data : new Date().toISOString();
+}
+
+/**
+ * Delete this token only when it belongs to a profile owned by auth.uid().
+ * The RPC's false result intentionally covers missing, repeated, and
+ * differently-owned tokens without revealing which case occurred.
+ */
+export async function unregisterPushToken(token: string): Promise<boolean> {
+  const supabase = requireClient();
+  if (!token || token.length > 512) throw new Error(UNREGISTER_ERROR);
+
+  const { data, error } = await supabase.rpc('unregister_push_token', {
+    p_token: token,
+  });
+  if (error) {
+    console.warn('[pushTokens] unregister failed', {
+      code: (error as { code?: string }).code,
+    });
+    if (isMissingFunctionError(error)) throw new Error(SETUP_ERROR);
+    if (isNetworkError(error)) throw new Error(OFFLINE_ERROR);
+    throw new Error(UNREGISTER_ERROR);
+  }
+  if (typeof data !== 'boolean') {
+    console.warn('[pushTokens] unregister returned an invalid response');
+    throw new Error(UNREGISTER_ERROR);
+  }
+  return data;
 }
