@@ -871,12 +871,14 @@ Can:
 Can:
 
 - Manage users.
-- Manage teams.
+- Create teams with no team admin or one explicitly selected active initial team admin.
+- Edit team name, description, and photo.
+- Soft-archive teams and restore the same team row with its history intact.
 - Assign roles.
 - Create/edit/delete church-wide announcements.
 - Create/edit/delete church-wide events.
 - Access organisation-level settings.
-- Manage team leaders.
+- Team-role promotion/demotion and leader reassignment remain a later management slice.
 
 ---
 
@@ -923,6 +925,9 @@ Fields:
 - name
 - description
 - type
+- avatar_url
+- archived_at
+- archived_by
 - created_at
 
 Team type examples:

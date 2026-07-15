@@ -152,6 +152,7 @@ Implemented refinements to these models (see `src/types/index.ts`, the source of
 
 - `ChoirSongSelection.section: 'praise' | 'worship'` — each selected song belongs to one section, ordered independently (`order_index` restarts per section).
 - `RotaEntry.status: 'active' | 'cancelled'` plus `cancelled_at`, `cancelled_by`, `cancellation_reason` — cancelled dates are marked, not deleted.
+- `Team.avatar_url` plus nullable `archived_at`/`archived_by` — team archive is reversible and preserves the same team row and all linked history.
 
 # 5. Intended Production Backend
 
@@ -184,6 +185,9 @@ teams:
 - name
 - description
 - type
+- avatar_url
+- archived_at
+- archived_by
 - created_at
 
 team_memberships:
@@ -376,9 +380,13 @@ Church Admin can:
 - View all church content
 - Create/edit/delete church-wide announcements
 - Create/edit/delete church-wide events
-- Manage teams conceptually through the mobile app
+- Create teams with zero team admins or one explicitly selected active initial team admin
+- Edit team name, description, and photo
+- Soft-archive teams and restore the same retained team row
 - Access admin-style actions inside the mobile app
-- Assign team leaders conceptually through the UI, if included
+- Select the creator as initial team admin only when explicitly chosen
+
+Team-role promotion/demotion, final-team-admin handling, and leader reassignment remain deferred beyond Team Creation & Editing V1.
 
 Announcement Manager can:
 - Create church-wide announcements

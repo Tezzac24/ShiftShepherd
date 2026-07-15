@@ -1,7 +1,7 @@
 # Supabase Migration Alignment
 
-**Current status on 2026-07-12: remote history is aligned through deployed `20260712103321_add_organisation_membership_role_management.sql`. All 30 migrations are applied; there is no local-only migration, no remote-only migration, and no repair entry.**
-This document preserves the earlier pre-Broadcast and membership-start checkpoints as history, then records the deployed invitation/onboarding foundation and the deployed membership implementation.
+**Current status on 2026-07-15: remote history is aligned through deployed `20260714200205_add_push_token_revocation.sql`. All 31 remote migrations are applied; `20260715004513_add_team_creation_editing_and_archive.sql` is the sole newer local-only migration, with no remote-only migration and no repair entry.**
+This document preserves the earlier pre-Broadcast and membership-start checkpoints as history, then records the deployed invitation/onboarding, membership, and push-token lifecycle foundations plus the local-only Team Creation & Editing V1 handoff.
 `20260710234443_add_push_delivery_foundation.sql` (the chat push delivery ledger + service_role grants) is pushed and verified; the matching `send-chat-message-push` Edge Function is deployed and ACTIVE with JWT verification.
 `20260711024931_harden_security_definer_functions.sql` through `20260712001940_add_invite_onboarding_identity_foundation.sql` are pushed and verified. Membership governance, shared freshness, server-authoritative unread, and private Broadcast passed their documented manual QA. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are ACTIVE; invitation runtime secrets/redirects are configured and non-mutating smoke tests passed. Genuine no-organisation device QA, first real invitation delivery/acceptance, disposable-account invitation/multi-org QA, and physical-iPhone push QA remain pending.
 Every timestamped migration (the events/rota/songs/chat/notification-preferences
@@ -19,6 +19,8 @@ with explicit approval, verified, and covered by manual QA.
   are back-filled into history.
 - `supabase migration list` at the Organisation Membership & Role Management V1 preflight showed local/remote alignment through `20260712001940` with 29 migrations and no mismatch.
 - The implementation generated `20260712103321_add_organisation_membership_role_management.sql` with the Supabase CLI. There are now 30 local migrations, and on 2026-07-12 a controlled deployment task applied exactly this one version — a dry run listed it alone, `supabase db push --yes` applied it in a single transaction, and no repair, seed, reset, or historical replay occurred. Local and remote history now match through `20260712103321`.
+- A later controlled task deployed and live-contract-verified `20260714200205_add_push_token_revocation.sql`; remote history now contains 31 aligned versions through that migration. Native physical-device lifecycle/delivery QA remains pending.
+- Team Creation & Editing V1 generated `20260715004513_add_team_creation_editing_and_archive.sql` with the CLI. It is version 32 locally and intentionally absent remotely. No push, repair, reset, seed, Edge Function, Auth, secret, Realtime, or data mutation occurred in its implementation task.
 - The normal Supabase CLI workflow (`supabase migration new` → `supabase db push`) is
   now safe for future schema changes.
 
@@ -85,6 +87,8 @@ with explicit approval, verified, and covered by manual QA.
 - `20260711195143_migrate_chat_realtime_to_private_broadcast.sql` (**pushed + verified + manual QA complete**): adds canonical private `team-chat:<teamId>` and `profile-chat-read:<profileId>` Broadcast authorization through SELECT-only `realtime.messages` policies; adds locked-down database triggers that emit minimal v1 message/read invalidations; and removes only `chat_messages` and `chat_read_states` from `supabase_realtime`. There is no client send/INSERT policy or sensitive payload data. The two-user/multi-device, membership, reconnect/foreground, image, account-switch, and demo matrix passed.
 - `20260712001940_add_invite_onboarding_identity_foundation.sql` (**deployed + verified**): adds account-global identity/active profile, multi-org uniqueness, deterministic backfill, display-name overrides, invitation lifecycle, verified-email acceptance, no-org organisation creation, and active-aware helpers/RPCs. `manage-organisation-invitations` v1 and active-profile-compatible `send-chat-message-push` v5 are deployed; invitation runtime configuration is present. Live invitation/no-org device QA remains deferred.
 - `20260712103321_add_organisation_membership_role_management.sql` (**deployed + hosted-verified; live QA pending**): adds explicit active/removed profile access, active-profile repair, bounded church-admin directory/role/removal RPCs, caller-owned Leave organisation, same-row final-admin locking, removed-profile baseline re-invitation, direct-write hardening, and owner-RLS `user_accounts` invalidation. It retains stable identities/history/other organisations while revoking current roles, team memberships, and profile push tokens. Applied 2026-07-12 in one transaction. Hosted verification confirmed the enum/columns/constraint/indexes/trigger, a deterministic `active` backfill of every existing profile with empty removal audit, organisation-row and target-profile locks in the deployed function bodies, no `PUBLIC`/`anon` EXECUTE on any new function (internal repair and trigger validators are `postgres`-only), revoked direct authenticated writes, `user_accounts` published exactly once under owner-only RLS, and 17/17 matching pre/post data fingerprints with no application row mutated. Advisors gained only the four expected definer-executable notices and improved multiple-permissive-policies 6→5. Live membership/role/remove/leave/re-invitation QA and live last-admin concurrency remain pending.
+- `20260714200205_add_push_token_revocation.sql` (**deployed + live-contract verified; device QA pending**): adds the account-scoped token revocation boundary used by the identity-bound, generation-fenced Push Token Lifecycle V1. The active profile is the sole installation-token owner; bounded sign-out cleanup cannot indefinitely block Auth. Native physical-device lifecycle and delivery QA remains pending.
+- `20260715004513_add_team_creation_editing_and_archive.sql` (**local only; undeployed; manual QA pending**): adds nullable `teams.archived_at`/`archived_by` (`profiles` FK `ON DELETE SET NULL`), active/archived listing indexes, active-only team access helpers, and authenticated-only `create_team`, `update_team`, `archive_team`, and `restore_team`. Authority is derived from the authenticated active profile/organisation and restricted to church admins. Teams may have zero team admins; the creator is not auto-added; an explicitly selected active same-organisation profile receives exactly one `team_leader` membership atomically. Archive deletes no row and restore reuses the same team/memberships/history. Static migration contracts pass, but Docker/local PostgreSQL is unavailable, so no runtime SQL execution occurred.
 
 ## iOS Simulator registration QA correction
 
@@ -170,15 +174,11 @@ against hosted dev; only local-stack and dump/diff/reset operations need Docker.
 
 ## Result
 
-The remote dev schema and migration history are aligned through `20260712103321`.
-There is no unapplied local migration, no remote-only migration, and no repair entry.
-The membership deployment applied exactly that one version; no other migration, function
-deployment, Auth/email change, secret rotation, or invitation send occurred.
+The remote dev schema and migration history are aligned through deployed `20260714200205` across 31 versions. `20260715004513` is the sole unapplied local migration; there is no remote-only migration and no repair entry. Push Token Lifecycle V1's database contract is live-verified. The Team Creation & Editing V1 task made no remote migration, function, Auth/email, secret, Realtime, invitation, or data change.
 Private chat Broadcast is live, its deployment/security checks passed, and the full
 documented manual QA matrix passed; chat no longer uses Postgres Changes. The shared-data
 publication now carries 14 tables — the original 13 plus owner-RLS `user_accounts` — and
-the chat tables remain outside it. The final membership-slice
-Expo export passed for Android, iOS, and web; its deterministic suite passes 359/48.
+the chat tables remain outside it. The current local Team Creation & Editing V1 export passes for Android, iOS, and web; its deterministic suite passes 515/59.
 The historical deployed Broadcast baseline was 211 tests across 31 suites.
 
 The deployed `20260712001940_add_invite_onboarding_identity_foundation.sql` and
@@ -191,18 +191,13 @@ function smoke tests passed. No live invitation acceptance/delivery QA has occur
 without changing delivery semantics.
 
 The pre-membership regression suite passed 296 tests across 43 suites, compared with
-the deployed Broadcast baseline of 211/31. The current implementation passes
-359 tests across 48 suites. Commits `420e12f` and `bf6a538` repaired auth sign-out
+the deployed Broadcast baseline of 211/31. The current local implementation passes
+515 tests across 59 suites. Commits `420e12f` and `bf6a538` repaired auth sign-out
 persistence and account-bootstrap routing races; `c54da51` implements the membership
 slice, `7628569` hardens invalidation when a non-active organisation is removed, and
 `ad09ae9` serializes team/token creation with removal cleanup.
 
-The next backend task is disposable-account manual QA of the deployed membership slice:
-member-list, role, last-admin, remove/leave, active-profile, re-invitation, access-loss,
-stale-channel, invitation, and push regression scenarios, using development identities
-only. The migration is deployed and hosted-verified, but its destructive RPCs have never
-been executed against live data and live last-admin concurrency has never been run, so no
-claim is made that removal, leave, role management, or re-invitation works end to end.
+The exact next team-lifecycle task is an independent read-only review of the local commits and migration. If approved, a separate controlled task may push the commits, apply only `20260715004513` to `shift-shepherd-dev`, verify hosted RPCs/ACLs/archive/history/database invariants, and then run manual app QA. This implementation task must not deploy. The deployed membership slice still needs disposable-account member-list, role, last-admin, remove/leave, active-profile, re-invitation, access-loss, stale-channel, invitation, and push regression scenarios. Its destructive RPCs have never been executed against live data and live last-admin concurrency has never been run, so no claim is made that removal, leave, role management, or re-invitation works end to end.
 Genuine no-organisation device QA and disposable-account open-signup/invitation/multi-org
 QA remain deferred; do not invite real users before those scenarios pass. Production
 invitation delivery is not approved and custom-scheme links are not production-ready.
