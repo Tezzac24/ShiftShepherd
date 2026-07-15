@@ -188,13 +188,41 @@ describe('team creation, editing, and archive migration contract', () => {
     expect(normalized).toContain(
       'drop policy if exists "uploaders delete their own chat image objects"',
     );
-    expect(normalized).toContain('not exists (');
-    expect(normalized).toContain('attachment.file_url = name');
+    const chatReference = functionSql(
+      migration,
+      'is_chat_attachment_object_referenced',
+    );
+    expect(chatReference).toContain('security definer');
+    expect(chatReference).toContain("set search_path = ''");
+    expect(chatReference).toContain('attachment.file_url = p_object_name');
+    expect(normalized).toContain(
+      'not public.is_chat_attachment_object_referenced(name)',
+    );
     expect(normalized).toContain(
       'drop policy if exists "announcement editors delete announcement image objects"',
     );
-    expect(normalized).toContain('announcement.image_url = name');
+    const announcementReference = functionSql(
+      migration,
+      'is_announcement_image_object_referenced',
+    );
+    expect(announcementReference).toContain('security definer');
+    expect(announcementReference).toContain("set search_path = ''");
+    expect(announcementReference).toContain('announcement.image_url = p_object_name');
+    expect(normalized).toContain(
+      'not public.is_announcement_image_object_referenced(name)',
+    );
     expect(normalized).toContain('public.can_manage_team(announcement.team_id)');
+    for (const signature of [
+      'is_chat_attachment_object_referenced(text)',
+      'is_announcement_image_object_referenced(text)',
+    ]) {
+      expect(normalized).toContain(
+        `revoke all on function public.${signature}\n  from public, anon, authenticated`,
+      );
+      expect(normalized).toContain(
+        `grant execute on function public.${signature}\n  to authenticated`,
+      );
+    }
   });
 
   it('exposes only the four lifecycle RPCs to authenticated and no service role', () => {

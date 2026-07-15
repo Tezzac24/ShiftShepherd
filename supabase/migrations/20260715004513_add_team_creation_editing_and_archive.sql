@@ -306,17 +306,41 @@ create policy "admins and event managers delete events"
 
 -- Linked chat images are history. The owner cleanup policy remains available
 -- only for uploads that never acquired a chat_attachments row.
+create function public.is_chat_attachment_object_referenced(p_object_name text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.chat_attachments attachment
+    where attachment.file_url = p_object_name
+  )
+$$;
+
+create function public.is_announcement_image_object_referenced(p_object_name text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.announcements announcement
+    where announcement.image_url = p_object_name
+  )
+$$;
+
 drop policy if exists "uploaders delete their own chat image objects" on storage.objects;
 create policy "uploaders delete their own chat image objects"
   on storage.objects for delete to authenticated
   using (
     bucket_id = 'chat-attachments'
     and owner_id = (select auth.uid()::text)
-    and not exists (
-      select 1
-      from public.chat_attachments attachment
-      where attachment.file_url = name
-    )
+    and not public.is_chat_attachment_object_referenced(name)
   );
 
 -- Announcement uploaders historically retain an orphan-cleanup escape hatch
@@ -334,11 +358,7 @@ create policy "announcement editors delete announcement image objects"
     and (
       (
         owner_id = (select auth.uid()::text)
-        and not exists (
-          select 1
-          from public.announcements announcement
-          where announcement.image_url = name
-        )
+        and not public.is_announcement_image_object_referenced(name)
       )
       or exists (
         select 1
@@ -990,11 +1010,19 @@ revoke all on function public.archive_team(uuid)
   from public, anon, authenticated;
 revoke all on function public.restore_team(uuid)
   from public, anon, authenticated;
+revoke all on function public.is_chat_attachment_object_referenced(text)
+  from public, anon, authenticated;
+revoke all on function public.is_announcement_image_object_referenced(text)
+  from public, anon, authenticated;
 
 grant execute on function public.create_team(text, text, uuid) to authenticated;
 grant execute on function public.update_team(uuid, text, text) to authenticated;
 grant execute on function public.archive_team(uuid) to authenticated;
 grant execute on function public.restore_team(uuid) to authenticated;
+grant execute on function public.is_chat_attachment_object_referenced(text)
+  to authenticated;
+grant execute on function public.is_announcement_image_object_referenced(text)
+  to authenticated;
 
 -- Replaced helper/member functions retain the established authenticated-only
 -- execution boundary.
@@ -1044,6 +1072,10 @@ comment on function public.archive_team(uuid) is
   'Soft-archives one active team without deleting memberships, content, files, or history.';
 comment on function public.restore_team(uuid) is
   'Restores the same archived team row and its retained membership-based access.';
+comment on function public.is_chat_attachment_object_referenced(text) is
+  'Returns only whether a private chat object path is still referenced, bypassing row visibility so archived history cannot look orphaned.';
+comment on function public.is_announcement_image_object_referenced(text) is
+  'Returns only whether a private announcement image path is still referenced, bypassing row visibility so archived history cannot look orphaned.';
 comment on function public.leave_team(uuid) is
   'Removes only the active-team membership of the auth-derived caller; archived membership history is retained.';
 comment on function public.get_team_chat_unread_summary() is
