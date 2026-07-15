@@ -22,6 +22,8 @@ const teams: Team[] = [TEAM_A, TEAM_B].map((id) => ({
   description: '',
   type: 'generic',
   avatar_url: null,
+  archived_at: null,
+  archived_by: null,
   created_at: '',
 }));
 

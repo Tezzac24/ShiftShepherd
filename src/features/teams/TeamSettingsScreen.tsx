@@ -13,6 +13,8 @@ import { Screen } from '../../components/Screen';
 import { SectionHeader } from '../../components/SectionHeader';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { teamMembers } from '../../lib/appData/selectors';
+import { useRequiredUser } from '../../lib/auth/AuthContext';
+import { canManageTeamLifecycle } from '../../lib/permissions';
 import { Team } from '../../types';
 import { useTeamAvatar } from './useTeamAvatar';
 
@@ -24,14 +26,18 @@ function TeamSettingsContent({
   team,
   memberCount,
   onManageMembers,
+  canEditLifecycle,
+  onEditLifecycle,
 }: {
   team: Team;
   memberCount: number;
   onManageMembers: () => void;
+  canEditLifecycle: boolean;
+  onEditLifecycle: () => void;
 }) {
   const { canManage, hasPhoto, avatarUri, busy, changePhoto, removePhoto } = useTeamAvatar(team);
 
-  if (!canManage) {
+  if (!canManage && !canEditLifecycle) {
     return (
       <EmptyState
         icon="lock-closed-outline"
@@ -51,47 +57,63 @@ function TeamSettingsContent({
         </View>
       </View>
 
-      <SectionHeader title="Team Photo" />
-      <Card style={styles.photoCard}>
-        <AppText tone="secondary">
-          {hasPhoto
-            ? 'This photo appears wherever the team is shown.'
-            : 'Add a photo so the team is easy to recognise. Until then, the team shows its initials.'}
-        </AppText>
-        <View style={styles.photoActions} testID="team-avatar-management-controls">
-          <Button
-            title={hasPhoto ? 'Change photo' : 'Add photo'}
-            variant="secondary"
-            icon="image-outline"
-            onPress={changePhoto}
-            loading={busy === 'uploading'}
-            disabled={busy !== null}
-            accessibilityHint={`Choose a photo for ${team.name}`}
-          />
-          {hasPhoto ? (
-            <Button
-              title="Remove photo"
-              variant="destructive"
-              icon="trash-outline"
-              onPress={removePhoto}
-              loading={busy === 'removing'}
-              disabled={busy !== null}
-              accessibilityHint={`Remove the photo for ${team.name}`}
-            />
-          ) : null}
-        </View>
-      </Card>
+      {canManage ? (
+        <>
+          <SectionHeader title="Team Photo" />
+          <Card style={styles.photoCard}>
+            <AppText tone="secondary">
+              {hasPhoto
+                ? 'This photo appears wherever the team is shown.'
+                : 'Add a photo so the team is easy to recognise. Until then, the team shows its initials.'}
+            </AppText>
+            <View style={styles.photoActions} testID="team-avatar-management-controls">
+              <Button
+                title={hasPhoto ? 'Change photo' : 'Add photo'}
+                variant="secondary"
+                icon="image-outline"
+                onPress={changePhoto}
+                loading={busy === 'uploading'}
+                disabled={busy !== null}
+                accessibilityHint={`Choose a photo for ${team.name}`}
+              />
+              {hasPhoto ? (
+                <Button
+                  title="Remove photo"
+                  variant="destructive"
+                  icon="trash-outline"
+                  onPress={removePhoto}
+                  loading={busy === 'removing'}
+                  disabled={busy !== null}
+                  accessibilityHint={`Remove the photo for ${team.name}`}
+                />
+              ) : null}
+            </View>
+          </Card>
 
-      <SectionHeader title="Members" />
-      <ListRow
-        icon="people-outline"
-        title="Manage members"
-        subtitle={`${memberCount} current ${memberCount === 1 ? 'member' : 'members'}`}
-        onPress={onManageMembers}
-      />
+          <SectionHeader title="Members" />
+          <ListRow
+            icon="people-outline"
+            title="Manage members"
+            subtitle={`${memberCount} current ${memberCount === 1 ? 'member' : 'members'}`}
+            onPress={onManageMembers}
+          />
+        </>
+      ) : null}
+
+      {canEditLifecycle ? (
+        <>
+          <SectionHeader title="Church Admin" />
+          <ListRow
+            icon="create-outline"
+            title="Edit team details"
+            subtitle="Name, description, photo or archive"
+            onPress={onEditLifecycle}
+          />
+        </>
+      ) : null}
 
       <AppText variant="small" tone="muted" style={styles.footerNote}>
-        Team name and leadership roles are managed by your church admin.
+        Team roles are managed separately from these settings.
       </AppText>
     </>
   );
@@ -100,6 +122,7 @@ function TeamSettingsContent({
 export default function TeamSettingsScreen() {
   const router = useRouter();
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
+  const user = useRequiredUser();
   const data = useAppData();
   const team = data.teams.find((t) => t.id === teamId);
   const memberCount = team
@@ -113,6 +136,10 @@ export default function TeamSettingsScreen() {
         <TeamSettingsContent
           team={team}
           memberCount={memberCount}
+          canEditLifecycle={canManageTeamLifecycle(user)}
+          onEditLifecycle={() =>
+            router.push({ pathname: '/teams/[teamId]/edit', params: { teamId: team.id } })
+          }
           onManageMembers={() =>
             router.push({
               pathname: '/teams/[teamId]/settings/members',

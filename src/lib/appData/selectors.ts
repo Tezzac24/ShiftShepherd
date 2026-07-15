@@ -28,11 +28,28 @@ import { isChurchAdmin } from '../permissions';
 // Teams
 // ---------------------------------------------------------------------------
 
-/** Teams visible to the user: their own; church admins see all. */
+/** Active teams visible to the user: their own; church admins see all active teams. */
 export function visibleTeams(user: SessionUser, teams: Team[]): Team[] {
-  if (isChurchAdmin(user)) return teams;
+  const activeTeams = teams.filter((team) => team.archived_at === null);
+  if (isChurchAdmin(user)) return activeTeams;
   const ids = new Set(user.memberships.map((m) => m.team_id));
-  return teams.filter((t) => ids.has(t.id));
+  return activeTeams.filter((team) => ids.has(team.id));
+}
+
+/** Archived metadata is an organisation-admin-only presentation. */
+export function archivedTeams(user: SessionUser, teams: Team[]): Team[] {
+  if (!isChurchAdmin(user)) return [];
+  return teams
+    .filter(
+      (team) =>
+        team.organisation_id === user.profile.organisation_id && team.archived_at !== null,
+    )
+    .sort(
+      (a, b) =>
+        (b.archived_at ?? '').localeCompare(a.archived_at ?? '') ||
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) ||
+        a.id.localeCompare(b.id),
+    );
 }
 
 export function teamMembers(
@@ -106,6 +123,37 @@ export function eligibleTeamProfiles(
       a.email.localeCompare(b.email, undefined, { sensitivity: 'base' }) ||
       a.id.localeCompare(b.id),
   );
+}
+
+/** Active linked profiles eligible for the optional initial team-admin field. */
+export function eligibleInitialTeamAdmins(
+  organisationId: string,
+  users: UserProfile[],
+  query = '',
+  limit = 50,
+): UserProfile[] {
+  const normalisedQuery = query.trim().toLocaleLowerCase();
+  const uniqueProfiles = new Map<string, UserProfile>();
+  for (const profile of users) {
+    if (
+      profile.organisation_id !== organisationId ||
+      !profile.auth_user_id.trim() ||
+      profile.access_status !== 'active'
+    ) {
+      continue;
+    }
+    const searchable = `${profile.full_name} ${profile.email}`.toLocaleLowerCase();
+    if (normalisedQuery && !searchable.includes(normalisedQuery)) continue;
+    uniqueProfiles.set(profile.id, profile);
+  }
+  return [...uniqueProfiles.values()]
+    .sort(
+      (a, b) =>
+        a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' }) ||
+        a.email.localeCompare(b.email, undefined, { sensitivity: 'base' }) ||
+        a.id.localeCompare(b.id),
+    )
+    .slice(0, Math.max(1, Math.min(limit, 100)));
 }
 
 export function userById(users: UserProfile[], id: string): UserProfile | undefined {

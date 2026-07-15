@@ -1,5 +1,11 @@
-import { Team, TeamMembership, UserProfile } from '../../../types';
-import { eligibleTeamProfiles, teamMembers } from '../selectors';
+import { SessionUser, Team, TeamMembership, UserProfile } from '../../../types';
+import {
+  archivedTeams,
+  eligibleInitialTeamAdmins,
+  eligibleTeamProfiles,
+  teamMembers,
+  visibleTeams,
+} from '../selectors';
 
 const TEAM: Team = {
   id: 'team-a',
@@ -8,6 +14,8 @@ const TEAM: Team = {
   description: '',
   type: 'choir',
   avatar_url: null,
+  archived_at: null,
+  archived_by: null,
   created_at: '2026-07-11T00:00:00Z',
 };
 
@@ -119,5 +127,54 @@ describe('eligibleTeamProfiles', () => {
       full_name: 'Alex Brown',
       avatar_url: 'profiles/alex-1/photo.jpg',
     }));
+  });
+});
+
+describe('team lifecycle selectors', () => {
+  const creator = profile('creator', 'Church Admin');
+  const active = profile('active', 'Active Member');
+  const removed = profile('removed', 'Removed Member', { access_status: 'removed' });
+  const unlinked = profile('unlinked', 'Unlinked Member', { auth_user_id: '' });
+  const external = profile('external', 'External Member', { organisation_id: 'org-b' });
+
+  it('offers active linked same-organisation profiles and allows the creator explicitly', () => {
+    const result = eligibleInitialTeamAdmins('org-a', [removed, external, active, creator, unlinked]);
+    expect(result.map((person) => person.id)).toEqual(['active', 'creator']);
+    expect(result.some((person) => person.id === creator.id)).toBe(true);
+  });
+
+  it('searches and bounds initial-admin results', () => {
+    const many = Array.from({ length: 60 }, (_, index) =>
+      profile(`person-${index}`, `Person ${String(index).padStart(2, '0')}`),
+    );
+    expect(eligibleInitialTeamAdmins('org-a', many, '', 10)).toHaveLength(10);
+    expect(
+      eligibleInitialTeamAdmins('org-a', [active, creator], 'church admin').map(
+        (person) => person.id,
+      ),
+    ).toEqual(['creator']);
+  });
+
+  it('hides archived teams from active views and exposes them only to church admins', () => {
+    const archived = {
+      ...TEAM,
+      id: 'team-archived',
+      archived_at: '2026-07-15T00:00:00Z',
+      archived_by: creator.id,
+    };
+    const admin: SessionUser = {
+      profile: creator,
+      orgRole: 'church_admin',
+      memberships: [],
+    };
+    const member: SessionUser = {
+      profile: active,
+      orgRole: 'general_member',
+      memberships: [membership('retained', active.id, { team_id: archived.id })],
+    };
+    expect(visibleTeams(admin, [TEAM, archived])).toEqual([TEAM]);
+    expect(visibleTeams(member, [TEAM, archived])).toEqual([]);
+    expect(archivedTeams(admin, [TEAM, archived])).toEqual([archived]);
+    expect(archivedTeams(member, [TEAM, archived])).toEqual([]);
   });
 });

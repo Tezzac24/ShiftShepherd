@@ -38,9 +38,9 @@ function session(orgRole: SessionUser['orgRole']): SessionUser {
 }
 
 const teams = [
-  { id: 'team-a', organisation_id: 'org-1' },
-  { id: 'team-b', organisation_id: 'org-1' },
-  { id: 'other-org-team', organisation_id: 'org-2' },
+  { id: 'team-a', organisation_id: 'org-1', archived_at: null },
+  { id: 'team-b', organisation_id: 'org-1', archived_at: null },
+  { id: 'other-org-team', organisation_id: 'org-2', archived_at: null },
 ] as Team[];
 
 function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
@@ -77,6 +77,14 @@ describe('accessibleChatTeamIds', () => {
 
   it('gives church admins every own-organisation team, never another organisation', () => {
     expect(accessibleChatTeamIds(session('church_admin'), teams)).toEqual(['team-a', 'team-b']);
+  });
+
+  it('excludes archived teams for admins and retained ordinary memberships', () => {
+    const withArchived = teams.map((team) =>
+      team.id === 'team-a' ? { ...team, archived_at: '2026-07-15T00:00:00Z' } : team,
+    );
+    expect(accessibleChatTeamIds(session('church_admin'), withArchived)).toEqual(['team-b']);
+    expect(accessibleChatTeamIds(session('general_member'), withArchived)).toEqual([]);
   });
 });
 

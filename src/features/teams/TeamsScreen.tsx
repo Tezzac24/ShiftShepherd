@@ -19,8 +19,12 @@ import {
   userName,
   visibleTeams,
 } from '../../lib/appData/selectors';
-import { useRequiredUser } from '../../lib/auth/AuthContext';
-import { isChurchAdmin, isTeamLeader } from '../../lib/permissions';
+import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
+import {
+  canManageTeamLifecycle,
+  isChurchAdmin,
+  isTeamLeader,
+} from '../../lib/permissions';
 import { formatUpcoming, parseDateKey } from '../../utils/dates';
 
 const teamTypeLabel: Record<string, string> = {
@@ -32,9 +36,13 @@ const teamTypeLabel: Record<string, string> = {
 export default function TeamsScreen() {
   const router = useRouter();
   const user = useRequiredUser();
+  const { authMode, accountStatus, isLoading } = useAuth();
   const data = useAppData();
 
   const teams = visibleTeams(user, data.teams);
+  const authorityResolved =
+    !isLoading && (authMode !== 'supabase' || accountStatus === 'ready');
+  const showAdminActions = authorityResolved && canManageTeamLifecycle(user);
   // Live mode: the directory loads after sign-in — show calm loading/error
   // states instead of flashing the "no teams" message.
   const showLoading = data.teamsLoading && teams.length === 0;
@@ -42,12 +50,38 @@ export default function TeamsScreen() {
 
   return (
     <Screen safeTop>
-      <AppText variant="title">Your Teams</AppText>
+      <View style={styles.titleRow}>
+        <AppText variant="title" style={styles.titleText}>
+          Your Teams
+        </AppText>
+        {showAdminActions ? (
+          <Button
+            title="New team"
+            icon="add-outline"
+            onPress={() => router.push('/teams/new')}
+            style={styles.newTeamButton}
+            accessibilityHint="Create a team in this church"
+          />
+        ) : null}
+      </View>
       <AppText tone="secondary">
         {isChurchAdmin(user)
           ? 'As Church Admin you can see every team.'
           : 'The teams you belong to.'}
       </AppText>
+      {showAdminActions ? (
+        <Button
+          title={
+            data.archivedTeams.length > 0
+              ? `Archived teams (${data.archivedTeams.length})`
+              : 'Archived teams'
+          }
+          variant="ghost"
+          icon="archive-outline"
+          onPress={() => router.push('/teams/archived')}
+          accessibilityHint="View and restore archived teams"
+        />
+      ) : null}
 
       {showLoading ? (
         <Card>
@@ -123,7 +157,11 @@ export default function TeamsScreen() {
         <EmptyState
           icon="people-outline"
           title="No teams yet"
-          message="You are not part of any team yet. When you join a team it will appear here."
+          message={
+            showAdminActions
+              ? 'Create the first team for this church when you are ready.'
+              : 'You are not part of any team yet. When you join a team it will appear here.'
+          }
         />
       )}
     </Screen>
@@ -131,6 +169,9 @@ export default function TeamsScreen() {
 }
 
 const styles = StyleSheet.create({
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  titleText: { flex: 1, minWidth: 0 },
+  newTeamButton: { flexShrink: 0 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   badgeRow: { flexDirection: 'row', gap: spacing.xs, marginTop: 2, flexWrap: 'wrap' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

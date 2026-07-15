@@ -44,6 +44,8 @@ const TEAM: Team = {
   description: '',
   type: 'choir',
   avatar_url: null,
+  archived_at: null,
+  archived_by: null,
   created_at: '2026-07-11T00:00:00Z',
 };
 

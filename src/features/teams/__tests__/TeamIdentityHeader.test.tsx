@@ -25,6 +25,8 @@ const TEAM: Team = {
   description: 'Leading worship each Sunday.',
   type: 'choir',
   avatar_url: null,
+  archived_at: null,
+  archived_by: null,
   created_at: '2026-07-11T00:00:00Z',
 };
 
@@ -61,6 +63,20 @@ describe('TeamIdentityHeader', () => {
     mockUseTeamAvatar.mockReturnValue(avatarState(true));
     const onOpenSettings = jest.fn();
     const screen = render(<TeamIdentityHeader team={TEAM} onOpenSettings={onOpenSettings} />);
+    fireEvent.press(screen.getByTestId('team-settings-action'));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows organisation lifecycle settings even when live avatar management is unavailable', () => {
+    mockUseTeamAvatar.mockReturnValue(avatarState(false));
+    const onOpenSettings = jest.fn();
+    const screen = render(
+      <TeamIdentityHeader
+        team={TEAM}
+        canOpenSettings
+        onOpenSettings={onOpenSettings}
+      />,
+    );
     fireEvent.press(screen.getByTestId('team-settings-action'));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });

@@ -29,6 +29,8 @@ import {
 } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import {
+  canManageTeamAvatar,
+  canManageTeamLifecycle,
   canCreateTeamAnnouncements,
   canManageTeamRota,
   canViewTeam,
@@ -45,15 +47,18 @@ import { useTeamAvatar } from './useTeamAvatar';
 export function TeamIdentityHeader({
   team,
   onOpenSettings,
+  canOpenSettings,
 }: {
   team: Team;
   onOpenSettings?: () => void;
+  canOpenSettings?: boolean;
 }) {
   const { canManage, avatarUri } = useTeamAvatar(team);
+  const showSettings = canOpenSettings ?? canManage;
 
   return (
     <View style={styles.identityBlock}>
-      {canManage && onOpenSettings ? (
+      {showSettings && onOpenSettings ? (
         <View style={styles.settingsActionRow}>
           <Pressable
             accessibilityRole="button"
@@ -100,6 +105,26 @@ export default function TeamSpaceScreen() {
   const [leaveError, setLeaveError] = useState<string | null>(null);
 
   const team = data.teams.find((t) => t.id === teamId);
+  const archivedTeam = data.archivedTeams.find((candidate) => candidate.id === teamId);
+
+  if (archivedTeam) {
+    return (
+      <Screen>
+        <Stack.Screen options={{ title: archivedTeam.name }} />
+        <EmptyState
+          icon="archive-outline"
+          title="Team is archived"
+          message="This team is hidden from active areas. A church admin can restore it from Archived teams."
+        />
+        <Button
+          title="View archived teams"
+          variant="secondary"
+          icon="archive-outline"
+          onPress={() => router.replace('/teams/archived')}
+        />
+      </Screen>
+    );
+  }
 
   // Live mode: the directory may still be loading (or have failed) — don't
   // flash "Team not found" while the team is simply on its way.
@@ -213,6 +238,9 @@ export default function TeamSpaceScreen() {
       <View style={styles.header}>
         <TeamIdentityHeader
           team={team}
+          canOpenSettings={
+            canManageTeamLifecycle(user) || canManageTeamAvatar(user, team.id)
+          }
           onOpenSettings={() =>
             router.push({ pathname: '/teams/[teamId]/settings', params: { teamId: team.id } })
           }

@@ -56,4 +56,13 @@ describe('applyDirectorySnapshotToSession', () => {
       }),
     ).toBe(switched);
   });
+
+  it('updates demo membership state by the local profile id', () => {
+    const current = { ...session('profile-a'), supabaseProfileId: undefined };
+    const updated = applyDirectorySnapshotToSession(current, 'profile-a', {
+      orgRole: 'church_admin',
+      memberships: [membership],
+    });
+    expect(updated?.memberships).toEqual([membership]);
+  });
 });

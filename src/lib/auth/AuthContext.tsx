@@ -148,7 +148,8 @@ export function applyDirectorySnapshotToSession(
     memberships: TeamMembership[];
   },
 ): SessionUser | null {
-  if (!current || current.supabaseProfileId !== profileId) return current;
+  const currentProfileId = current?.supabaseProfileId ?? current?.profile.id;
+  if (!current || currentProfileId !== profileId) return current;
   return {
     ...current,
     profile: snapshot.profile ?? current.profile,

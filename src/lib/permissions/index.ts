@@ -56,6 +56,11 @@ export function canManageOrganisationMembers(user: SessionUser): boolean {
   return isChurchAdmin(user);
 }
 
+/** Organisation-level create/edit/archive/restore authority. */
+export function canManageTeamLifecycle(user: SessionUser): boolean {
+  return isChurchAdmin(user);
+}
+
 export function isMemberOfTeam(user: SessionUser, teamId: string): boolean {
   return user.memberships.some((m) => m.team_id === teamId);
 }

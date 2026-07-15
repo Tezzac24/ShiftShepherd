@@ -72,7 +72,10 @@ function RootStack({ hasStarted }: { hasStarted: React.MutableRefObject<boolean>
         <Stack.Screen name="announcements/edit" />
         <Stack.Screen name="events/[id]" />
         <Stack.Screen name="events/edit" />
+        <Stack.Screen name="teams/new" />
+        <Stack.Screen name="teams/archived" />
         <Stack.Screen name="teams/[teamId]/index" />
+        <Stack.Screen name="teams/[teamId]/edit" />
         <Stack.Screen name="teams/[teamId]/settings" />
         <Stack.Screen name="teams/[teamId]/settings/members/index" />
         <Stack.Screen name="teams/[teamId]/settings/members/add" />

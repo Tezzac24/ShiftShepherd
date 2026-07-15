@@ -38,6 +38,8 @@ const TEAM: Team = {
   description: 'Leading worship each Sunday.',
   type: 'choir',
   avatar_url: null,
+  archived_at: null,
+  archived_by: null,
   created_at: '',
 };
 const PROFILE: UserProfile = {
@@ -72,6 +74,7 @@ function session(row: TeamMembership, orgRole: SessionUser['orgRole'] = 'general
 function makeData(row: TeamMembership, overrides: Record<string, unknown> = {}) {
   return {
     teams: [TEAM],
+    archivedTeams: [],
     users: [PROFILE],
     memberships: [row],
     teamsLoading: false,

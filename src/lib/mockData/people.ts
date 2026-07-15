@@ -73,6 +73,8 @@ export const mockTeams: Team[] = [
     description: 'Leading the congregation in worship every Sunday.',
     type: 'choir',
     avatar_url: null,
+    archived_at: null,
+    archived_by: null,
     created_at: iso(daysAgo(110)),
   },
   {
@@ -82,6 +84,8 @@ export const mockTeams: Team[] = [
     description: 'Sound, cameras, slides and livestream for services.',
     type: 'media',
     avatar_url: null,
+    archived_at: null,
+    archived_by: null,
     created_at: iso(daysAgo(110)),
   },
   {
@@ -91,6 +95,8 @@ export const mockTeams: Team[] = [
     description: 'Welcoming people and helping services run smoothly.',
     type: 'generic',
     avatar_url: null,
+    archived_at: null,
+    archived_by: null,
     created_at: iso(daysAgo(110)),
   },
   {
@@ -100,6 +106,8 @@ export const mockTeams: Team[] = [
     description: 'Serving our young people on Friday evenings and Sundays.',
     type: 'generic',
     avatar_url: null,
+    archived_at: null,
+    archived_by: null,
     created_at: iso(daysAgo(110)),
   },
 ];

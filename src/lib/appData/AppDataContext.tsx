@@ -121,10 +121,19 @@ import {
 } from './chatUnread';
 import { SharedRefreshDomain } from './liveInvalidation';
 import {
-  membershipsForProfile,
   upsertMembership,
   withoutMembership,
 } from './membershipState';
+import {
+  activeMembershipsForProfile,
+  applyTeamCreation,
+  applyTeamLifecycleTeam,
+  publishScopedTeamMutation,
+  retainKnownArchivedMemberships,
+  sameTeamMutationScope,
+  upsertTeam,
+  type TeamMutationScope,
+} from './teamLifecycleState';
 import { useSessionChatMessaging } from './useSessionChatMessaging';
 import { useSharedLiveDataFreshness } from './useSharedLiveDataFreshness';
 
@@ -153,6 +162,10 @@ export type NewRotaEntryInput = Omit<
 
 /** Everything mutable that is persisted between app launches. */
 interface PersistedAppData {
+  /** Added in Team Creation V1; older v1 envelopes fall back to mock seeds. */
+  teams?: Team[];
+  /** Added in Team Creation V1; older v1 envelopes fall back to mock seeds. */
+  memberships?: TeamMembership[];
   announcements: Announcement[];
   events: Event[];
   rotaEntries: RotaEntry[];
@@ -181,6 +194,8 @@ function isPersistedAppData(data: unknown): data is PersistedAppData {
   ];
   return (
     arrayKeys.every((k) => Array.isArray(d[k])) &&
+    (d.teams === undefined || Array.isArray(d.teams)) &&
+    (d.memberships === undefined || Array.isArray(d.memberships)) &&
     typeof d.unreadByTeam === 'object' &&
     d.unreadByTeam !== null &&
     typeof d.notificationPrefs === 'object' &&
@@ -197,7 +212,10 @@ interface AppDataContextValue {
   // Event categories stay mock-only for now.
   organisation: Organisation;
   users: UserProfile[];
+  /** Active teams only. Archived rows never feed normal member routes. */
   teams: Team[];
+  /** Archived metadata for church admins only. */
+  archivedTeams: Team[];
   memberships: TeamMembership[];
   categories: EventCategory[];
   /** True when people/teams come from live Supabase rather than mock data. */
@@ -214,6 +232,14 @@ interface AppDataContextValue {
   removeTeamMember: (teamId: string, profileId: string) => Promise<void>;
   /** Remove only the signed-in profile's membership in one team. */
   leaveTeam: (teamId: string) => Promise<void>;
+  /** Create an active team, optionally with one explicit initial team admin. */
+  createTeam: (input: teamsService.CreateTeamInput) => Promise<teamsService.TeamCreationResult>;
+  /** Update one active team's name and description. */
+  updateTeam: (input: teamsService.UpdateTeamInput) => Promise<Team>;
+  /** Soft-archive one active team without deleting child state. */
+  archiveTeam: (teamId: string) => Promise<Team>;
+  /** Restore the same archived team row and retained memberships. */
+  restoreTeam: (teamId: string) => Promise<Team>;
 
   // Profile avatars — the first Supabase Storage slice. avatar_url holds a
   // private-bucket storage path in live mode, so display goes through
@@ -495,6 +521,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     applySessionDirectorySnapshot,
     refreshAccountContext,
   } = useAuth();
+  const sessionUserRef = useRef(user);
+  sessionUserRef.current = user;
+  const authModeRef = useRef(authMode);
+  authModeRef.current = authMode;
   const supabaseProfileId =
     authMode === 'supabase' ? (user?.supabaseProfileId ?? null) : null;
   const liveDataEnabled = isSupabaseConfigured && supabaseProfileId !== null;
@@ -506,6 +536,38 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const chatLive = liveDataEnabled;
   const notificationPrefsLive = liveDataEnabled;
 
+  const teamScopeKey = [
+    authMode ?? 'signed-out',
+    user?.profile.auth_user_id || user?.profile.id || 'no-account',
+    user?.profile.id ?? 'no-profile',
+    user?.profile.organisation_id ?? 'no-organisation',
+  ].join(':');
+  const teamMutationScopeRef = useRef<TeamMutationScope>({
+    key: teamScopeKey,
+    generation: 0,
+  });
+  if (teamMutationScopeRef.current.key !== teamScopeKey) {
+    teamMutationScopeRef.current = {
+      key: teamScopeKey,
+      generation: teamMutationScopeRef.current.generation + 1,
+    };
+  }
+  const providerActiveRef = useRef(true);
+  useEffect(() => {
+    providerActiveRef.current = true;
+    return () => {
+      providerActiveRef.current = false;
+    };
+  }, []);
+  const teamMutationsInFlightRef = useRef(new Set<string>());
+
+  const [localTeams, setLocalTeams] = useState<Team[]>(mockTeams);
+  const localTeamsRef = useRef<Team[]>(mockTeams);
+  localTeamsRef.current = localTeams;
+  const [localMemberships, setLocalMemberships] =
+    useState<TeamMembership[]>(mockMemberships);
+  const localMembershipsRef = useRef<TeamMembership[]>(mockMemberships);
+  localMembershipsRef.current = localMemberships;
   const [localAnnouncements, setLocalAnnouncements] =
     useState<Announcement[]>(mockAnnouncements);
   const [liveAnnouncements, setLiveAnnouncements] = useState<Announcement[]>([]);
@@ -616,6 +678,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         isPersistedAppData,
       );
       if (persisted && !cancelled) {
+        const persistedTeams = persisted.teams ?? mockTeams;
+        const persistedMemberships = persisted.memberships ?? mockMemberships;
+        setLocalTeams(persistedTeams);
+        setLocalMemberships(persistedMemberships);
         setLocalAnnouncements(persisted.announcements);
         setLocalEvents(persisted.events);
         setLocalRotaEntries(persisted.rotaEntries);
@@ -626,13 +692,43 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setLocalChatMessages(persisted.chatMessages);
         setUnreadByTeam(persisted.unreadByTeam);
         setNotificationPrefs(persisted.notificationPrefs);
+        const currentUser = sessionUserRef.current;
+        if (authModeRef.current === 'demo' && currentUser) {
+          applySessionDirectorySnapshot(currentUser.profile.id, {
+            profile: currentUser.profile,
+            orgRole: currentUser.orgRole,
+            memberships: activeMembershipsForProfile(
+              persistedMemberships,
+              persistedTeams,
+              currentUser.profile.id,
+            ),
+          });
+        }
       }
       if (!cancelled) setIsHydrated(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applySessionDirectorySnapshot]);
+
+  // AppData usually hydrates before a demo account is selected. Reconcile the
+  // eventual demo session from the persisted canonical team state so a team
+  // created in an earlier run appears in My Teams only when this profile was
+  // explicitly selected as its initial admin.
+  useEffect(() => {
+    const demoUser = sessionUserRef.current;
+    if (!isHydrated || authMode !== 'demo' || !demoUser) return;
+    applySessionDirectorySnapshot(demoUser.profile.id, {
+      profile: demoUser.profile,
+      orgRole: demoUser.orgRole,
+      memberships: activeMembershipsForProfile(
+        localMembershipsRef.current,
+        localTeamsRef.current,
+        demoUser.profile.id,
+      ),
+    });
+  }, [applySessionDirectorySnapshot, authMode, isHydrated, user?.orgRole, user?.profile.id]);
 
   // Persist demo changes (debounced) after hydration.
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -640,6 +736,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (!isHydrated) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const snapshot: PersistedAppData = {
+      teams: localTeams,
+      memberships: localMemberships,
       announcements: localAnnouncements,
       events: localEvents,
       rotaEntries: localRotaEntries,
@@ -659,6 +757,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     };
   }, [
     isHydrated,
+    localTeams,
+    localMemberships,
     localAnnouncements,
     localEvents,
     localRotaEntries,
@@ -674,6 +774,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const resetDemoData = useCallback(async () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     await clearPersisted(STORAGE_KEYS.appData);
+    setLocalTeams(mockTeams);
+    setLocalMemberships(mockMemberships);
     setLocalAnnouncements(mockAnnouncements);
     setLocalEvents(mockEvents);
     setLocalRotaEntries(mockRotaEntries);
@@ -684,7 +786,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setLocalChatMessages(mockChatMessages);
     setUnreadByTeam(mockUnreadByTeam);
     setNotificationPrefs({});
-  }, []);
+    if (authMode === 'demo' && user) {
+      applySessionDirectorySnapshot(user.profile.id, {
+        profile: user.profile,
+        orgRole: user.orgRole,
+        memberships: activeMembershipsForProfile(
+          mockMemberships,
+          mockTeams,
+          user.profile.id,
+        ),
+      });
+    }
+  }, [applySessionDirectorySnapshot, authMode, user]);
 
   const now = () => new Date().toISOString();
 
@@ -1036,12 +1149,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const commitLiveDirectory = useCallback(
     (directory: teamsService.TeamsDirectory, profileId: string) => {
       if (!liveDataEnabledRef.current || supabaseProfileIdRef.current !== profileId) return;
-      liveDirectoryRef.current = directory;
-      setLiveDirectory(directory);
+      const nextDirectory = retainKnownArchivedMemberships(
+        liveDirectoryRef.current,
+        directory,
+      );
+      liveDirectoryRef.current = nextDirectory;
+      setLiveDirectory(nextDirectory);
       applySessionDirectorySnapshot(profileId, {
-        profile: directory.users.find((profile) => profile.id === profileId),
-        orgRole: directory.currentOrgRole,
-        memberships: membershipsForProfile(directory.memberships, profileId),
+        profile: nextDirectory.users.find((profile) => profile.id === profileId),
+        orgRole: nextDirectory.currentOrgRole,
+        memberships: activeMembershipsForProfile(
+          nextDirectory.memberships,
+          nextDirectory.teams,
+          profileId,
+        ),
       });
     },
     [applySessionDirectorySnapshot],
@@ -1103,7 +1224,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         applySessionDirectorySnapshot(profileId, {
           profile: nextDirectory.users.find((profile) => profile.id === profileId),
           orgRole: nextDirectory.currentOrgRole,
-          memberships: membershipsForProfile(memberships, profileId),
+          memberships: activeMembershipsForProfile(
+            memberships,
+            nextDirectory.teams,
+            profileId,
+          ),
         });
       }
     },
@@ -1172,6 +1297,287 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       queueSharedRefreshRef.current(['directory']);
     },
     [liveDataEnabled, commitMemberships],
+  );
+
+  const runTeamMutation = useCallback(
+    async <T,>(
+      key: string,
+      task: (isCurrent: () => boolean) => Promise<T>,
+    ): Promise<T> => {
+      const capturedScope = { ...teamMutationScopeRef.current };
+      const scopedKey = `${capturedScope.generation}:${capturedScope.key}:${key}`;
+      if (teamMutationsInFlightRef.current.has(scopedKey)) {
+        throw new Error(teamsService.TEAM_LIFECYCLE_CONFLICT_ERROR);
+      }
+      const isCurrent = () =>
+        providerActiveRef.current &&
+        sameTeamMutationScope(capturedScope, teamMutationScopeRef.current);
+      teamMutationsInFlightRef.current.add(scopedKey);
+      try {
+        const result = await task(isCurrent);
+        if (!isCurrent()) {
+          throw new Error(teamsService.TEAM_LIFECYCLE_CONFLICT_ERROR);
+        }
+        return result;
+      } finally {
+        teamMutationsInFlightRef.current.delete(scopedKey);
+      }
+    },
+    [],
+  );
+
+  const commitDemoTeamDirectory = useCallback(
+    (nextTeams: Team[], nextMemberships: TeamMembership[], profileId: string) => {
+      localTeamsRef.current = nextTeams;
+      localMembershipsRef.current = nextMemberships;
+      setLocalTeams(nextTeams);
+      setLocalMemberships(nextMemberships);
+      const currentUser = sessionUserRef.current;
+      if (currentUser?.profile.id === profileId) {
+        applySessionDirectorySnapshot(profileId, {
+          profile: currentUser.profile,
+          orgRole: currentUser.orgRole,
+          memberships: activeMembershipsForProfile(
+            nextMemberships,
+            nextTeams,
+            profileId,
+          ),
+        });
+      }
+    },
+    [applySessionDirectorySnapshot],
+  );
+
+  const createTeam: AppDataContextValue['createTeam'] = useCallback(
+    async (input) => {
+      const currentUser = sessionUserRef.current;
+      if (!currentUser || currentUser.orgRole !== 'church_admin') {
+        throw new Error(teamsService.TEAM_LIFECYCLE_PERMISSION_ERROR);
+      }
+      return runTeamMutation('team:create', async (isCurrent) => {
+        if (authModeRef.current === 'demo') {
+          const draft = teamsService.normaliseTeamDraft(input);
+          const selectedProfile = input.initialAdminProfileId
+            ? mockUsers.find(
+                (profile) =>
+                  profile.id === input.initialAdminProfileId &&
+                  profile.organisation_id === currentUser.profile.organisation_id &&
+                  profile.access_status === 'active' &&
+                  !!profile.auth_user_id.trim(),
+              )
+            : null;
+          if (input.initialAdminProfileId && !selectedProfile) {
+            throw new Error(teamsService.TEAM_LIFECYCLE_INVALID_INITIAL_ADMIN_ERROR);
+          }
+          const createdAt = now();
+          const team: Team = {
+            id: makeId('team'),
+            organisation_id: currentUser.profile.organisation_id,
+            name: draft.name,
+            description: draft.description ?? '',
+            type: 'generic',
+            avatar_url: null,
+            archived_at: null,
+            archived_by: null,
+            created_at: createdAt,
+          };
+          const initialAdminMembership: TeamMembership | null = selectedProfile
+            ? {
+                id: makeId('tm'),
+                team_id: team.id,
+                user_id: selectedProfile.id,
+                role: 'team_leader',
+                created_at: createdAt,
+              }
+            : null;
+          const nextTeams = upsertTeam(localTeamsRef.current, team);
+          const nextMemberships = initialAdminMembership
+            ? upsertMembership(localMembershipsRef.current, initialAdminMembership)
+            : localMembershipsRef.current;
+          commitDemoTeamDirectory(
+            nextTeams,
+            nextMemberships,
+            currentUser.profile.id,
+          );
+          return { team, initialAdminMembership };
+        }
+
+        if (!liveDataEnabledRef.current || !supabaseProfileIdRef.current) {
+          throw new Error(teamsService.TEAM_LIFECYCLE_DEMO_ERROR);
+        }
+        const requestProfileId = supabaseProfileIdRef.current;
+        return publishScopedTeamMutation({
+          request: () => teamsService.createTeam(input),
+          isCurrent,
+          commit: (result) => {
+            const directory = liveDirectoryRef.current;
+            if (directory) {
+              commitLiveDirectory(applyTeamCreation(directory, result), requestProfileId);
+            }
+          },
+          queueRefresh: () => queueSharedRefreshRef.current(['directory']),
+          staleError: () => new Error(teamsService.TEAM_LIFECYCLE_CONFLICT_ERROR),
+        });
+      });
+    },
+    [commitDemoTeamDirectory, commitLiveDirectory, runTeamMutation],
+  );
+
+  const updateTeam: AppDataContextValue['updateTeam'] = useCallback(
+    async (input) => {
+      const currentUser = sessionUserRef.current;
+      if (!currentUser || currentUser.orgRole !== 'church_admin') {
+        throw new Error(teamsService.TEAM_LIFECYCLE_PERMISSION_ERROR);
+      }
+      return runTeamMutation(`team:${input.teamId}`, async (isCurrent) => {
+        if (authModeRef.current === 'demo') {
+          const existing = localTeamsRef.current.find((team) => team.id === input.teamId);
+          if (!existing || existing.organisation_id !== currentUser.profile.organisation_id) {
+            throw new Error(teamsService.TEAM_LIFECYCLE_NOT_FOUND_ERROR);
+          }
+          if (existing.archived_at !== null) {
+            throw new Error(teamsService.TEAM_LIFECYCLE_ARCHIVED_ERROR);
+          }
+          const draft = teamsService.normaliseTeamDraft(input);
+          const updated: Team = {
+            ...existing,
+            name: draft.name,
+            description: draft.description ?? '',
+          };
+          commitDemoTeamDirectory(
+            upsertTeam(localTeamsRef.current, updated),
+            localMembershipsRef.current,
+            currentUser.profile.id,
+          );
+          return updated;
+        }
+
+        if (!liveDataEnabledRef.current || !supabaseProfileIdRef.current) {
+          throw new Error(teamsService.TEAM_LIFECYCLE_DEMO_ERROR);
+        }
+        const requestProfileId = supabaseProfileIdRef.current;
+        return publishScopedTeamMutation({
+          request: () => teamsService.updateTeam(input),
+          isCurrent,
+          commit: (updated) => {
+            const directory = liveDirectoryRef.current;
+            if (directory) {
+              commitLiveDirectory(
+                applyTeamLifecycleTeam(directory, updated),
+                requestProfileId,
+              );
+            }
+          },
+          queueRefresh: () => queueSharedRefreshRef.current(['directory']),
+          staleError: () => new Error(teamsService.TEAM_LIFECYCLE_CONFLICT_ERROR),
+        });
+      });
+    },
+    [commitDemoTeamDirectory, commitLiveDirectory, runTeamMutation],
+  );
+
+  const archiveTeam: AppDataContextValue['archiveTeam'] = useCallback(
+    async (teamId) => {
+      const currentUser = sessionUserRef.current;
+      if (!currentUser || currentUser.orgRole !== 'church_admin') {
+        throw new Error(teamsService.TEAM_LIFECYCLE_PERMISSION_ERROR);
+      }
+      return runTeamMutation(`team:${teamId}`, async (isCurrent) => {
+        if (authModeRef.current === 'demo') {
+          const existing = localTeamsRef.current.find((team) => team.id === teamId);
+          if (!existing || existing.organisation_id !== currentUser.profile.organisation_id) {
+            throw new Error(teamsService.TEAM_LIFECYCLE_NOT_FOUND_ERROR);
+          }
+          if (existing.archived_at !== null) {
+            throw new Error(teamsService.TEAM_LIFECYCLE_ALREADY_ARCHIVED_ERROR);
+          }
+          const archived: Team = {
+            ...existing,
+            archived_at: now(),
+            archived_by: currentUser.profile.id,
+          };
+          commitDemoTeamDirectory(
+            upsertTeam(localTeamsRef.current, archived),
+            localMembershipsRef.current,
+            currentUser.profile.id,
+          );
+          return archived;
+        }
+
+        if (!liveDataEnabledRef.current || !supabaseProfileIdRef.current) {
+          throw new Error(teamsService.TEAM_LIFECYCLE_DEMO_ERROR);
+        }
+        const requestProfileId = supabaseProfileIdRef.current;
+        return publishScopedTeamMutation({
+          request: () => teamsService.archiveTeam(teamId),
+          isCurrent,
+          commit: (archived) => {
+            const directory = liveDirectoryRef.current;
+            if (directory) {
+              commitLiveDirectory(
+                applyTeamLifecycleTeam(directory, archived),
+                requestProfileId,
+              );
+            }
+          },
+          queueRefresh: () => queueSharedRefreshRef.current(['directory']),
+          staleError: () => new Error(teamsService.TEAM_LIFECYCLE_CONFLICT_ERROR),
+        });
+      });
+    },
+    [commitDemoTeamDirectory, commitLiveDirectory, runTeamMutation],
+  );
+
+  const restoreTeam: AppDataContextValue['restoreTeam'] = useCallback(
+    async (teamId) => {
+      const currentUser = sessionUserRef.current;
+      if (!currentUser || currentUser.orgRole !== 'church_admin') {
+        throw new Error(teamsService.TEAM_LIFECYCLE_PERMISSION_ERROR);
+      }
+      return runTeamMutation(`team:${teamId}`, async (isCurrent) => {
+        if (authModeRef.current === 'demo') {
+          const existing = localTeamsRef.current.find((team) => team.id === teamId);
+          if (!existing || existing.organisation_id !== currentUser.profile.organisation_id) {
+            throw new Error(teamsService.TEAM_LIFECYCLE_NOT_FOUND_ERROR);
+          }
+          if (existing.archived_at === null) {
+            throw new Error(teamsService.TEAM_LIFECYCLE_NOT_ARCHIVED_ERROR);
+          }
+          const restored: Team = {
+            ...existing,
+            archived_at: null,
+            archived_by: null,
+          };
+          commitDemoTeamDirectory(
+            upsertTeam(localTeamsRef.current, restored),
+            localMembershipsRef.current,
+            currentUser.profile.id,
+          );
+          return restored;
+        }
+
+        if (!liveDataEnabledRef.current || !supabaseProfileIdRef.current) {
+          throw new Error(teamsService.TEAM_LIFECYCLE_DEMO_ERROR);
+        }
+        const requestProfileId = supabaseProfileIdRef.current;
+        return publishScopedTeamMutation({
+          request: () => teamsService.restoreTeam(teamId),
+          isCurrent,
+          commit: (restored) => {
+            const directory = liveDirectoryRef.current;
+            if (directory) {
+              commitLiveDirectory(
+                applyTeamLifecycleTeam(directory, restored),
+                requestProfileId,
+              );
+            }
+          },
+          queueRefresh: () => queueSharedRefreshRef.current(['directory']),
+          staleError: () => new Error(teamsService.TEAM_LIFECYCLE_CONFLICT_ERROR),
+        });
+      });
+    },
+    [commitDemoTeamDirectory, commitLiveDirectory, runTeamMutation],
   );
 
   // Load the live directory when a Supabase session appears; clear it (and
@@ -1325,7 +1731,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     return [
       ...new Set(
         (liveDirectory?.teams ?? []).flatMap((team) =>
-          team.avatar_url ? [team.avatar_url] : [],
+          team.archived_at === null && team.avatar_url ? [team.avatar_url] : [],
         ),
       ),
     ].sort();
@@ -1387,16 +1793,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const patchLiveTeamAvatar = useCallback((teamId: string, avatarPath: string | null) => {
-    setLiveDirectory((prev) =>
-      prev
-        ? {
-            ...prev,
-            teams: prev.teams.map((team) =>
-              team.id === teamId ? { ...team, avatar_url: avatarPath } : team,
-            ),
-          }
-        : prev,
-    );
+    const directory = liveDirectoryRef.current;
+    if (!directory) return;
+    const nextDirectory = {
+      ...directory,
+      teams: directory.teams.map((team) =>
+        team.id === teamId ? { ...team, avatar_url: avatarPath } : team,
+      ),
+    };
+    liveDirectoryRef.current = nextDirectory;
+    setLiveDirectory(nextDirectory);
   }, []);
 
   const setTeamAvatar: AppDataContextValue['setTeamAvatar'] = useCallback(
@@ -1406,6 +1812,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
       const team = liveDirectoryRef.current?.teams.find((candidate) => candidate.id === teamId);
       if (!team) throw new Error("We couldn't find that team right now.");
+      if (team.archived_at !== null) {
+        throw new Error(teamsService.TEAM_LIFECYCLE_ARCHIVED_ERROR);
+      }
       const newPath = await teamAvatarsService.uploadTeamAvatar(
         teamId,
         team.avatar_url,
@@ -1423,6 +1832,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
       const team = liveDirectoryRef.current?.teams.find((candidate) => candidate.id === teamId);
       if (!team) throw new Error("We couldn't find that team right now.");
+      if (team.archived_at !== null) {
+        throw new Error(teamsService.TEAM_LIFECYCLE_ARCHIVED_ERROR);
+      }
       await teamAvatarsService.removeTeamAvatar(teamId, team.avatar_url);
       patchLiveTeamAvatar(teamId, null);
     },
@@ -2361,6 +2773,26 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   });
   queueSharedRefreshRef.current = invalidateSharedDomains;
 
+  const canonicalTeams = useMemo(
+    () => (teamsLive ? (liveDirectory?.teams ?? []) : localTeams),
+    [teamsLive, liveDirectory, localTeams],
+  );
+  const activeTeams = useMemo(
+    () => canonicalTeams.filter((team) => team.archived_at === null),
+    [canonicalTeams],
+  );
+  const adminArchivedTeams = useMemo(
+    () =>
+      user?.orgRole === 'church_admin'
+        ? canonicalTeams.filter(
+            (team) =>
+              team.organisation_id === user.profile.organisation_id &&
+              team.archived_at !== null,
+          )
+        : [],
+    [canonicalTeams, user],
+  );
+
   const value = useMemo<AppDataContextValue>(
     () => ({
       isHydrated,
@@ -2369,8 +2801,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       // data in demo mode. Categories stay mock in both modes for now.
       organisation: teamsLive ? (liveDirectory?.organisation ?? mockOrganisation) : mockOrganisation,
       users: teamsLive ? (liveDirectory?.users ?? []) : mockUsers,
-      teams: teamsLive ? (liveDirectory?.teams ?? []) : mockTeams,
-      memberships: teamsLive ? (liveDirectory?.memberships ?? []) : mockMemberships,
+      teams: activeTeams,
+      archivedTeams: adminArchivedTeams,
+      memberships: teamsLive ? (liveDirectory?.memberships ?? []) : localMemberships,
       categories: mockCategories,
       teamsLive,
       teamsLoading,
@@ -2379,6 +2812,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       addTeamMember,
       removeTeamMember,
       leaveTeam,
+      createTeam,
+      updateTeam,
+      archiveTeam,
+      restoreTeam,
       getAvatarUri,
       setOwnAvatar,
       removeOwnAvatar,
@@ -2464,12 +2901,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       isHydrated,
       teamsLive,
       liveDirectory,
+      activeTeams,
+      adminArchivedTeams,
+      localMemberships,
       teamsLoading,
       teamsError,
       refreshTeams,
       addTeamMember,
       removeTeamMember,
       leaveTeam,
+      createTeam,
+      updateTeam,
+      archiveTeam,
+      restoreTeam,
       getAvatarUri,
       setOwnAvatar,
       removeOwnAvatar,

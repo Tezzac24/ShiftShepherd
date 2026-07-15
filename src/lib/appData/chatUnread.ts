@@ -19,12 +19,21 @@ export type UnreadByTeam = Record<string, number>;
  * unexpected cross-organisation directory row ever appears.
  */
 export function accessibleChatTeamIds(user: SessionUser, teams: Team[]): string[] {
+  const activeOwnOrganisationTeamIds = new Set(
+    teams
+      .filter(
+        (team) =>
+          team.organisation_id === user.profile.organisation_id &&
+          team.archived_at === null,
+      )
+      .map((team) => team.id),
+  );
   const ids =
     user.orgRole === 'church_admin'
-      ? teams
-          .filter((team) => team.organisation_id === user.profile.organisation_id)
-          .map((team) => team.id)
-      : user.memberships.map((membership) => membership.team_id);
+      ? [...activeOwnOrganisationTeamIds]
+      : user.memberships
+          .map((membership) => membership.team_id)
+          .filter((teamId) => activeOwnOrganisationTeamIds.has(teamId));
   return [...new Set(ids)].sort();
 }
 
