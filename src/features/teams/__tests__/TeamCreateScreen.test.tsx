@@ -15,6 +15,22 @@ jest.mock('expo-router', () => ({
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
 jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn() }));
 jest.mock('../useTeamAvatarDraft', () => ({ useTeamAvatarDraft: jest.fn() }));
+// Screen tests exercise form behavior, not react-native-paper's delayed label
+// animation. A native input keeps the suite deterministic and avoids timers
+// firing after Testing Library has already cleaned up the rendered screen.
+jest.mock('../../../components/TextField', () => {
+  const React = require('react');
+  const { Text, TextInput, View } = require('react-native');
+  return {
+    TextField: ({ label, error, ...props }: { label: string; error?: string }) =>
+      React.createElement(
+        View,
+        null,
+        React.createElement(TextInput, { accessibilityLabel: label, ...props }),
+        error ? React.createElement(Text, null, error) : null,
+      ),
+  };
+});
 const mockToast = jest.fn();
 jest.mock('../../../components/Toast', () => ({ useToast: () => mockToast }));
 jest.mock('react-native-safe-area-context', () => ({
