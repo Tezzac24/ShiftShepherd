@@ -19,8 +19,10 @@ jest.mock('../useTeamAvatarDraft', () => ({ useTeamAvatarDraft: jest.fn() }));
 // animation. A native input keeps the suite deterministic and avoids timers
 // firing after Testing Library has already cleaned up the rendered screen.
 jest.mock('../../../components/TextField', () => {
-  const React = require('react');
-  const { Text, TextInput, View } = require('react-native');
+  const React = jest.requireActual<typeof import('react')>('react');
+  const { Text, TextInput, View } = jest.requireActual<typeof import('react-native')>(
+    'react-native',
+  );
   return {
     TextField: ({ label, error, ...props }: { label: string; error?: string }) =>
       React.createElement(
