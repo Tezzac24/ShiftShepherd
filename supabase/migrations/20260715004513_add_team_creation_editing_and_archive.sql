@@ -319,6 +319,51 @@ create policy "uploaders delete their own chat image objects"
     )
   );
 
+-- Announcement uploaders historically retain an orphan-cleanup escape hatch
+-- after an announcement row or replaced image reference is gone. Keep that
+-- cleanup behavior, but do not let ownership alone remove an image still
+-- referenced by an archived team announcement. Active editors continue to
+-- authorize through can_manage_team, which now rejects archived teams.
+drop policy if exists "announcement editors delete announcement image objects"
+  on storage.objects;
+create policy "announcement editors delete announcement image objects"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'announcement-images'
+    and (storage.foldername(name))[1] = 'announcements'
+    and (
+      (
+        owner_id = (select auth.uid()::text)
+        and not exists (
+          select 1
+          from public.announcements announcement
+          where announcement.image_url = name
+        )
+      )
+      or exists (
+        select 1
+        from public.announcements announcement
+        where announcement.id::text = (storage.foldername(name))[2]
+          and (
+            (
+              announcement.team_id is null
+              and (
+                public.is_church_admin(announcement.organisation_id)
+                or public.has_org_role(
+                  announcement.organisation_id,
+                  'announcement_manager'
+                )
+              )
+            )
+            or (
+              announcement.team_id is not null
+              and public.can_manage_team(announcement.team_id)
+            )
+          )
+      )
+    )
+  );
+
 -- ---------------------------------------------------------------------------
 -- 3. Church-admin team lifecycle RPCs.
 -- ---------------------------------------------------------------------------

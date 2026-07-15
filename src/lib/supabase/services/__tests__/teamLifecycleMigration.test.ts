@@ -181,7 +181,7 @@ describe('team creation, editing, and archive migration contract', () => {
     expect(normalized).toContain('drop policy if exists "church admins manage teams"');
   });
 
-  it('keeps archived team-linked events and chat images from active mutation', () => {
+  it('keeps archived team-linked events and referenced images from active mutation', () => {
     expect(normalized).toContain(
       '(team_id is null or public.team_org(team_id) = organisation_id)',
     );
@@ -190,6 +190,11 @@ describe('team creation, editing, and archive migration contract', () => {
     );
     expect(normalized).toContain('not exists (');
     expect(normalized).toContain('attachment.file_url = name');
+    expect(normalized).toContain(
+      'drop policy if exists "announcement editors delete announcement image objects"',
+    );
+    expect(normalized).toContain('announcement.image_url = name');
+    expect(normalized).toContain('public.can_manage_team(announcement.team_id)');
   });
 
   it('exposes only the four lifecycle RPCs to authenticated and no service role', () => {
