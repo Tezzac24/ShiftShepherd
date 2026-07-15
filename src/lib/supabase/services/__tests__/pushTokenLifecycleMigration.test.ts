@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 const MIGRATIONS = join(process.cwd(), 'supabase/migrations');
 const NAME = '20260714200205_add_push_token_revocation.sql';
+const TEAM_LIFECYCLE = '20260715004513_add_team_creation_editing_and_archive.sql';
 
 function text(path: string): string {
   return readFileSync(path, 'utf8');
@@ -22,11 +23,12 @@ describe('push token lifecycle migration contract', () => {
   const normalized = migration.toLowerCase();
   const unregister = functionSql(migration, 'unregister_push_token');
 
-  it('is exactly one additive migration after the deployed 30-migration baseline', () => {
+  it('remains immediately before the local-only team lifecycle migration', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(31);
-    expect(files.at(-1)).toBe(NAME);
-    expect(files.at(-2)).toBe(
+    expect(files).toHaveLength(32);
+    expect(files.at(-1)).toBe(TEAM_LIFECYCLE);
+    expect(files.at(-2)).toBe(NAME);
+    expect(files.at(-3)).toBe(
       '20260712103321_add_organisation_membership_role_management.sql',
     );
   });

@@ -128,6 +128,10 @@ export interface Team {
   type: TeamType;
   /** Private team-avatars storage path in live mode; null in demo mode. */
   avatar_url: string | null;
+  /** Null while active; set by the server when a church admin soft-archives the team. */
+  archived_at: string | null;
+  /** Archiving church-admin profile; may be null after attribution cleanup. */
+  archived_by: ID | null;
   created_at: string;
 }
 

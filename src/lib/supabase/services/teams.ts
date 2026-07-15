@@ -1,23 +1,9 @@
 /**
- * Teams & people service — the third live Supabase feature-data slice.
+ * Live people/team directory and church-admin team lifecycle service.
  *
- * This service remains read-only and fetches the directory the app renders.
- * Narrow membership writes live separately in teamMemberships.ts; team
- * creation, profile creation, and role editing remain outside the app. It returns
- * the caller's organisation, the profiles they may see, their visible teams,
- * and those teams' memberships. RLS scopes every query:
- *
- *  - organisation + profiles + organisation roles: any member of the same
- *    organisation may read them;
- *  - teams: only teams the caller belongs to (church admins see every team);
- *  - team memberships: memberships of accessible teams, plus the caller's own.
- *
- * Migration 006 grants `authenticated` SELECT on all five tables; there are
- * deliberately no insert/update/delete grants here. No service-role keys;
- * anonymous sessions can read nothing.
- *
- * Rows map one-to-one onto the app types (same names, snake_case), so ids
- * stay real database UUIDs end-to-end — no mock-id bridging in live mode.
+ * Directory reads stay RLS-scoped. Team create/update/archive/restore writes
+ * use narrow SECURITY DEFINER RPCs that derive Auth identity, active profile,
+ * organisation, and church-admin authority entirely on the server.
  */
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -32,22 +18,68 @@ import {
 } from '../../../types';
 import { getSupabase } from '../client';
 
-// Friendly, non-technical messages — shown directly in the UI.
-const LOAD_ERROR = 'We couldn’t load your teams right now. Please try again.';
-const OFFLINE_ERROR = 'We couldn’t reach the server. Please check your connection and try again.';
+export const TEAM_NAME_MAX_LENGTH = 100;
+export const TEAM_DESCRIPTION_MAX_LENGTH = 500;
+
+export const TEAM_LIFECYCLE_DEMO_ERROR =
+  'Team management is available with your church account.';
+export const TEAM_LIFECYCLE_PERMISSION_ERROR =
+  'Only a church admin can manage teams.';
+export const TEAM_LIFECYCLE_NOT_FOUND_ERROR =
+  "We couldn't find that team in your church right now.";
+export const TEAM_LIFECYCLE_INVALID_NAME_ERROR =
+  `Enter a team name between 1 and ${TEAM_NAME_MAX_LENGTH} characters.`;
+export const TEAM_LIFECYCLE_INVALID_DESCRIPTION_ERROR =
+  `Keep the team description to ${TEAM_DESCRIPTION_MAX_LENGTH} characters or fewer.`;
+export const TEAM_LIFECYCLE_INVALID_INITIAL_ADMIN_ERROR =
+  'That person is no longer available to be the initial team admin. Choose someone else or create the team without one.';
+export const TEAM_LIFECYCLE_ARCHIVED_ERROR =
+  'Restore this team before changing it.';
+export const TEAM_LIFECYCLE_ALREADY_ARCHIVED_ERROR =
+  'This team has already been archived.';
+export const TEAM_LIFECYCLE_NOT_ARCHIVED_ERROR =
+  'This team is already active.';
+export const TEAM_LIFECYCLE_CONFLICT_ERROR =
+  'Something changed while you were saving. Please review the team and try again.';
+export const TEAM_LIFECYCLE_OFFLINE_ERROR =
+  "We couldn't reach the server. Please check your connection and try again.";
+export const TEAM_LIFECYCLE_SETUP_ERROR =
+  'Team management is not switched on for your church yet. Please try again after the next update.';
+
+const LOAD_ERROR = "We couldn't load your teams right now. Please try again.";
+const CREATE_ERROR = "We couldn't create this team right now. Please try again.";
+const UPDATE_ERROR = "We couldn't update this team right now. Please try again.";
+const ARCHIVE_ERROR = "We couldn't archive this team right now. Please try again.";
+const RESTORE_ERROR = "We couldn't restore this team right now. Please try again.";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Everything the app needs to render people/team context in live mode. */
 export interface TeamsDirectory {
-  /** The caller's organisation (null only if RLS returns nothing — unlinked). */
   organisation: Organisation | null;
-  /** Profiles in the caller's organisation, sorted by name. */
   users: UserProfile[];
-  /** Teams the caller may see (their own; admins see all), sorted by name. */
+  /** Active plus archived metadata visible under RLS; selectors split them. */
   teams: Team[];
-  /** Memberships of the visible teams (plus the caller's own). */
   memberships: TeamMembership[];
-  /** The current profile's organisation authority, refreshed with the directory. */
   currentOrgRole: OrganisationRoleName;
+}
+
+export interface CreateTeamInput {
+  name: string;
+  description: string | null;
+  initialAdminProfileId: string | null;
+}
+
+export interface UpdateTeamInput {
+  teamId: string;
+  name: string;
+  description: string | null;
+}
+
+export interface TeamCreationResult {
+  team: Team;
+  /** Exactly one row when an initial admin was selected; otherwise null. */
+  initialAdminMembership: TeamMembership | null;
 }
 
 interface OrganisationRow {
@@ -81,6 +113,8 @@ interface TeamRow {
   description: string;
   type: TeamType;
   avatar_url: string | null;
+  archived_at: string | null;
+  archived_by: string | null;
   created_at: string;
 }
 
@@ -92,36 +126,51 @@ interface MembershipRow {
   created_at: string;
 }
 
+interface TeamLifecycleRpcRow {
+  team_id: string;
+  organisation_id: string;
+  team_name: string;
+  team_description: string;
+  team_type: TeamType;
+  avatar_url: string | null;
+  archived_at: string | null;
+  archived_by: string | null;
+  created_at: string;
+  initial_admin_membership_id?: string | null;
+  initial_admin_profile_id?: string | null;
+  initial_admin_role?: TeamRole | null;
+  initial_admin_created_at?: string | null;
+}
+
 function requireClient(): SupabaseClient {
   const supabase = getSupabase();
-  if (!supabase) {
-    // Callers only reach this service in live mode, so this is a programming
-    // error — but fail with a calm message rather than crashing.
-    throw new Error(OFFLINE_ERROR);
-  }
+  if (!supabase) throw new Error(TEAM_LIFECYCLE_OFFLINE_ERROR);
   return supabase;
 }
 
-function isNetworkError(error: unknown): boolean {
-  const message =
-    error instanceof Error ? error.message : String((error as { message?: string })?.message ?? '');
-  return /fetch|network|timeout/i.test(message);
+function messageOf(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : String((error as { message?: string })?.message ?? '');
 }
 
-/** Log the technical error, throw the friendly one. */
-function fail(operation: string, error: unknown): never {
-  console.warn(`[teams] ${operation} failed`, error);
-  if (error instanceof Error && (error.message === LOAD_ERROR || error.message === OFFLINE_ERROR)) {
-    throw error;
-  }
-  if (isNetworkError(error)) throw new Error(OFFLINE_ERROR);
-  throw new Error(LOAD_ERROR);
+function isNetworkError(error: unknown): boolean {
+  return /fetch|network|timeout/i.test(messageOf(error));
+}
+
+function isMissingFunctionError(error: unknown): boolean {
+  const code = (error as { code?: string })?.code;
+  const message = messageOf(error);
+  return (
+    code === 'PGRST202' ||
+    code === '42883' ||
+    /could not find the function|function .* does not exist/i.test(message)
+  );
 }
 
 function toAppProfile(row: ProfileRow): UserProfile {
   return {
     id: row.id,
-    // Seeded demo profiles may not be linked to an auth user yet.
     auth_user_id: row.auth_user_id ?? '',
     organisation_id: row.organisation_id,
     full_name: row.full_name,
@@ -137,10 +186,129 @@ function toAppProfile(row: ProfileRow): UserProfile {
   };
 }
 
-/**
- * Fetch the live people/teams directory for the signed-in user. RLS does all
- * the filtering; the queries just ask for everything visible.
- */
+function isTeamType(value: unknown): value is TeamType {
+  return value === 'generic' || value === 'choir' || value === 'media';
+}
+
+function isNullableUuid(value: unknown): value is string | null {
+  return value === null || (typeof value === 'string' && UUID_PATTERN.test(value));
+}
+
+function toTeam(row: TeamLifecycleRpcRow, expectedTeamId?: string): Team {
+  if (
+    !UUID_PATTERN.test(row.team_id) ||
+    (expectedTeamId !== undefined && row.team_id !== expectedTeamId) ||
+    !UUID_PATTERN.test(row.organisation_id) ||
+    typeof row.team_name !== 'string' ||
+    !row.team_name.trim() ||
+    row.team_name.length > TEAM_NAME_MAX_LENGTH ||
+    typeof row.team_description !== 'string' ||
+    row.team_description.length > TEAM_DESCRIPTION_MAX_LENGTH ||
+    !isTeamType(row.team_type) ||
+    (row.avatar_url !== null && typeof row.avatar_url !== 'string') ||
+    (row.archived_at !== null && typeof row.archived_at !== 'string') ||
+    !isNullableUuid(row.archived_by) ||
+    typeof row.created_at !== 'string' ||
+    !row.created_at
+  ) {
+    throw new Error('INVALID_TEAM_RESPONSE');
+  }
+  return {
+    id: row.team_id,
+    organisation_id: row.organisation_id,
+    name: row.team_name,
+    description: row.team_description,
+    type: row.team_type,
+    avatar_url: row.avatar_url,
+    archived_at: row.archived_at,
+    archived_by: row.archived_by,
+    created_at: row.created_at,
+  };
+}
+
+function oneRpcRow(data: unknown): TeamLifecycleRpcRow {
+  const value = Array.isArray(data) ? (data.length === 1 ? data[0] : null) : data;
+  if (!value || typeof value !== 'object') throw new Error('INVALID_TEAM_RESPONSE');
+  return value as TeamLifecycleRpcRow;
+}
+
+export function normaliseTeamDraft(input: Pick<CreateTeamInput, 'name' | 'description'>): {
+  name: string;
+  description: string | null;
+} {
+  const name = input.name.trim();
+  const description = input.description?.trim() ?? '';
+  if (!name || name.length > TEAM_NAME_MAX_LENGTH) {
+    throw new Error(TEAM_LIFECYCLE_INVALID_NAME_ERROR);
+  }
+  if (description.length > TEAM_DESCRIPTION_MAX_LENGTH) {
+    throw new Error(TEAM_LIFECYCLE_INVALID_DESCRIPTION_ERROR);
+  }
+  return { name, description: description || null };
+}
+
+type LifecycleOperation = 'create' | 'update' | 'archive' | 'restore';
+
+function friendlyLifecycleError(operation: LifecycleOperation, error: unknown): Error {
+  const message = messageOf(error);
+  const known = [
+    TEAM_LIFECYCLE_DEMO_ERROR,
+    TEAM_LIFECYCLE_PERMISSION_ERROR,
+    TEAM_LIFECYCLE_NOT_FOUND_ERROR,
+    TEAM_LIFECYCLE_INVALID_NAME_ERROR,
+    TEAM_LIFECYCLE_INVALID_DESCRIPTION_ERROR,
+    TEAM_LIFECYCLE_INVALID_INITIAL_ADMIN_ERROR,
+    TEAM_LIFECYCLE_ARCHIVED_ERROR,
+    TEAM_LIFECYCLE_ALREADY_ARCHIVED_ERROR,
+    TEAM_LIFECYCLE_NOT_ARCHIVED_ERROR,
+    TEAM_LIFECYCLE_CONFLICT_ERROR,
+    TEAM_LIFECYCLE_OFFLINE_ERROR,
+    TEAM_LIFECYCLE_SETUP_ERROR,
+  ];
+  if (error instanceof Error && known.includes(error.message)) return error;
+  if (isMissingFunctionError(error)) return new Error(TEAM_LIFECYCLE_SETUP_ERROR);
+  if (isNetworkError(error)) return new Error(TEAM_LIFECYCLE_OFFLINE_ERROR);
+  if (
+    /NOT_AUTHENTICATED|NO_LINKED_PROFILE|ORGANISATION_ACCESS_REMOVED|NOT_AUTHORISED|permission|row-level security/i.test(
+      message,
+    )
+  ) {
+    return new Error(TEAM_LIFECYCLE_PERMISSION_ERROR);
+  }
+  if (/INVALID_TEAM_NAME/i.test(message)) return new Error(TEAM_LIFECYCLE_INVALID_NAME_ERROR);
+  if (/INVALID_TEAM_DESCRIPTION/i.test(message)) {
+    return new Error(TEAM_LIFECYCLE_INVALID_DESCRIPTION_ERROR);
+  }
+  if (/INVALID_INITIAL_ADMIN/i.test(message)) {
+    return new Error(TEAM_LIFECYCLE_INVALID_INITIAL_ADMIN_ERROR);
+  }
+  if (/TEAM_ALREADY_ARCHIVED/i.test(message)) {
+    return new Error(TEAM_LIFECYCLE_ALREADY_ARCHIVED_ERROR);
+  }
+  if (/TEAM_NOT_ARCHIVED/i.test(message)) return new Error(TEAM_LIFECYCLE_NOT_ARCHIVED_ERROR);
+  if (/TEAM_ARCHIVED/i.test(message)) return new Error(TEAM_LIFECYCLE_ARCHIVED_ERROR);
+  if (/TEAM_NOT_FOUND/i.test(message)) return new Error(TEAM_LIFECYCLE_NOT_FOUND_ERROR);
+  if (/CONFLICT_RETRY/i.test(message) || ['40001', '40P01'].includes((error as { code?: string })?.code ?? '')) {
+    return new Error(TEAM_LIFECYCLE_CONFLICT_ERROR);
+  }
+  return new Error(
+    operation === 'create'
+      ? CREATE_ERROR
+      : operation === 'update'
+        ? UPDATE_ERROR
+        : operation === 'archive'
+          ? ARCHIVE_ERROR
+          : RESTORE_ERROR,
+  );
+}
+
+function logLifecycleFailure(operation: LifecycleOperation, error: unknown): void {
+  console.warn(`[teams] ${operation} failed`, {
+    code: (error as { code?: string })?.code ?? 'unknown',
+  });
+}
+
+/** Fetch the RLS-scoped people/teams directory for the current profile. */
 export async function fetchTeamsDirectory(currentProfileId: string): Promise<TeamsDirectory> {
   const supabase = requireClient();
   try {
@@ -152,11 +320,15 @@ export async function fetchTeamsDirectory(currentProfileId: string): Promise<Tea
         .maybeSingle(),
       supabase
         .from('profiles')
-        .select('id, auth_user_id, organisation_id, full_name, display_name_override, email, phone, avatar_url, access_status, access_removed_at, access_removed_by, access_removal_reason, created_at')
+        .select(
+          'id, auth_user_id, organisation_id, full_name, display_name_override, email, phone, avatar_url, access_status, access_removed_at, access_removed_by, access_removal_reason, created_at',
+        )
         .order('full_name', { ascending: true }),
       supabase
         .from('teams')
-        .select('id, organisation_id, name, description, type, avatar_url, created_at')
+        .select(
+          'id, organisation_id, name, description, type, avatar_url, archived_at, archived_by, created_at',
+        )
         .order('name', { ascending: true }),
       supabase
         .from('team_memberships')
@@ -182,6 +354,129 @@ export async function fetchTeamsDirectory(currentProfileId: string): Promise<Tea
       currentOrgRole: (currentRoleRes.data?.role ?? 'general_member') as OrganisationRoleName,
     };
   } catch (error) {
-    fail('directory fetch', error);
+    console.warn('[teams] directory fetch failed', {
+      code: (error as { code?: string })?.code ?? 'unknown',
+    });
+    if (error instanceof Error && error.message === TEAM_LIFECYCLE_OFFLINE_ERROR) throw error;
+    if (isNetworkError(error)) throw new Error(TEAM_LIFECYCLE_OFFLINE_ERROR);
+    throw new Error(LOAD_ERROR);
+  }
+}
+
+/** Create an active team; selecting no initial admin creates no membership. */
+export async function createTeam(input: CreateTeamInput): Promise<TeamCreationResult> {
+  try {
+    const draft = normaliseTeamDraft(input);
+    if (
+      input.initialAdminProfileId !== null &&
+      !UUID_PATTERN.test(input.initialAdminProfileId)
+    ) {
+      throw new Error(TEAM_LIFECYCLE_INVALID_INITIAL_ADMIN_ERROR);
+    }
+    const { data, error } = await requireClient().rpc('create_team', {
+      p_name: draft.name,
+      p_description: draft.description,
+      p_initial_admin_profile_id: input.initialAdminProfileId,
+    });
+    if (error) throw error;
+    const row = oneRpcRow(data);
+    const team = toTeam(row);
+    if (team.archived_at !== null || team.archived_by !== null) {
+      throw new Error('INVALID_TEAM_RESPONSE');
+    }
+
+    const membershipFields = [
+      row.initial_admin_membership_id,
+      row.initial_admin_profile_id,
+      row.initial_admin_role,
+      row.initial_admin_created_at,
+    ];
+    let initialAdminMembership: TeamMembership | null = null;
+    if (input.initialAdminProfileId === null) {
+      if (membershipFields.some((value) => value != null)) {
+        throw new Error('INVALID_TEAM_RESPONSE');
+      }
+    } else if (
+      typeof row.initial_admin_membership_id === 'string' &&
+      UUID_PATTERN.test(row.initial_admin_membership_id) &&
+      row.initial_admin_profile_id === input.initialAdminProfileId &&
+      row.initial_admin_role === 'team_leader' &&
+      typeof row.initial_admin_created_at === 'string' &&
+      row.initial_admin_created_at
+    ) {
+      initialAdminMembership = {
+        id: row.initial_admin_membership_id,
+        team_id: team.id,
+        user_id: row.initial_admin_profile_id,
+        role: row.initial_admin_role,
+        created_at: row.initial_admin_created_at,
+      };
+    } else {
+      throw new Error('INVALID_TEAM_RESPONSE');
+    }
+    return { team, initialAdminMembership };
+  } catch (error) {
+    logLifecycleFailure('create', error);
+    throw friendlyLifecycleError('create', error);
+  }
+}
+
+/** Update only active-team name and description. */
+export async function updateTeam(input: UpdateTeamInput): Promise<Team> {
+  try {
+    if (!UUID_PATTERN.test(input.teamId)) throw new Error(TEAM_LIFECYCLE_DEMO_ERROR);
+    const draft = normaliseTeamDraft(input);
+    const { data, error } = await requireClient().rpc('update_team', {
+      p_team_id: input.teamId,
+      p_name: draft.name,
+      p_description: draft.description,
+    });
+    if (error) throw error;
+    const team = toTeam(oneRpcRow(data), input.teamId);
+    if (team.archived_at !== null || team.archived_by !== null) {
+      throw new Error('INVALID_TEAM_RESPONSE');
+    }
+    return team;
+  } catch (error) {
+    logLifecycleFailure('update', error);
+    throw friendlyLifecycleError('update', error);
+  }
+}
+
+/** Soft-archive one active team; no child rows are touched. */
+export async function archiveTeam(teamId: string): Promise<Team> {
+  try {
+    if (!UUID_PATTERN.test(teamId)) throw new Error(TEAM_LIFECYCLE_DEMO_ERROR);
+    const { data, error } = await requireClient().rpc('archive_team', {
+      p_team_id: teamId,
+    });
+    if (error) throw error;
+    const team = toTeam(oneRpcRow(data), teamId);
+    if (team.archived_at === null || team.archived_by === null) {
+      throw new Error('INVALID_TEAM_RESPONSE');
+    }
+    return team;
+  } catch (error) {
+    logLifecycleFailure('archive', error);
+    throw friendlyLifecycleError('archive', error);
+  }
+}
+
+/** Restore the same team row and retained memberships/history. */
+export async function restoreTeam(teamId: string): Promise<Team> {
+  try {
+    if (!UUID_PATTERN.test(teamId)) throw new Error(TEAM_LIFECYCLE_DEMO_ERROR);
+    const { data, error } = await requireClient().rpc('restore_team', {
+      p_team_id: teamId,
+    });
+    if (error) throw error;
+    const team = toTeam(oneRpcRow(data), teamId);
+    if (team.archived_at !== null || team.archived_by !== null) {
+      throw new Error('INVALID_TEAM_RESPONSE');
+    }
+    return team;
+  } catch (error) {
+    logLifecycleFailure('restore', error);
+    throw friendlyLifecycleError('restore', error);
   }
 }

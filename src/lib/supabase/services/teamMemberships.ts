@@ -10,6 +10,8 @@ export const TEAM_MEMBERSHIP_PERMISSION_ERROR =
   'You do not have permission to manage members of this team.';
 export const TEAM_MEMBERSHIP_TEAM_NOT_FOUND_ERROR =
   "We couldn't find that team right now.";
+export const TEAM_MEMBERSHIP_ARCHIVED_ERROR =
+  'Restore this team before adding members.';
 export const TEAM_MEMBERSHIP_PROFILE_NOT_ELIGIBLE_ERROR =
   'That person is not available to add to this team.';
 export const TEAM_MEMBERSHIP_ALREADY_MEMBER_ERROR =
@@ -89,6 +91,7 @@ function friendlyError(operation: 'add' | 'remove' | 'leave', error: unknown): E
     TEAM_MEMBERSHIP_DEMO_ERROR,
     TEAM_MEMBERSHIP_PERMISSION_ERROR,
     TEAM_MEMBERSHIP_TEAM_NOT_FOUND_ERROR,
+    TEAM_MEMBERSHIP_ARCHIVED_ERROR,
     TEAM_MEMBERSHIP_PROFILE_NOT_ELIGIBLE_ERROR,
     TEAM_MEMBERSHIP_ALREADY_MEMBER_ERROR,
     TEAM_MEMBERSHIP_NOT_FOUND_ERROR,
@@ -106,6 +109,7 @@ function friendlyError(operation: 'add' | 'remove' | 'leave', error: unknown): E
     return new Error(TEAM_MEMBERSHIP_PERMISSION_ERROR);
   }
   if (/TEAM_NOT_FOUND/i.test(message)) return new Error(TEAM_MEMBERSHIP_TEAM_NOT_FOUND_ERROR);
+  if (/TEAM_ARCHIVED/i.test(message)) return new Error(TEAM_MEMBERSHIP_ARCHIVED_ERROR);
   if (/PROFILE_NOT_ELIGIBLE/i.test(message)) {
     return new Error(TEAM_MEMBERSHIP_PROFILE_NOT_ELIGIBLE_ERROR);
   }

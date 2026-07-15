@@ -5,6 +5,7 @@ import { join } from 'node:path';
 const MIGRATIONS = join(process.cwd(), 'supabase/migrations');
 const NAME = '20260712103321_add_organisation_membership_role_management.sql';
 const PUSH_LIFECYCLE = '20260714200205_add_push_token_revocation.sql';
+const TEAM_LIFECYCLE = '20260715004513_add_team_creation_editing_and_archive.sql';
 const MIGRATION = join(MIGRATIONS, NAME);
 
 function text(path: string): string {
@@ -26,10 +27,13 @@ describe('organisation membership and role management migration', () => {
 
   it('preserves the membership migration and all 29 migrations before it byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(31);
-    expect(files.at(-2)).toBe(NAME);
-    expect(files.at(-1)).toBe(PUSH_LIFECYCLE);
-    const historical = files.filter((file) => file !== NAME && file !== PUSH_LIFECYCLE);
+    expect(files).toHaveLength(32);
+    expect(files.at(-3)).toBe(NAME);
+    expect(files.at(-2)).toBe(PUSH_LIFECYCLE);
+    expect(files.at(-1)).toBe(TEAM_LIFECYCLE);
+    const historical = files.filter(
+      (file) => file !== NAME && file !== PUSH_LIFECYCLE && file !== TEAM_LIFECYCLE,
+    );
     const hash = createHash('sha256');
     for (const file of historical) {
       hash.update(file);
