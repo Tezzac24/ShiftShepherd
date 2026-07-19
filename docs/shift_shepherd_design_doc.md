@@ -875,10 +875,10 @@ Can:
 - Edit team name, description, and photo.
 - Soft-archive teams and restore the same team row with its history intact.
 - Assign roles.
+- Promote an existing team member to team admin and demote a team admin to member from the Manage Members screen (church admins only; team leaders cannot change roles). The final team admin may be deliberately demoted, leaving a valid zero-admin team, and a zero-admin team is recovered by promoting an existing member; the admin may change their own row. Archived teams must be restored first.
 - Create/edit/delete church-wide announcements.
 - Create/edit/delete church-wide events.
 - Access organisation-level settings.
-- Team-role promotion/demotion and leader reassignment remain a later management slice.
 
 ---
 
