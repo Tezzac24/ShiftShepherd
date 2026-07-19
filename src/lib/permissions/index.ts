@@ -89,6 +89,41 @@ export function canManageTeamMemberships(user: SessionUser, teamId: string): boo
   return isChurchAdmin(user) || isTeamLeader(user, teamId);
 }
 
+/**
+ * Team-role changes are organisation-level authority: church admins only.
+ * Deliberately narrower than canManageTeamMemberships — a team leader who is
+ * not a church admin cannot promote or demote anyone (including themselves).
+ * The set_team_member_role RPC is authoritative.
+ */
+export function canManageTeamRoles(user: SessionUser): boolean {
+  return isChurchAdmin(user);
+}
+
+export type TeamRoleAction = 'promote' | 'demote';
+
+/** Presentation-only: the opposite transition available for one member row. */
+export function teamRoleActionFor(target: TeamMembership): TeamRoleAction {
+  return target.role === 'team_leader' ? 'demote' : 'promote';
+}
+
+/**
+ * Presentation-only hint that demotion would leave this team with zero team
+ * admins. Informational: the server intentionally allows final-leader
+ * demotion, so this must never block the action.
+ */
+export function demotionLeavesTeamWithoutAdmin(
+  target: TeamMembership,
+  teamMemberships: TeamMembership[],
+): boolean {
+  if (target.role !== 'team_leader') return false;
+  return (
+    teamMemberships.filter(
+      (membership) =>
+        membership.team_id === target.team_id && membership.role === 'team_leader',
+    ).length <= 1
+  );
+}
+
 export type TeamMemberRemovalState =
   | 'removable'
   | 'self'

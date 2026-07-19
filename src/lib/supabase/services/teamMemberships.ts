@@ -30,9 +30,18 @@ export const TEAM_MEMBERSHIP_OFFLINE_ERROR =
   "We couldn't reach the server. Please check your connection and try again.";
 export const TEAM_MEMBERSHIP_SETUP_ERROR =
   'Member management is not switched on for your church yet. Please try again after the next update.';
+export const TEAM_MEMBERSHIP_ROLE_PERMISSION_ERROR =
+  'Only a church admin can change team roles.';
+export const TEAM_MEMBERSHIP_ROLE_ARCHIVED_ERROR =
+  'Restore this team before changing member roles.';
+export const TEAM_MEMBERSHIP_INVALID_ROLE_ERROR =
+  'That team role is not available. Please refresh and try again.';
+export const TEAM_MEMBERSHIP_CONFLICT_ERROR =
+  'Something changed while you were saving. Please review the team and try again.';
 
 const ADD_ERROR = "We couldn't add this person right now. Please try again.";
 const REMOVE_ERROR = "We couldn't remove this person right now. Please try again.";
+const SET_ROLE_ERROR = "We couldn't change this team role right now. Please try again.";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -43,6 +52,12 @@ export interface TeamMembershipMutationInput {
 
 export interface LeaveTeamInput {
   teamId: string;
+}
+
+export interface SetTeamMemberRoleInput {
+  teamId: string;
+  profileId: string;
+  role: TeamRole;
 }
 
 interface TeamMembershipRpcRow {
@@ -85,7 +100,10 @@ function isMissingFunctionError(error: unknown): boolean {
   );
 }
 
-function friendlyError(operation: 'add' | 'remove' | 'leave', error: unknown): Error {
+function friendlyError(
+  operation: 'add' | 'remove' | 'leave' | 'setRole',
+  error: unknown,
+): Error {
   const message = messageOf(error);
   const known = [
     TEAM_MEMBERSHIP_DEMO_ERROR,
@@ -101,15 +119,45 @@ function friendlyError(operation: 'add' | 'remove' | 'leave', error: unknown): E
     TEAM_MEMBERSHIP_LEAVE_FINAL_ADMIN_ERROR,
     TEAM_MEMBERSHIP_OFFLINE_ERROR,
     TEAM_MEMBERSHIP_SETUP_ERROR,
+    TEAM_MEMBERSHIP_ROLE_PERMISSION_ERROR,
+    TEAM_MEMBERSHIP_ROLE_ARCHIVED_ERROR,
+    TEAM_MEMBERSHIP_INVALID_ROLE_ERROR,
+    TEAM_MEMBERSHIP_CONFLICT_ERROR,
   ];
   if (error instanceof Error && known.includes(error.message)) return error;
   if (isMissingFunctionError(error)) return new Error(TEAM_MEMBERSHIP_SETUP_ERROR);
   if (/fetch|network|timeout/i.test(message)) return new Error(TEAM_MEMBERSHIP_OFFLINE_ERROR);
-  if (/NOT_AUTHORISED|NO_LINKED_PROFILE|permission|row-level security/i.test(message)) {
-    return new Error(TEAM_MEMBERSHIP_PERMISSION_ERROR);
+  if (
+    /NOT_AUTHENTICATED|NOT_AUTHORISED|NO_LINKED_PROFILE|ORGANISATION_ACCESS_REMOVED|permission|row-level security/i.test(
+      message,
+    )
+  ) {
+    return new Error(
+      operation === 'setRole'
+        ? TEAM_MEMBERSHIP_ROLE_PERMISSION_ERROR
+        : TEAM_MEMBERSHIP_PERMISSION_ERROR,
+    );
   }
   if (/TEAM_NOT_FOUND/i.test(message)) return new Error(TEAM_MEMBERSHIP_TEAM_NOT_FOUND_ERROR);
-  if (/TEAM_ARCHIVED/i.test(message)) return new Error(TEAM_MEMBERSHIP_ARCHIVED_ERROR);
+  if (/TEAM_ARCHIVED/i.test(message)) {
+    return new Error(
+      operation === 'setRole'
+        ? TEAM_MEMBERSHIP_ROLE_ARCHIVED_ERROR
+        : TEAM_MEMBERSHIP_ARCHIVED_ERROR,
+    );
+  }
+  if (
+    /INVALID_ROLE/i.test(message) ||
+    ((error as { code?: string })?.code === '22P02' && /team_role/i.test(message))
+  ) {
+    return new Error(TEAM_MEMBERSHIP_INVALID_ROLE_ERROR);
+  }
+  if (
+    /CONFLICT_RETRY/i.test(message) ||
+    ['40001', '40P01'].includes((error as { code?: string })?.code ?? '')
+  ) {
+    return new Error(TEAM_MEMBERSHIP_CONFLICT_ERROR);
+  }
   if (/PROFILE_NOT_ELIGIBLE/i.test(message)) {
     return new Error(TEAM_MEMBERSHIP_PROFILE_NOT_ELIGIBLE_ERROR);
   }
@@ -131,18 +179,30 @@ function friendlyError(operation: 'add' | 'remove' | 'leave', error: unknown): E
   if (/FINAL_TEAM_ADMIN_LEAVE_BLOCKED/i.test(message)) {
     return new Error(TEAM_MEMBERSHIP_LEAVE_FINAL_ADMIN_ERROR);
   }
-  return new Error(operation === 'add' ? ADD_ERROR : operation === 'remove' ? REMOVE_ERROR : "We couldn't leave this team right now. Please try again.");
+  return new Error(
+    operation === 'add'
+      ? ADD_ERROR
+      : operation === 'remove'
+        ? REMOVE_ERROR
+        : operation === 'setRole'
+          ? SET_ROLE_ERROR
+          : "We couldn't leave this team right now. Please try again.",
+  );
 }
 
 function toMembership(
   value: unknown,
-  expected: { teamId: string; profileId?: string },
+  expected: { teamId: string; profileId?: string; role?: TeamRole },
 ): TeamMembership {
+  if (Array.isArray(value) && value.length > 1) {
+    throw new Error('INVALID_MEMBERSHIP_RESPONSE');
+  }
   const row = (Array.isArray(value) ? value[0] : value) as TeamMembershipRpcRow | null;
   if (
     !row ||
     row.team_id !== expected.teamId ||
     (expected.profileId !== undefined && row.profile_id !== expected.profileId) ||
+    (expected.role !== undefined && row.role !== expected.role) ||
     !row.membership_id ||
     !UUID_PATTERN.test(row.profile_id) ||
     !['member', 'team_leader'].includes(row.role)
@@ -212,5 +272,37 @@ export async function leaveTeam(input: LeaveTeamInput): Promise<TeamMembership> 
       code: (error as { code?: string })?.code,
     });
     throw friendlyError('leave', error);
+  }
+}
+
+/**
+ * Set one existing membership to member or team_leader. Church-admin authority
+ * is server-derived; no membership is created or removed, and demoting the
+ * final team leader to a zero-leader team is a valid outcome.
+ */
+export async function setTeamMemberRole(
+  input: SetTeamMemberRoleInput,
+): Promise<TeamMembership> {
+  try {
+    assertLiveIds(input);
+    if (input.role !== 'member' && input.role !== 'team_leader') {
+      throw new Error(TEAM_MEMBERSHIP_INVALID_ROLE_ERROR);
+    }
+    const { data, error } = await requireClient().rpc('set_team_member_role', {
+      p_team_id: input.teamId,
+      p_profile_id: input.profileId,
+      p_role: input.role,
+    });
+    if (error) throw error;
+    return toMembership(data, {
+      teamId: input.teamId,
+      profileId: input.profileId,
+      role: input.role,
+    });
+  } catch (error) {
+    console.warn('[teamMemberships] set role failed', {
+      code: (error as { code?: string })?.code,
+    });
+    throw friendlyError('setRole', error);
   }
 }
