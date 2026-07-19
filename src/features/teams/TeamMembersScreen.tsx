@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
@@ -19,8 +19,12 @@ import { teamMembers } from '../../lib/appData/selectors';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
 import {
   canManageTeamMemberships,
+  canManageTeamRoles,
+  demotionLeavesTeamWithoutAdmin,
   teamMemberRemovalState,
   TeamMemberRemovalState,
+  TeamRoleAction,
+  teamRoleActionFor,
 } from '../../lib/permissions';
 import { Team, TeamMembership, UserProfile } from '../../types';
 
@@ -33,6 +37,9 @@ export function TeamMemberRow({
   removing,
   disabled,
   onRemove,
+  roleAction,
+  roleChanging,
+  onChangeRole,
 }: {
   profile: UserProfile;
   membership: TeamMembership;
@@ -42,6 +49,10 @@ export function TeamMemberRow({
   removing: boolean;
   disabled: boolean;
   onRemove: () => void;
+  /** null hides the role control (non-admins, demo mode). */
+  roleAction: TeamRoleAction | null;
+  roleChanging: boolean;
+  onChangeRole: () => void;
 }) {
   const protectedMembership = removalState !== 'removable';
 
@@ -77,6 +88,38 @@ export function TeamMemberRow({
             <AppText variant="small" tone="muted">
               Another team admin must be appointed before this person can be removed.
             </AppText>
+          ) : null}
+          {roleAction ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                roleAction === 'promote'
+                  ? `Make ${profile.full_name} a team admin`
+                  : `Remove ${profile.full_name}'s team admin role`
+              }
+              accessibilityHint="Opens a confirmation before changing this team role"
+              accessibilityState={{ disabled: disabled || roleChanging, busy: roleChanging }}
+              disabled={disabled || roleChanging}
+              onPress={onChangeRole}
+              style={({ pressed }) => [
+                styles.roleAction,
+                pressed && styles.roleActionPressed,
+                (disabled || roleChanging) && styles.actionDisabled,
+              ]}
+            >
+              {roleChanging ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons
+                  name={roleAction === 'promote' ? 'ribbon-outline' : 'remove-circle-outline'}
+                  size={19}
+                  color={colors.primary}
+                />
+              )}
+              <AppText variant="label" tone="primary">
+                {roleAction === 'promote' ? 'Make team admin' : 'Remove team admin role'}
+              </AppText>
+            </Pressable>
           ) : null}
         </View>
         {!protectedMembership ? (
@@ -131,6 +174,10 @@ export default function TeamMembersScreen() {
   const user = useRequiredUser();
   const data = useAppData();
   const [removingProfileId, setRemovingProfileId] = useState<string | null>(null);
+  const [changingRoleProfileId, setChangingRoleProfileId] = useState<string | null>(null);
+  // Synchronous re-entry guard: state updates are async, so a repeated tap
+  // while the confirmation dialog is open must still collapse to one request.
+  const roleRequestInFlightRef = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const team = data.teams.find((candidate) => candidate.id === teamId);
 
@@ -174,9 +221,14 @@ export default function TeamMembersScreen() {
 
   const isDemo = authMode !== 'supabase' || !data.teamsLive;
   const canManage = !isDemo && canManageTeamMemberships(user, team.id);
+  // Role changes are church-admin-only and live-only; archived teams never
+  // reach this active-team route, but the guard stays defensive.
+  const canChangeRoles =
+    canManage && canManageTeamRoles(user) && team.archived_at === null;
+  const actionsBusy = removingProfileId !== null || changingRoleProfileId !== null;
 
   const requestRemove = async (profile: UserProfile, membership: TeamMembership) => {
-    if (!canManage || removingProfileId) return;
+    if (!canManage || actionsBusy) return;
     const approved = await confirm({
       title: `Remove ${profile.full_name}?`,
       message:
@@ -199,6 +251,60 @@ export default function TeamMembersScreen() {
       );
     } finally {
       setRemovingProfileId(null);
+    }
+  };
+
+  const requestRoleChange = async (profile: UserProfile, membership: TeamMembership) => {
+    if (!canChangeRoles || actionsBusy || roleRequestInFlightRef.current) return;
+    roleRequestInFlightRef.current = true;
+    try {
+      await performRoleChange(profile, membership);
+    } finally {
+      roleRequestInFlightRef.current = false;
+    }
+  };
+
+  const performRoleChange = async (profile: UserProfile, membership: TeamMembership) => {
+    const promote = teamRoleActionFor(membership) === 'promote';
+    // Informational only: the server deliberately allows demoting the final
+    // team admin, so this warning must never block the confirmation.
+    const leavesTeamWithoutAdmin =
+      !promote && demotionLeavesTeamWithoutAdmin(membership, data.memberships);
+    const approved = await confirm({
+      title: promote
+        ? `Make ${profile.full_name} a team admin?`
+        : `Remove ${profile.full_name}'s team admin role?`,
+      message: promote
+        ? `They will be able to manage ${team.name} under the existing team-admin permissions. Their church role and account stay the same.`
+        : `${profile.full_name} will remain a member of ${team.name}.${
+            leavesTeamWithoutAdmin
+              ? ' This will leave the team without a team admin. A church admin can appoint one later.'
+              : ''
+          }`,
+      confirmLabel: promote ? 'Make team admin' : 'Remove team admin role',
+    });
+    if (!approved) return;
+    setChangingRoleProfileId(profile.id);
+    setActionError(null);
+    try {
+      await data.setTeamMemberRole(
+        team.id,
+        profile.id,
+        promote ? 'team_leader' : 'member',
+      );
+      showToast(
+        promote
+          ? `${profile.full_name} is now a team admin of ${team.name}.`
+          : `${profile.full_name} is no longer a team admin of ${team.name}.`,
+      );
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "We couldn't change this team role right now. Please try again.",
+      );
+    } finally {
+      setChangingRoleProfileId(null);
     }
   };
 
@@ -255,8 +361,11 @@ export default function TeamMembersScreen() {
                 isCurrentUser={profile.id === user.profile.id}
                 removalState={teamMemberRemovalState(user, membership, data.memberships)}
                 removing={removingProfileId === profile.id}
-                disabled={removingProfileId !== null}
+                disabled={actionsBusy}
                 onRemove={() => void requestRemove(profile, membership)}
+                roleAction={canChangeRoles ? teamRoleActionFor(membership) : null}
+                roleChanging={changingRoleProfileId === profile.id}
+                onChangeRole={() => void requestRoleChange(profile, membership)}
               />
             ))
           ) : (
@@ -291,6 +400,19 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   removeActionPressed: { backgroundColor: colors.dangerSoft },
+  roleAction: {
+    minHeight: touchTarget,
+    marginTop: spacing.xs,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  roleActionPressed: { backgroundColor: colors.primarySoft },
   actionDisabled: { opacity: 0.45 },
   errorCard: { backgroundColor: colors.dangerSoft, borderColor: colors.dangerSoft },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

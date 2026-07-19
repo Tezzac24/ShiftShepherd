@@ -71,6 +71,7 @@ import {
   SongSection,
   Team,
   TeamMembership,
+  TeamRole,
   UserProfile,
 } from '../../types';
 import { makeId } from '../../utils/ids';
@@ -232,6 +233,12 @@ interface AppDataContextValue {
   removeTeamMember: (teamId: string, profileId: string) => Promise<void>;
   /** Remove only the signed-in profile's membership in one team. */
   leaveTeam: (teamId: string) => Promise<void>;
+  /**
+   * Set one existing membership's team role (church admins only, live mode
+   * only). Patches the same canonical membership row in place; never creates
+   * or removes a membership.
+   */
+  setTeamMemberRole: (teamId: string, profileId: string, role: TeamRole) => Promise<void>;
   /** Create an active team, optionally with one explicit initial team admin. */
   createTeam: (input: teamsService.CreateTeamInput) => Promise<teamsService.TeamCreationResult>;
   /** Update one active team's name and description. */
@@ -1346,6 +1353,39 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [applySessionDirectorySnapshot],
+  );
+
+  const setTeamMemberRole: AppDataContextValue['setTeamMemberRole'] = useCallback(
+    async (teamId, profileId, role) => {
+      const currentUser = sessionUserRef.current;
+      if (!currentUser || currentUser.orgRole !== 'church_admin') {
+        throw new Error(teamMembershipsService.TEAM_MEMBERSHIP_ROLE_PERMISSION_ERROR);
+      }
+      // One in-flight mutation per membership: a repeated tap or a competing
+      // promote/demote for the same person surfaces the friendly conflict copy
+      // instead of racing the first request.
+      await runTeamMutation(`team:${teamId}:member:${profileId}:role`, async (isCurrent) => {
+        // Role changes follow the live-only membership-management convention;
+        // demo mode stays read-only for membership writes.
+        if (
+          authModeRef.current === 'demo' ||
+          !liveDataEnabledRef.current ||
+          !supabaseProfileIdRef.current
+        ) {
+          throw new Error(teamMembershipsService.TEAM_MEMBERSHIP_DEMO_ERROR);
+        }
+        await publishScopedTeamMutation({
+          request: () =>
+            teamMembershipsService.setTeamMemberRole({ teamId, profileId, role }),
+          isCurrent,
+          commit: (membership) => applyLiveMembership(membership),
+          queueRefresh: () => queueSharedRefreshRef.current(['directory']),
+          staleError: () =>
+            new Error(teamMembershipsService.TEAM_MEMBERSHIP_CONFLICT_ERROR),
+        });
+      });
+    },
+    [applyLiveMembership, runTeamMutation],
   );
 
   const createTeam: AppDataContextValue['createTeam'] = useCallback(
@@ -2812,6 +2852,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       addTeamMember,
       removeTeamMember,
       leaveTeam,
+      setTeamMemberRole,
       createTeam,
       updateTeam,
       archiveTeam,
@@ -2910,6 +2951,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       addTeamMember,
       removeTeamMember,
       leaveTeam,
+      setTeamMemberRole,
       createTeam,
       updateTeam,
       archiveTeam,
