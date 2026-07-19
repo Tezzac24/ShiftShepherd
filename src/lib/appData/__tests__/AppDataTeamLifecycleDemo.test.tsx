@@ -5,6 +5,7 @@ import { Pressable, Text } from 'react-native';
 
 import { mockUsers } from '../../mockData';
 import { STORAGE_KEYS } from '../../storage/persistence';
+import * as teamMembershipsService from '../../supabase/services/teamMemberships';
 import * as teamsService from '../../supabase/services/teams';
 import { AppDataProvider, useAppData } from '../AppDataContext';
 
@@ -24,13 +25,39 @@ jest.mock('../../supabase/services/teams', () => {
   const actual = jest.requireActual('../../supabase/services/teams');
   return { ...actual, createTeam: jest.fn(), updateTeam: jest.fn(), archiveTeam: jest.fn(), restoreTeam: jest.fn() };
 });
+jest.mock('../../supabase/services/teamMemberships', () => {
+  const actual = jest.requireActual('../../supabase/services/teamMemberships');
+  return { ...actual, setTeamMemberRole: jest.fn() };
+});
 
 function Harness() {
   const data = useAppData();
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  const firstMembership = data.memberships[0];
   return (
     <>
       <Text testID="hydrated">{String(data.isHydrated)}</Text>
+      <Text testID="role-error">{roleError ?? ''}</Text>
+      <Text testID="first-membership">
+        {firstMembership
+          ? `${firstMembership.id}:${firstMembership.user_id}:${firstMembership.role}`
+          : ''}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Attempt demo role change"
+        onPress={() =>
+          firstMembership &&
+          void data
+            .setTeamMemberRole(
+              firstMembership.team_id,
+              firstMembership.user_id,
+              firstMembership.role === 'team_leader' ? 'member' : 'team_leader',
+            )
+            .catch((error: Error) => setRoleError(error.message))
+        }
+      />
       <Text testID="active-teams">{data.teams.map((team) => team.name).join('|')}</Text>
       <Text testID="archived-teams">
         {data.archivedTeams.map((team) => team.name).join('|')}
@@ -153,5 +180,25 @@ describe('AppData demo team lifecycle isolation', () => {
       expect(screen.getByTestId('active-teams').props.children).not.toContain('Welcome Team'),
     );
     expect(screen.getByTestId('active-teams').props.children).not.toContain('Care Team');
+  });
+
+  it('keeps role changes live-only: demo rejects without a service call or state change', async () => {
+    const screen = render(
+      <AppDataProvider>
+        <Harness />
+      </AppDataProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('hydrated').props.children).toBe('true'));
+    const before = screen.getByTestId('first-membership').props.children;
+    expect(before).not.toBe('');
+
+    fireEvent.press(screen.getByLabelText('Attempt demo role change'));
+    await waitFor(() =>
+      expect(screen.getByTestId('role-error').props.children).toBe(
+        teamMembershipsService.TEAM_MEMBERSHIP_DEMO_ERROR,
+      ),
+    );
+    expect(teamMembershipsService.setTeamMemberRole).not.toHaveBeenCalled();
+    expect(screen.getByTestId('first-membership').props.children).toBe(before);
   });
 });

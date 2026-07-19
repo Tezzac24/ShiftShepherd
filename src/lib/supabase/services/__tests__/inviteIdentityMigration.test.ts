@@ -8,6 +8,7 @@ const NEW_NAME = '20260712001940_add_invite_onboarding_identity_foundation.sql';
 const MEMBERSHIP_NAME = '20260712103321_add_organisation_membership_role_management.sql';
 const PUSH_LIFECYCLE_NAME = '20260714200205_add_push_token_revocation.sql';
 const TEAM_LIFECYCLE_NAME = '20260715004513_add_team_creation_editing_and_archive.sql';
+const TEAM_ROLE_NAME = '20260719110500_add_team_role_management.sql';
 const MIGRATION = join(MIGRATIONS, NEW_NAME);
 
 function text(path: string): string {
@@ -30,17 +31,19 @@ describe('invite/onboarding identity foundation migration', () => {
   it('preserves the identity baseline and every migration before it byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((name) => name.endsWith('.sql')).sort();
     expect(files).toContain(NEW_NAME);
-    expect(files.at(-3)).toBe(MEMBERSHIP_NAME);
-    expect(files.at(-2)).toBe(PUSH_LIFECYCLE_NAME);
-    expect(files.at(-1)).toBe(TEAM_LIFECYCLE_NAME);
-    expect(files).toHaveLength(32);
+    expect(files.at(-4)).toBe(MEMBERSHIP_NAME);
+    expect(files.at(-3)).toBe(PUSH_LIFECYCLE_NAME);
+    expect(files.at(-2)).toBe(TEAM_LIFECYCLE_NAME);
+    expect(files.at(-1)).toBe(TEAM_ROLE_NAME);
+    expect(files).toHaveLength(33);
 
     const historical = files.filter(
       (name) =>
         name !== NEW_NAME &&
         name !== MEMBERSHIP_NAME &&
         name !== PUSH_LIFECYCLE_NAME &&
-        name !== TEAM_LIFECYCLE_NAME,
+        name !== TEAM_LIFECYCLE_NAME &&
+        name !== TEAM_ROLE_NAME,
     );
     const hash = createHash('sha256');
     for (const name of historical) {

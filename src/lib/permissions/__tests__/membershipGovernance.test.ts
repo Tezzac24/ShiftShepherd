@@ -1,7 +1,10 @@
 import { SessionUser, TeamMembership } from '../../../types';
 import {
+  canManageTeamRoles,
+  demotionLeavesTeamWithoutAdmin,
   leaveTeamState,
   teamMemberRemovalState,
+  teamRoleActionFor,
 } from '../index';
 
 const TEAM_ID = 'team-a';
@@ -112,5 +115,61 @@ describe('leaveTeamState', () => {
       leaveTeamState(SELF_ID, TEAM_ID, [membership('1', SELF_ID, 'team_leader')]),
     ).toBe('final_team_admin');
     expect(leaveTeamState(SELF_ID, TEAM_ID, [])).toBe('not_member');
+  });
+});
+
+describe('canManageTeamRoles', () => {
+  it('allows only an organisation church admin', () => {
+    expect(canManageTeamRoles(session('church_admin', []))).toBe(true);
+    expect(canManageTeamRoles(session('general_member', []))).toBe(false);
+    expect(canManageTeamRoles(session('announcement_manager', []))).toBe(false);
+    expect(canManageTeamRoles(session('event_manager', []))).toBe(false);
+  });
+
+  it('denies a team leader who is not a church admin', () => {
+    const rows = [membership('1', SELF_ID, 'team_leader')];
+    expect(canManageTeamRoles(session('general_member', rows))).toBe(false);
+  });
+
+  it('allows a church admin regardless of their own team membership', () => {
+    expect(
+      canManageTeamRoles(session('church_admin', [membership('1', SELF_ID, 'member')])),
+    ).toBe(true);
+    expect(
+      canManageTeamRoles(session('church_admin', [membership('1', SELF_ID, 'team_leader')])),
+    ).toBe(true);
+  });
+});
+
+describe('teamRoleActionFor', () => {
+  it('offers the opposite transition for each existing team role', () => {
+    expect(teamRoleActionFor(membership('1', 'target', 'member'))).toBe('promote');
+    expect(teamRoleActionFor(membership('1', 'target', 'team_leader'))).toBe('demote');
+  });
+});
+
+describe('demotionLeavesTeamWithoutAdmin', () => {
+  it('warns only when the target is the final team admin', () => {
+    const finalAdmin = membership('1', 'target', 'team_leader');
+    expect(demotionLeavesTeamWithoutAdmin(finalAdmin, [finalAdmin])).toBe(true);
+    expect(
+      demotionLeavesTeamWithoutAdmin(finalAdmin, [
+        finalAdmin,
+        membership('2', 'other', 'team_leader'),
+      ]),
+    ).toBe(false);
+  });
+
+  it('never warns for an ordinary member target or other-team admins', () => {
+    const target = membership('1', 'target', 'member');
+    expect(demotionLeavesTeamWithoutAdmin(target, [target])).toBe(false);
+    const finalAdmin = membership('1', 'target', 'team_leader');
+    const otherTeamAdmin: TeamMembership = {
+      ...membership('2', 'other', 'team_leader'),
+      team_id: 'team-b',
+    };
+    expect(demotionLeavesTeamWithoutAdmin(finalAdmin, [finalAdmin, otherTeamAdmin])).toBe(
+      true,
+    );
   });
 });

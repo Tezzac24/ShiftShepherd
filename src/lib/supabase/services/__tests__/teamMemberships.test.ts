@@ -1,18 +1,24 @@
 import { getSupabase } from '../../client';
+import { TeamRole } from '../../../../types';
 import {
   addTeamMember,
   leaveTeam,
   removeTeamMember,
+  setTeamMemberRole,
   TEAM_MEMBERSHIP_ALREADY_MEMBER_ERROR,
   TEAM_MEMBERSHIP_ARCHIVED_ERROR,
+  TEAM_MEMBERSHIP_CONFLICT_ERROR,
   TEAM_MEMBERSHIP_DEMO_ERROR,
   TEAM_MEMBERSHIP_FINAL_ADMIN_ERROR,
+  TEAM_MEMBERSHIP_INVALID_ROLE_ERROR,
   TEAM_MEMBERSHIP_LEADER_ERROR,
   TEAM_MEMBERSHIP_LEAVE_FINAL_ADMIN_ERROR,
   TEAM_MEMBERSHIP_NOT_FOUND_ERROR,
   TEAM_MEMBERSHIP_OFFLINE_ERROR,
   TEAM_MEMBERSHIP_PERMISSION_ERROR,
   TEAM_MEMBERSHIP_PROFILE_NOT_ELIGIBLE_ERROR,
+  TEAM_MEMBERSHIP_ROLE_ARCHIVED_ERROR,
+  TEAM_MEMBERSHIP_ROLE_PERMISSION_ERROR,
   TEAM_MEMBERSHIP_SELF_REMOVAL_ERROR,
   TEAM_MEMBERSHIP_TEAM_NOT_FOUND_ERROR,
 } from '../teamMemberships';
@@ -197,5 +203,112 @@ describe('leaveTeam', () => {
     await expect(leaveTeam({ teamId: TEAM_ID })).rejects.toThrow(
       "We couldn't leave this team right now. Please try again.",
     );
+  });
+});
+
+describe('setTeamMemberRole', () => {
+  const LEADER_ROW = { ...MEMBERSHIP_ROW, role: 'team_leader' };
+
+  it('promotes with exactly team, profile, and role arguments and returns the canonical row', async () => {
+    const { rpc, from, auth } = mockClient({ data: [LEADER_ROW] });
+    await expect(
+      setTeamMemberRole({ teamId: TEAM_ID, profileId: PROFILE_ID, role: 'team_leader' }),
+    ).resolves.toEqual({
+      id: MEMBERSHIP_ROW.membership_id,
+      team_id: TEAM_ID,
+      user_id: PROFILE_ID,
+      role: 'team_leader',
+      created_at: MEMBERSHIP_ROW.created_at,
+    });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('set_team_member_role', {
+      p_team_id: TEAM_ID,
+      p_profile_id: PROFILE_ID,
+      p_role: 'team_leader',
+    });
+    expect(Object.keys(rpc.mock.calls[0][1]).sort()).toEqual([
+      'p_profile_id',
+      'p_role',
+      'p_team_id',
+    ]);
+    expect(from).not.toHaveBeenCalled();
+    expect(auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('demotes to member and preserves the same membership id and created_at', async () => {
+    mockClient({ data: [MEMBERSHIP_ROW] });
+    await expect(
+      setTeamMemberRole({ teamId: TEAM_ID, profileId: PROFILE_ID, role: 'member' }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: MEMBERSHIP_ROW.membership_id,
+        role: 'member',
+        created_at: MEMBERSHIP_ROW.created_at,
+      }),
+    );
+  });
+
+  it('refuses demo/mock ids before obtaining a Supabase client', async () => {
+    const { rpc } = mockClient();
+    await expect(
+      setTeamMemberRole({ teamId: 'team-choir', profileId: 'user-ruth', role: 'team_leader' }),
+    ).rejects.toThrow(TEAM_MEMBERSHIP_DEMO_ERROR);
+    expect(mockGetSupabase).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown role before obtaining a Supabase client', async () => {
+    const { rpc } = mockClient();
+    await expect(
+      setTeamMemberRole({
+        teamId: TEAM_ID,
+        profileId: PROFILE_ID,
+        role: 'church_admin' as TeamRole,
+      }),
+    ).rejects.toThrow(TEAM_MEMBERSHIP_INVALID_ROLE_ERROR);
+    expect(mockGetSupabase).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['NOT_AUTHORISED', TEAM_MEMBERSHIP_ROLE_PERMISSION_ERROR],
+    ['ORGANISATION_ACCESS_REMOVED', TEAM_MEMBERSHIP_ROLE_PERMISSION_ERROR],
+    ['TEAM_NOT_FOUND', TEAM_MEMBERSHIP_TEAM_NOT_FOUND_ERROR],
+    ['TEAM_ARCHIVED', TEAM_MEMBERSHIP_ROLE_ARCHIVED_ERROR],
+    ['MEMBERSHIP_NOT_FOUND', TEAM_MEMBERSHIP_NOT_FOUND_ERROR],
+    ['INVALID_ROLE', TEAM_MEMBERSHIP_INVALID_ROLE_ERROR],
+    ['CONFLICT_RETRY', TEAM_MEMBERSHIP_CONFLICT_ERROR],
+  ])('maps %s to stable safe copy', async (serverMessage, friendlyMessage) => {
+    mockClient({ error: { code: 'P0001', message: serverMessage } });
+    await expect(
+      setTeamMemberRole({ teamId: TEAM_ID, profileId: PROFILE_ID, role: 'team_leader' }),
+    ).rejects.toThrow(friendlyMessage);
+  });
+
+  it.each([
+    ['empty result', []],
+    ['multiple rows', [LEADER_ROW, LEADER_ROW]],
+    ['wrong team id', [{ ...LEADER_ROW, team_id: '30000000-0000-4000-a000-000000000009' }]],
+    ['wrong profile id', [{ ...LEADER_ROW, profile_id: '20000000-0000-4000-a000-000000000009' }]],
+    ['unchanged role mismatch', [MEMBERSHIP_ROW]],
+    ['missing membership id', [{ ...LEADER_ROW, membership_id: '' }]],
+    ['unknown role value', [{ ...LEADER_ROW, role: 'owner' }]],
+  ])('rejects a malformed success response: %s', async (_label, data) => {
+    mockClient({ data });
+    await expect(
+      setTeamMemberRole({ teamId: TEAM_ID, profileId: PROFILE_ID, role: 'team_leader' }),
+    ).rejects.toThrow("We couldn't change this team role right now. Please try again.");
+  });
+
+  it('keeps network and unexpected failures friendly without leaking details', async () => {
+    mockClient({ error: { message: 'TypeError: Network request failed' } });
+    await expect(
+      setTeamMemberRole({ teamId: TEAM_ID, profileId: PROFILE_ID, role: 'member' }),
+    ).rejects.toThrow(TEAM_MEMBERSHIP_OFFLINE_ERROR);
+
+    mockClient({ error: { message: 'sensitive internal enum detail' } });
+    await expect(
+      setTeamMemberRole({ teamId: TEAM_ID, profileId: PROFILE_ID, role: 'member' }),
+    ).rejects.toThrow("We couldn't change this team role right now. Please try again.");
   });
 });
