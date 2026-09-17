@@ -68,6 +68,12 @@ export interface CreateTeamInput {
   name: string;
   description: string | null;
   initialAdminProfileId: string | null;
+  /**
+   * Client-generated UUID for this logical create attempt. Retries of the same
+   * attempt must reuse it so the server returns the same team instead of
+   * creating another; a fresh user submission gets a new one.
+   */
+  requestId: string;
 }
 
 export interface UpdateTeamInput {
@@ -288,7 +294,10 @@ function friendlyLifecycleError(operation: LifecycleOperation, error: unknown): 
   if (/TEAM_NOT_ARCHIVED/i.test(message)) return new Error(TEAM_LIFECYCLE_NOT_ARCHIVED_ERROR);
   if (/TEAM_ARCHIVED/i.test(message)) return new Error(TEAM_LIFECYCLE_ARCHIVED_ERROR);
   if (/TEAM_NOT_FOUND/i.test(message)) return new Error(TEAM_LIFECYCLE_NOT_FOUND_ERROR);
-  if (/CONFLICT_RETRY/i.test(message) || ['40001', '40P01'].includes((error as { code?: string })?.code ?? '')) {
+  if (
+    /CONFLICT_RETRY|CREATE_REQUEST_MISMATCH/i.test(message) ||
+    ['40001', '40P01'].includes((error as { code?: string })?.code ?? '')
+  ) {
     return new Error(TEAM_LIFECYCLE_CONFLICT_ERROR);
   }
   return new Error(
@@ -363,7 +372,14 @@ export async function fetchTeamsDirectory(currentProfileId: string): Promise<Tea
   }
 }
 
-/** Create an active team; selecting no initial admin creates no membership. */
+/**
+ * Create an active team; selecting no initial admin creates no membership.
+ *
+ * The server persists `requestId` on the created row (unique per
+ * organisation) and answers a replay of the same id with the same team, so a
+ * retry after an ambiguous network failure never creates a second team. The
+ * replay response is indistinguishable from the first one.
+ */
 export async function createTeam(input: CreateTeamInput): Promise<TeamCreationResult> {
   try {
     const draft = normaliseTeamDraft(input);
@@ -373,10 +389,14 @@ export async function createTeam(input: CreateTeamInput): Promise<TeamCreationRe
     ) {
       throw new Error(TEAM_LIFECYCLE_INVALID_INITIAL_ADMIN_ERROR);
     }
+    if (typeof input.requestId !== 'string' || !UUID_PATTERN.test(input.requestId)) {
+      throw new Error(CREATE_ERROR);
+    }
     const { data, error } = await requireClient().rpc('create_team', {
       p_name: draft.name,
       p_description: draft.description,
       p_initial_admin_profile_id: input.initialAdminProfileId,
+      p_request_id: input.requestId,
     });
     if (error) throw error;
     const row = oneRpcRow(data);
