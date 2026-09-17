@@ -184,7 +184,7 @@ the chat tables remain outside it. The current implementation (through the deplo
 The historical deployed Broadcast baseline was 211 tests across 31 suites.
 
 The deployed `20260712001940_add_invite_onboarding_identity_foundation.sql` and
-`manage-organisation-invitations` v1 implement open signup/no-org/create-org,
+`manage-organisation-invitations` (v1; v2 since the 2026-09-17 UTC expiry-presentation deploy) implement open signup/no-org/create-org,
 global identity, active multi-org profiles, app-owned seven-day invitations, matching
 verified-email acceptance, and display-name ownership. Remote Auth redirects, email
 provider secrets, allowed redirects, and sender configuration are now present; non-mutating
