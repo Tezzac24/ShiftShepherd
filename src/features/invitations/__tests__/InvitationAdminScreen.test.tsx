@@ -82,6 +82,8 @@ jest.mock('../../../lib/supabase/services/invitations', () => ({
   resendOrganisationInvitation: jest.fn(),
   revokeOrganisationInvitation: jest.fn(),
   sendOrganisationInvitation: jest.fn(),
+  wasInvitationSaved: jest.requireActual('../../../lib/supabase/services/invitations')
+    .wasInvitationSaved,
 }));
 
 const mockList = listOrganisationInvitations as jest.MockedFunction<
@@ -190,4 +192,93 @@ it('confirms and performs bounded resend and revoke actions', async () => {
   fireEvent.press(screen.getByText('Revoke'));
   await waitFor(() => expect(mockRevoke).toHaveBeenCalledWith('invite-1'));
   expect(mockConfirm).toHaveBeenCalledTimes(2);
+});
+
+describe('invitation email delivery outcomes', () => {
+  const SAVED_NOT_SENT =
+    'The invitation was saved, but its email couldn’t be delivered. Check the email address, then use Resend. If it keeps failing, invitation emails may not be fully set up yet.';
+  const unsentInvitation = {
+    ...pendingInvitation,
+    id: 'invite-unsent',
+    invited_email: 'new@example.com',
+    created_at: '2026-07-13T00:00:00Z',
+    last_sent_at: null,
+  };
+
+  it('labels sent invitations by send date and never-emailed pending ones as not sent', async () => {
+    mockList.mockResolvedValue([
+      pendingInvitation,
+      unsentInvitation,
+      { ...unsentInvitation, id: 'invite-old', status: 'superseded' as const },
+    ]);
+    render(<InvitationAdminScreen />);
+
+    expect(await screen.findByText(/^Sent .* · Expires /)).toBeTruthy();
+    expect(screen.getAllByText(/^Created .* · Expires /)).toHaveLength(2);
+    expect(screen.getAllByText('Email not sent yet. Use Resend to email a new link.')).toHaveLength(1);
+  });
+
+  it('keeps a saved but unsent invitation visible with its explanation after a send fails', async () => {
+    render(<InvitationAdminScreen />);
+    await screen.findByText('person@example.com');
+
+    mockList.mockResolvedValue([unsentInvitation, pendingInvitation]);
+    mockSend.mockRejectedValue(Object.assign(new Error(SAVED_NOT_SENT), { invitationSaved: true }));
+    fireEvent.changeText(screen.getByLabelText('Email'), 'new@example.com');
+    fireEvent.press(screen.getByText('Send invitation'));
+
+    expect(await screen.findByText(SAVED_NOT_SENT)).toBeTruthy();
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('new@example.com')).toBeTruthy();
+    expect(screen.getByText('Email not sent yet. Use Resend to email a new link.')).toBeTruthy();
+    expect(screen.getByText(SAVED_NOT_SENT)).toBeTruthy();
+    expect(screen.getByLabelText('Email').props.value).toBe('');
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  it('keeps the typed email when nothing was saved', async () => {
+    const notConfigured =
+      'Invitation emails aren’t set up yet, so nothing was sent. Please try again later.';
+    render(<InvitationAdminScreen />);
+    await screen.findByText('person@example.com');
+
+    mockSend.mockRejectedValue(new Error(notConfigured));
+    fireEvent.changeText(screen.getByLabelText('Email'), 'new@example.com');
+    fireEvent.press(screen.getByText('Send invitation'));
+
+    expect(await screen.findByText(notConfigured)).toBeTruthy();
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+    expect(screen.getByText(notConfigured)).toBeTruthy();
+    expect(screen.getByLabelText('Email').props.value).toBe('new@example.com');
+  });
+
+  it('refreshes the history and keeps the message when a resend is not delivered', async () => {
+    const unavailable =
+      'The invitation was saved, but the email service is busy right now. Please use Resend in a few minutes.';
+    render(<InvitationAdminScreen />);
+    await screen.findByText('person@example.com');
+
+    mockList.mockResolvedValue([{ ...unsentInvitation, invited_email: 'person@example.com' }]);
+    mockResend.mockRejectedValue(Object.assign(new Error(unavailable), { invitationSaved: true }));
+    fireEvent.press(screen.getByText('Resend'));
+
+    expect(await screen.findByText(unavailable)).toBeTruthy();
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Email not sent yet. Use Resend to email a new link.')).toBeTruthy();
+    expect(screen.getByText(unavailable)).toBeTruthy();
+  });
+
+  it('keeps the action message when the history refresh also fails', async () => {
+    render(<InvitationAdminScreen />);
+    await screen.findByText('person@example.com');
+
+    mockList.mockRejectedValue(new Error('We couldn’t load invitations right now. Please try again.'));
+    mockSend.mockRejectedValue(Object.assign(new Error(SAVED_NOT_SENT), { invitationSaved: true }));
+    fireEvent.press(screen.getAllByText('Invite')[0]!);
+
+    expect(await screen.findByText(SAVED_NOT_SENT)).toBeTruthy();
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+    expect(screen.getByText(SAVED_NOT_SENT)).toBeTruthy();
+    expect(screen.queryByText('We couldn’t load invitations right now. Please try again.')).toBeNull();
+  });
 });

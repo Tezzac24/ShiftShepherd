@@ -23,6 +23,7 @@ import {
   resendOrganisationInvitation,
   revokeOrganisationInvitation,
   sendOrganisationInvitation,
+  wasInvitationSaved,
 } from '../../lib/supabase/services/invitations';
 import { OrganisationInvitation, UserProfile } from '../../types';
 
@@ -36,6 +37,16 @@ const statusLabels = {
 
 function dateLabel(value: string): string {
   return new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/**
+ * `last_sent_at` is written only after the email provider accepted the
+ * message, so an invitation without it was saved but never emailed.
+ */
+function deliveryLabel(invitation: OrganisationInvitation): string {
+  return invitation.last_sent_at
+    ? `Sent ${dateLabel(invitation.last_sent_at)}`
+    : `Created ${dateLabel(invitation.created_at)}`;
 }
 
 export default function InvitationAdminScreen() {
@@ -64,17 +75,24 @@ export default function InvitationAdminScreen() {
     [invitations],
   );
 
-  const load = useCallback(async () => {
+  /**
+   * `keepError` refreshes the history after a failed action without replacing
+   * that action's message, so an invitation that was saved but not emailed
+   * appears with its Resend button while the explanation stays visible.
+   */
+  const load = useCallback(async (options?: { keepError?: boolean }) => {
     if (!canManage) {
       setLoading(false);
       return;
     }
     setLoading(true);
-    setError(null);
+    if (!options?.keepError) setError(null);
     try {
       setInvitations(await listOrganisationInvitations());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'We couldn’t load invitations.');
+      if (!options?.keepError) {
+        setError(cause instanceof Error ? cause.message : 'We couldn’t load invitations.');
+      }
     } finally {
       setLoading(false);
     }
@@ -95,6 +113,8 @@ export default function InvitationAdminScreen() {
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'We couldn’t send the invitation.');
+      if (wasInvitationSaved(cause)) setEmail('');
+      await load({ keepError: true });
     } finally {
       setBusyKey(null);
     }
@@ -113,6 +133,7 @@ export default function InvitationAdminScreen() {
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'We couldn’t send the invitation.');
+      await load({ keepError: true });
     } finally {
       setBusyKey(null);
     }
@@ -132,6 +153,7 @@ export default function InvitationAdminScreen() {
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'We couldn’t resend the invitation.');
+      await load({ keepError: true });
     } finally {
       setBusyKey(null);
     }
@@ -254,8 +276,13 @@ export default function InvitationAdminScreen() {
                 />
               </View>
               <AppText variant="small" tone="muted">
-                Sent {dateLabel(invitation.last_sent_at ?? invitation.created_at)} · Expires {invitationExpiryLabel(invitation.expires_at)}
+                {deliveryLabel(invitation)} · Expires {invitationExpiryLabel(invitation.expires_at)}
               </AppText>
+              {invitation.status === 'pending' && !invitation.last_sent_at ? (
+                <AppText variant="small" tone="danger">
+                  Email not sent yet. Use Resend to email a new link.
+                </AppText>
+              ) : null}
               {invitation.status === 'pending' ? (
                 <View style={styles.actions}>
                   <Button

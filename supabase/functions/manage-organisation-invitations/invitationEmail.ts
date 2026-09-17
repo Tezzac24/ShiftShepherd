@@ -13,6 +13,10 @@
  *
  * `src/lib/invitations/expiry.ts` mirrors `formatInvitationExpiry`; a Jest
  * test asserts both stay byte-for-byte equal across boundary inputs.
+ *
+ * The link is also printed as copyable text under the button: some email
+ * clients remove or disable a button's link (custom-scheme links especially),
+ * and the recipient must still be able to open the invitation.
  */
 
 const MONTH_NAMES = [
@@ -84,6 +88,7 @@ export function buildInvitationEmail(input: InvitationEmailInput): InvitationEma
           <h1 style="font-size:24px">Join ${organisationName} on Shift Shepherd</h1>
           <p>A church administrator invited you to their Shift Shepherd organisation.</p>
           <p><a href="${invitationUrl}" style="background:#2F5FC4;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none">Open invitation</a></p>
+          <p style="font-size:14px;color:#4A5568">If the button does not open, copy this link into your browser:<br><a href="${invitationUrl}" style="color:#2F5FC4;word-break:break-all">${invitationUrl}</a></p>
           <p>This private invitation expires on ${escapeHtml(expiry)}. If you were not expecting it, you can ignore this email.</p>
         </div>
       `,

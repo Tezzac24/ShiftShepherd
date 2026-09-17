@@ -40,6 +40,12 @@ import { getSupabase, isSupabaseConfigured } from '../supabase/client';
 import * as accountsService from '../supabase/services/accounts';
 import * as organisationMembershipsService from '../supabase/services/organisationMemberships';
 import { unregisterPushToken } from '../supabase/services/pushTokens';
+import {
+  GENERIC_LOGIN_ERROR,
+  OFFLINE_ERROR,
+  signInErrorMessage,
+  signUpErrorMessage,
+} from './authEmailErrors';
 
 type AuthMode = 'demo' | 'supabase';
 
@@ -104,9 +110,6 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const GENERIC_LOGIN_ERROR =
-  'We couldn’t log you in. Please check your email and password and try again.';
-const OFFLINE_ERROR = 'We couldn’t reach the server. Please check your connection and try again.';
 export const SIGN_OUT_ERROR =
   'You are signed out on this device, but we couldn’t reach the server to end the session everywhere. Please check your connection.';
 
@@ -366,7 +369,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: normalized,
         password,
       });
-      if (error) return /fetch/i.test(error.message) ? OFFLINE_ERROR : GENERIC_LOGIN_ERROR;
+      if (error) return signInErrorMessage(error);
       try {
         await bootstrapLiveUser(data.user);
         return null;
@@ -403,14 +406,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password,
         options: { data: { full_name: name } },
       });
-      if (error) {
-        return {
-          error: /fetch/i.test(error.message)
-            ? OFFLINE_ERROR
-            : 'We couldn’t create your account. Please check the details and try again.',
-          needsEmailConfirmation: false,
-        };
-      }
+      if (error) return { error: signUpErrorMessage(error), needsEmailConfirmation: false };
       if (!data.session) return { error: null, needsEmailConfirmation: true };
       try {
         await accountsService.setGlobalDisplayName(name);
