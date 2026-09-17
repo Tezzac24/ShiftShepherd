@@ -12,6 +12,7 @@ const TEAM_ROLE_NAME = '20260719110500_add_team_role_management.sql';
 const TEAM_CREATION_IDEMPOTENCY_NAME = '20260917093926_add_team_creation_idempotency.sql';
 const ANNOUNCEMENT_PUSH_NAME = '20260917110331_add_announcement_push_delivery.sql';
 const ROTA_PUSH_NAME = '20260917124856_add_rota_push_delivery.sql';
+const ACCEPTANCE_FIX_NAME = '20260917180127_fix_invitation_acceptance_role_conflict_target.sql';
 const MIGRATION = join(MIGRATIONS, NEW_NAME);
 
 function text(path: string): string {
@@ -34,14 +35,15 @@ describe('invite/onboarding identity foundation migration', () => {
   it('preserves the identity baseline and every migration before it byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((name) => name.endsWith('.sql')).sort();
     expect(files).toContain(NEW_NAME);
-    expect(files.at(-7)).toBe(MEMBERSHIP_NAME);
-    expect(files.at(-6)).toBe(PUSH_LIFECYCLE_NAME);
-    expect(files.at(-5)).toBe(TEAM_LIFECYCLE_NAME);
-    expect(files.at(-4)).toBe(TEAM_ROLE_NAME);
-    expect(files.at(-3)).toBe(TEAM_CREATION_IDEMPOTENCY_NAME);
-    expect(files.at(-2)).toBe(ANNOUNCEMENT_PUSH_NAME);
-    expect(files.at(-1)).toBe(ROTA_PUSH_NAME);
-    expect(files).toHaveLength(36);
+    expect(files.at(-8)).toBe(MEMBERSHIP_NAME);
+    expect(files.at(-7)).toBe(PUSH_LIFECYCLE_NAME);
+    expect(files.at(-6)).toBe(TEAM_LIFECYCLE_NAME);
+    expect(files.at(-5)).toBe(TEAM_ROLE_NAME);
+    expect(files.at(-4)).toBe(TEAM_CREATION_IDEMPOTENCY_NAME);
+    expect(files.at(-3)).toBe(ANNOUNCEMENT_PUSH_NAME);
+    expect(files.at(-2)).toBe(ROTA_PUSH_NAME);
+    expect(files.at(-1)).toBe(ACCEPTANCE_FIX_NAME);
+    expect(files).toHaveLength(37);
 
     const historical = files.filter(
       (name) =>
@@ -52,7 +54,8 @@ describe('invite/onboarding identity foundation migration', () => {
         name !== TEAM_ROLE_NAME &&
         name !== TEAM_CREATION_IDEMPOTENCY_NAME &&
         name !== ANNOUNCEMENT_PUSH_NAME &&
-        name !== ROTA_PUSH_NAME,
+        name !== ROTA_PUSH_NAME &&
+        name !== ACCEPTANCE_FIX_NAME,
     );
     const hash = createHash('sha256');
     for (const name of historical) {
