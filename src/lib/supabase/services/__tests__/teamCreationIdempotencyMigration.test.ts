@@ -46,8 +46,13 @@ describe('team creation idempotency migration contract', () => {
   });
 
   it('persists a nullable request identity that is unique per organisation only', () => {
-    expect(normalized).toContain('alter table public.teams\n  add column create_request_id uuid;');
+    expect(normalized).toContain(
+      'alter table public.teams\n  add column create_request_id uuid,\n  add column create_request_initial_admin_id uuid;',
+    );
     expect(normalized).not.toMatch(/create_request_id uuid not null/);
+    expect(normalized).not.toMatch(/create_request_initial_admin_id uuid not null/);
+    // The request-argument record is deliberately not a foreign key.
+    expect(normalized).not.toMatch(/create_request_initial_admin_id[^;]*references/);
     expect(normalized).toContain(
       'create unique index teams_organisation_create_request_id_key\n  on public.teams (organisation_id, create_request_id)\n  where create_request_id is not null;',
     );
@@ -141,17 +146,35 @@ describe('team creation idempotency migration contract', () => {
     expect(replayBranch).not.toContain('insert into');
     expect(replayBranch).not.toContain('update ');
     expect(replayBranch).not.toContain('delete from');
-    expect(replayBranch).toContain(
-      'from public.team_memberships membership\n      where membership.team_id = v_team.id\n        and membership.user_id = p_initial_admin_profile_id;',
-    );
     expect(replayBranch).toContain("message = 'create_request_mismatch'");
     expect(replayBranch).toContain('v_team.name is distinct from v_name');
     expect(replayBranch).toContain('v_team.description is distinct from v_description');
   });
 
+  it('compares the replayed initial admin symmetrically against the stored request argument', () => {
+    const replayBranch = create.slice(
+      create.indexOf('if found then'),
+      create.indexOf('    return;\n  end if;'),
+    );
+    // Presence and identity are both checked from the persisted argument, so
+    // replaying with no admin, or a different admin, cannot succeed with a
+    // payload that misreports the canonical team's initial membership.
+    expect(replayBranch).toContain(
+      'or v_team.create_request_initial_admin_id is distinct from p_initial_admin_profile_id',
+    );
+    expect(replayBranch).toContain('if v_team.create_request_initial_admin_id is not null then');
+    expect(replayBranch).toContain(
+      'from public.team_memberships membership\n      where membership.team_id = v_team.id\n        and membership.user_id = v_team.create_request_initial_admin_id;',
+    );
+    // The branch never keys its lookup on the incoming argument alone.
+    expect(replayBranch).not.toContain('if p_initial_admin_profile_id is not null then');
+    expect(replayBranch).not.toContain('membership.user_id = p_initial_admin_profile_id');
+    expect(replayBranch.match(/create_request_mismatch/g)).toHaveLength(2);
+  });
+
   it('stores the request id on the new row and keeps zero-admin and initial-admin semantics', () => {
     expect(create).toContain(
-      "values (\n    v_organisation_id,\n    v_name,\n    v_description,\n    'generic'::public.team_type,\n    null,\n    null,\n    p_request_id\n  )",
+      "values (\n    v_organisation_id,\n    v_name,\n    v_description,\n    'generic'::public.team_type,\n    null,\n    null,\n    p_request_id,\n    p_initial_admin_profile_id\n  )",
     );
     expect(create).toContain(
       "values (v_team.id, p_initial_admin_profile_id, 'team_leader'::public.team_role)",

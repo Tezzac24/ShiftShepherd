@@ -30,10 +30,13 @@ begin;
 -- ---------------------------------------------------------------------------
 
 alter table public.teams
-  add column create_request_id uuid;
+  add column create_request_id uuid,
+  add column create_request_initial_admin_id uuid;
 
 comment on column public.teams.create_request_id is
   'Client-generated identifier of the logical create_team request that created this row; null for teams created before request idempotency existed. Unique per organisation, never unique across organisations.';
+comment on column public.teams.create_request_initial_admin_id is
+  'The p_initial_admin_profile_id argument of the keyed create_team request that created this row (null when none was requested). A request-argument record, deliberately without a foreign key, so a replay is always compared against what the original request asked for.';
 
 create unique index teams_organisation_create_request_id_key
   on public.teams (organisation_id, create_request_id)
@@ -149,18 +152,22 @@ begin
     and team.create_request_id = p_request_id
   for update;
   if found then
-    -- The identifier is bound to its original payload; a different name,
-    -- description, or missing initial membership is not the same request.
+    -- The identifier is bound to its original payload. The comparison is
+    -- symmetric and independent of the incoming argument: the stored request
+    -- record decides whether an initial admin was asked for and who it was,
+    -- so replaying with no admin, a different admin, or a different name or
+    -- description is not the same request.
     if v_team.name is distinct from v_name
       or v_team.description is distinct from v_description
+      or v_team.create_request_initial_admin_id is distinct from p_initial_admin_profile_id
     then
       raise exception using errcode = 'P0001', message = 'CREATE_REQUEST_MISMATCH';
     end if;
-    if p_initial_admin_profile_id is not null then
+    if v_team.create_request_initial_admin_id is not null then
       select membership.* into v_membership
       from public.team_memberships membership
       where membership.team_id = v_team.id
-        and membership.user_id = p_initial_admin_profile_id;
+        and membership.user_id = v_team.create_request_initial_admin_id;
       if not found then
         raise exception using errcode = 'P0001', message = 'CREATE_REQUEST_MISMATCH';
       end if;
@@ -203,7 +210,8 @@ begin
     type,
     archived_at,
     archived_by,
-    create_request_id
+    create_request_id,
+    create_request_initial_admin_id
   )
   values (
     v_organisation_id,
@@ -212,7 +220,8 @@ begin
     'generic'::public.team_type,
     null,
     null,
-    p_request_id
+    p_request_id,
+    p_initial_admin_profile_id
   )
   returning * into v_team;
 
