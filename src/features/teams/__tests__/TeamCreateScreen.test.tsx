@@ -15,6 +15,17 @@ jest.mock('expo-router', () => ({
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
 jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn() }));
 jest.mock('../useTeamAvatarDraft', () => ({ useTeamAvatarDraft: jest.fn() }));
+// Deterministic request keys: each minted key is a distinct fixed UUID so tests
+// can assert reuse across retries and rotation for a new submission.
+let mockMintedRequestIds = 0;
+jest.mock('../../../utils/ids', () => ({
+  newRequestId: jest.fn(() => {
+    mockMintedRequestIds += 1;
+    return `50000000-0000-4000-a000-0000000000${String(mockMintedRequestIds).padStart(2, '0')}`;
+  }),
+}));
+const REQUEST_ID_1 = '50000000-0000-4000-a000-000000000001';
+const REQUEST_ID_2 = '50000000-0000-4000-a000-000000000002';
 // Screen tests exercise form behavior, not react-native-paper's delayed label
 // animation. A native input keeps the suite deterministic and avoids timers
 // firing after Testing Library has already cleaned up the rendered screen.
@@ -93,6 +104,7 @@ function makeData(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockMintedRequestIds = 0;
   mockUseAuth.mockReturnValue({
     user: { profile: ADMIN, orgRole: 'church_admin', memberships: [] },
     authMode: 'demo',
@@ -161,6 +173,7 @@ describe('TeamCreateScreen submission', () => {
         name: 'Welcome Team',
         description: 'Welcomes people.',
         initialAdminProfileId: null,
+        requestId: REQUEST_ID_1,
       }),
     );
     expect(mockReplace).toHaveBeenCalledWith({
@@ -287,5 +300,117 @@ describe('TeamCreateScreen avatar ordering and retry', () => {
       pathname: '/teams/[teamId]',
       params: { teamId: TEAM.id },
     });
+  });
+});
+
+describe('TeamCreateScreen request keys', () => {
+  const OFFLINE = "We couldn't reach the server. Please check your connection and try again.";
+  const UNKNOWN = "We couldn't create this team right now. Please try again.";
+  const CONFLICT = 'Something changed while you were saving. Please review the team and try again.';
+
+  function liveAdmin() {
+    mockUseAuth.mockReturnValue({
+      user: { profile: ADMIN, orgRole: 'church_admin', memberships: [] },
+      authMode: 'supabase',
+      accountStatus: 'ready',
+      isLoading: false,
+    });
+  }
+
+  it('reuses one request key when the same draft is retried after an ambiguous failure', async () => {
+    liveAdmin();
+    const createTeam = jest
+      .fn()
+      .mockRejectedValueOnce(new Error(OFFLINE))
+      .mockRejectedValueOnce(new Error(UNKNOWN))
+      .mockResolvedValueOnce({ team: TEAM, initialAdminMembership: null });
+    mockUseAppData.mockReturnValue(makeData({ createTeam, teamsLive: true }));
+    const screen = render(<TeamCreateScreen />);
+    fireEvent.changeText(screen.getByLabelText('Team name'), 'Welcome Team');
+    fireEvent.press(screen.getByLabelText('Create team'));
+    expect(await screen.findByText(OFFLINE)).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Create team'));
+    expect(await screen.findByText(UNKNOWN)).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Create team'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalled());
+    expect(createTeam).toHaveBeenCalledTimes(3);
+    expect(createTeam.mock.calls.map(([input]) => input.requestId)).toEqual([
+      REQUEST_ID_1,
+      REQUEST_ID_1,
+      REQUEST_ID_1,
+    ]);
+  });
+
+  it('issues a new request key when the draft changes before resubmitting', async () => {
+    liveAdmin();
+    const createTeam = jest
+      .fn()
+      .mockRejectedValueOnce(new Error(OFFLINE))
+      .mockResolvedValueOnce({ team: TEAM, initialAdminMembership: null });
+    mockUseAppData.mockReturnValue(makeData({ createTeam, teamsLive: true }));
+    const screen = render(<TeamCreateScreen />);
+    fireEvent.changeText(screen.getByLabelText('Team name'), 'Welcome Team');
+    fireEvent.press(screen.getByLabelText('Create team'));
+    expect(await screen.findByText(OFFLINE)).toBeTruthy();
+    fireEvent.changeText(screen.getByLabelText('Team name'), 'Welcome Crew');
+    fireEvent.press(screen.getByLabelText('Create team'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalled());
+    expect(createTeam.mock.calls.map(([input]) => [input.name, input.requestId])).toEqual([
+      ['Welcome Team', REQUEST_ID_1],
+      ['Welcome Crew', REQUEST_ID_2],
+    ]);
+  });
+
+  it('issues a new request key after a server conflict and when the initial admin changes', async () => {
+    liveAdmin();
+    const createTeam = jest
+      .fn()
+      .mockRejectedValueOnce(new Error(CONFLICT))
+      .mockRejectedValueOnce(new Error(OFFLINE))
+      .mockResolvedValueOnce({ team: TEAM, initialAdminMembership: null });
+    mockUseAppData.mockReturnValue(makeData({ createTeam, teamsLive: true }));
+    const screen = render(<TeamCreateScreen />);
+    fireEvent.changeText(screen.getByLabelText('Team name'), 'Welcome Team');
+    fireEvent.press(screen.getByLabelText('Create team'));
+    expect(await screen.findByText(CONFLICT)).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Create team'));
+    expect(await screen.findByText(OFFLINE)).toBeTruthy();
+    fireEvent.press(screen.getAllByLabelText('Active Member')[0]);
+    fireEvent.press(screen.getByLabelText('Create team'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalled());
+    expect(
+      createTeam.mock.calls.map(([input]) => [input.initialAdminProfileId, input.requestId]),
+    ).toEqual([
+      [null, REQUEST_ID_1],
+      [null, REQUEST_ID_2],
+      [MEMBER.id, '50000000-0000-4000-a000-000000000003'],
+    ]);
+  });
+
+  it('never calls createTeam again after success, even for the photo retry path', async () => {
+    liveAdmin();
+    const createTeam = jest.fn().mockResolvedValue({ team: TEAM, initialAdminMembership: null });
+    const setTeamAvatar = jest
+      .fn()
+      .mockRejectedValueOnce(new Error("We couldn't upload that photo."))
+      .mockResolvedValueOnce(undefined);
+    mockUseAppData.mockReturnValue(makeData({ createTeam, setTeamAvatar, teamsLive: true }));
+    mockUseAvatarDraft.mockReturnValue({
+      draft: {
+        file: { base64: 'aGVsbG8=', mimeType: 'image/jpeg', fileSize: 5 },
+        previewUri: 'file:///team.jpg',
+      },
+      picking: false,
+      pick: jest.fn(),
+      clear: jest.fn(),
+    });
+    const screen = render(<TeamCreateScreen />);
+    fireEvent.changeText(screen.getByLabelText('Team name'), 'Welcome Team');
+    fireEvent.press(screen.getByLabelText('Create team'));
+    expect(await screen.findByText("Team photo wasn't added")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Try photo again'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalled());
+    expect(createTeam).toHaveBeenCalledTimes(1);
+    expect(createTeam.mock.calls[0][0].requestId).toBe(REQUEST_ID_1);
   });
 });

@@ -77,6 +77,7 @@ function Harness() {
               name: '  Welcome Team  ',
               description: '  Welcomes people.  ',
               initialAdminProfileId: null,
+              requestId: '50000000-0000-4000-a000-000000000001',
             })
             .then((result) => setCreatedId(result.team.id))
         }
@@ -90,6 +91,7 @@ function Harness() {
               name: 'Care Team',
               description: null,
               initialAdminProfileId: ADMIN.id,
+              requestId: '50000000-0000-4000-a000-000000000002',
             })
             .then((result) => setCreatedId(result.team.id))
         }

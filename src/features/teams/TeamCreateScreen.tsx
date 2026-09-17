@@ -16,7 +16,9 @@ import { useAppData } from '../../lib/appData/AppDataContext';
 import { eligibleInitialTeamAdmins } from '../../lib/appData/selectors';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { canManageTeamLifecycle } from '../../lib/permissions';
+import { TEAM_LIFECYCLE_CONFLICT_ERROR } from '../../lib/supabase/services/teams';
 import { UserProfile } from '../../types';
+import { newRequestId } from '../../utils/ids';
 import { validateTeamForm } from './teamForm';
 import { useTeamAvatarDraft } from './useTeamAvatarDraft';
 
@@ -88,6 +90,10 @@ export default function TeamCreateScreen() {
   const [retryingAvatar, setRetryingAvatar] = useState(false);
   const saveGuardRef = useRef(false);
   const avatarRetryGuardRef = useRef(false);
+  // One request key per logical submission. Retrying the same draft after a
+  // failure reuses it so the server can return the team it may already have
+  // created; editing the draft, or a server conflict, starts a new request.
+  const requestKeyRef = useRef<{ id: string; draft: string } | null>(null);
 
   const candidates = useMemo(
     () =>
@@ -161,12 +167,22 @@ export default function TeamCreateScreen() {
     setSaving(true);
     setActionError(null);
     try {
+      const draftKey = JSON.stringify([
+        validated.value.name,
+        validated.value.description,
+        initialAdminProfileId,
+      ]);
+      if (!requestKeyRef.current || requestKeyRef.current.draft !== draftKey) {
+        requestKeyRef.current = { id: newRequestId(), draft: draftKey };
+      }
       const result = await data.createTeam({
         ...validated.value,
         initialAdminProfileId,
+        requestId: requestKeyRef.current.id,
       });
       // The database team is now canonical. Any photo work below is a separate
       // retryable step and must never call createTeam again.
+      requestKeyRef.current = null;
       setCreatedTeamId(result.team.id);
       setCreatedTeamName(result.team.name);
       if (avatar.draft && data.teamsLive) {
@@ -185,6 +201,13 @@ export default function TeamCreateScreen() {
       goToTeam(result.team.id);
     } catch (error) {
       saveGuardRef.current = false;
+      // A conflict means the server created nothing for this key, or the key
+      // is bound to different content; the next submission is a new request.
+      // Every other failure (offline, timeout, unreadable response) may have
+      // committed, so the same key must be replayed.
+      if (error instanceof Error && error.message === TEAM_LIFECYCLE_CONFLICT_ERROR) {
+        requestKeyRef.current = null;
+      }
       setActionError(
         error instanceof Error
           ? error.message
