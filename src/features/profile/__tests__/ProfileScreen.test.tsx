@@ -6,6 +6,8 @@ import { useAuth, useRequiredUser } from '../../../lib/auth/AuthContext';
 import ProfileScreen from '../ProfileScreen';
 import { useProfileAvatar } from '../useProfileAvatar';
 
+const mockToast = jest.fn();
+
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn() }) }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
@@ -15,7 +17,7 @@ jest.mock('../../../lib/auth/AuthContext', () => ({
 }));
 jest.mock('../useProfileAvatar', () => ({ useProfileAvatar: jest.fn() }));
 jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: jest.fn() }));
-jest.mock('../../../components/Toast', () => ({ useToast: () => jest.fn() }));
+jest.mock('../../../components/Toast', () => ({ useToast: () => mockToast }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
@@ -200,5 +202,89 @@ describe('ProfileScreen organisation actions', () => {
     mockUseRequiredUser.mockReturnValue({ ...LIVE_USER, supabaseProfileId: undefined });
     const screen = render(<ProfileScreen />);
     expect(screen.queryByText('Leave organisation')).toBeNull();
+  });
+});
+
+describe('ProfileScreen feedback tone', () => {
+  const LEAVE_FALLBACK = 'We couldn’t leave this organisation.';
+  const LOGOUT_FALLBACK = 'We couldn’t complete the log out.';
+
+  it('shows the profile save success as a success toast', async () => {
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByTestId('edit-profile-action'));
+    fireEvent.press(screen.getByText('Save'));
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith('Profile updated.'));
+    expect(mockToast).not.toHaveBeenCalledWith(expect.anything(), 'error');
+  });
+
+  it('shows a profile save failure inline in the error bar, never as a success toast', async () => {
+    setProfileDisplayNames.mockRejectedValue(new Error('Something went wrong saving.'));
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByTestId('edit-profile-action'));
+    fireEvent.press(screen.getByText('Save'));
+    await waitFor(() => expect(screen.getByText('Something went wrong saving.')).toBeTruthy());
+    expect(screen.getByTestId('profile-edit-form')).toBeTruthy();
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  it('shows the leave success as a success toast', async () => {
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByText('Leave organisation'));
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith('You have left the organisation.'),
+    );
+    expect(mockToast).toHaveBeenCalledTimes(1);
+    expect(mockToast.mock.calls[0]).toHaveLength(1);
+  });
+
+  it('shows a leave failure with the error tone and re-enables the action', async () => {
+    leaveOrganisation.mockRejectedValue(new Error('Another church admin must be appointed first.'));
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByText('Leave organisation'));
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        'Another church admin must be appointed first.',
+        'error',
+      ),
+    );
+    expect(mockToast).toHaveBeenCalledTimes(1);
+    fireEvent.press(screen.getByText('Leave organisation'));
+    await waitFor(() => expect(leaveOrganisation).toHaveBeenCalledTimes(2));
+  });
+
+  it('uses valid UTF-8 fallback copy with the error tone when the leave failure has no message', async () => {
+    leaveOrganisation.mockRejectedValue('not-an-error');
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByText('Leave organisation'));
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(LEAVE_FALLBACK, 'error'));
+    const shown = mockToast.mock.calls[0][0] as string;
+    expect(shown).not.toMatch(/\u00e2\u20ac|\u00c3|\ufffd/);
+    expect(shown).toContain('\u2019');
+  });
+
+  it('shows no toast after a successful log out', async () => {
+    const signOut = jest.fn().mockResolvedValue(undefined);
+    mockUseAuth.mockReturnValue({ ...mockUseAuth(), signOut });
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByText('Log Out'));
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  it('shows a log out failure with the error tone, using the fallback when there is no message', async () => {
+    const signOut = jest.fn().mockRejectedValue(new Error('Sign-out did not complete.'));
+    mockUseAuth.mockReturnValue({ ...mockUseAuth(), signOut });
+    const failing = render(<ProfileScreen />);
+    fireEvent.press(failing.getByText('Log Out'));
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith('Sign-out did not complete.', 'error'),
+    );
+    failing.unmount();
+
+    mockToast.mockReset();
+    mockUseAuth.mockReturnValue({ ...mockUseAuth(), signOut: jest.fn().mockRejectedValue('nope') });
+    const fallback = render(<ProfileScreen />);
+    fireEvent.press(fallback.getByText('Log Out'));
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(LOGOUT_FALLBACK, 'error'));
   });
 });

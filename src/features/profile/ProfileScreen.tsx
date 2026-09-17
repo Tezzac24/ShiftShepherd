@@ -137,7 +137,10 @@ export default function ProfileScreen() {
     try {
       await signOut();
     } catch (cause) {
-      showToast(cause instanceof Error ? cause.message : 'We couldn’t complete the log out.');
+      showToast(
+        cause instanceof Error ? cause.message : 'We couldn’t complete the log out.',
+        'error',
+      );
     }
   };
 
@@ -165,7 +168,10 @@ export default function ProfileScreen() {
       await leaveOrganisation();
       showToast('You have left the organisation.');
     } catch (cause) {
-      showToast(cause instanceof Error ? cause.message : 'We couldnâ€™t leave this organisation.');
+      showToast(
+        cause instanceof Error ? cause.message : 'We couldn’t leave this organisation.',
+        'error',
+      );
       setLeavingOrganisation(false);
     }
   };
