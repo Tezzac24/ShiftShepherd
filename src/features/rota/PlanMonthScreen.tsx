@@ -182,67 +182,67 @@ export default function PlanMonthScreen() {
     if (!ok) return;
 
     setCreating(true);
-    let createdCount = 0;
-    try {
-      for (const planned of includedDates) {
-        if (planned.kind === 'service') {
-          const assignments = [
-            ...(praiseFor(planned) !== NONE
-              ? [{ user_id: praiseFor(planned), role_name: PRAISE_LEADER_ROLE }]
-              : []),
-            ...(worshipFor(planned) !== NONE
-              ? [{ user_id: worshipFor(planned), role_name: WORSHIP_LEADER_ROLE }]
-              : []),
-          ];
-          await data.addRotaEntry(
-            {
-              team_id: team.id,
-              title: 'Sunday Morning Service',
-              date: planned.dateKey,
-              time: serviceTime,
-              notes: null,
-              created_by: user.profile.id,
+    // The whole month is one plan: entries are saved in order, and the people
+    // added hear about it once rather than once per date.
+    const { created, error: createError } = await data.addRotaEntries(
+      includedDates.map((planned) =>
+        planned.kind === 'service'
+          ? {
+              input: {
+                team_id: team.id,
+                title: 'Sunday Morning Service',
+                date: planned.dateKey,
+                time: serviceTime,
+                notes: null,
+                created_by: user.profile.id,
+              },
+              assignments: [
+                ...(praiseFor(planned) !== NONE
+                  ? [{ user_id: praiseFor(planned), role_name: PRAISE_LEADER_ROLE }]
+                  : []),
+                ...(worshipFor(planned) !== NONE
+                  ? [{ user_id: worshipFor(planned), role_name: WORSHIP_LEADER_ROLE }]
+                  : []),
+              ],
+            }
+          : {
+              input: {
+                team_id: team.id,
+                title: 'Choir Rehearsal',
+                date: planned.dateKey,
+                time: rehearsalTime,
+                notes: null,
+                created_by: user.profile.id,
+              },
+              // Every choir member is expected at rehearsal, so everyone can
+              // confirm their availability.
+              assignments: members.map(({ profile }) => ({
+                user_id: profile.id,
+                role_name: CHOIR_MEMBER_ROLE,
+              })),
             },
-            assignments,
-          );
-        } else {
-          await data.addRotaEntry(
-            {
-              team_id: team.id,
-              title: 'Choir Rehearsal',
-              date: planned.dateKey,
-              time: rehearsalTime,
-              notes: null,
-              created_by: user.profile.id,
-            },
-            // Every choir member is expected at rehearsal, so everyone can
-            // confirm their availability.
-            members.map(({ profile }) => ({
-              user_id: profile.id,
-              role_name: CHOIR_MEMBER_ROLE,
-            })),
-          );
-        }
-        createdCount += 1;
-      }
+      ),
+    );
+    const createdCount = created.length;
+    if (createError === null) {
       showToast(
         `${createdCount} rota ${createdCount === 1 ? 'entry' : 'entries'} created.`,
       );
       router.back();
-    } catch (createError) {
-      const message =
-        createError instanceof Error
-          ? createError.message
-          : 'Your changes could not be saved. Please try again.';
-      // Entries created before the failure are on the rota already — say so,
-      // so nobody re-creates the whole month and doubles up dates.
-      setError(
-        createdCount > 0
-          ? `${message} ${createdCount} of ${includedDates.length} ${createdCount === 1 ? 'date was' : 'dates were'} created before the problem — check the rota before trying again.`
-          : message,
-      );
-      setCreating(false);
+      return;
     }
+    const message =
+      createError instanceof Error
+        ? createError.message
+        : 'Your changes could not be saved. Please try again.';
+    // Entries created before the failure are on the rota already — say so,
+    // so nobody re-creates the whole month and doubles up dates.
+    setError(
+      createdCount > 0
+        ? `${message} ${createdCount} of ${includedDates.length} ${createdCount === 1 ? 'date was' : 'dates were'} created before the problem — check the rota before trying again.`
+        : message,
+    );
+    setCreating(false);
   };
 
   return (

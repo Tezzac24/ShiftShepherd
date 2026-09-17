@@ -162,7 +162,7 @@ export default function RotaDetailScreen() {
     }
     const announce = await confirm({
       title: 'Tell the team?',
-      message: 'Would you like to write a team announcement so everyone hears about the cancellation? Nothing is sent without you.',
+      message: 'Would you like to write a team announcement so everyone hears about the cancellation? No announcement is posted unless you choose to.',
       confirmLabel: 'Write Announcement',
       destructive: false,
     });
