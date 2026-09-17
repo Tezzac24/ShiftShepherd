@@ -29,14 +29,14 @@ export const ORGANISATION_MEMBERSHIP_INVALID_ROLE_ERROR =
 export const ORGANISATION_MEMBERSHIP_CONFLICT_ERROR =
   'Someone else changed organisation access at the same time. Refresh and try again.';
 export const ORGANISATION_MEMBERSHIP_OFFLINE_ERROR =
-  'We couldnâ€™t reach the server. Please check your connection and try again.';
+  'We couldn’t reach the server. Please check your connection and try again.';
 export const ORGANISATION_MEMBERSHIP_SETUP_ERROR =
   'Organisation member management is not switched on for your church yet.';
 
-const LOAD_ERROR = 'We couldnâ€™t load organisation members right now. Please try again.';
-const ROLE_ERROR = 'We couldnâ€™t update that role right now. Please try again.';
-const REMOVE_ERROR = 'We couldnâ€™t remove that organisation access right now. Please try again.';
-const LEAVE_ERROR = 'We couldnâ€™t leave this organisation right now. Please try again.';
+const LOAD_ERROR = 'We couldn’t load organisation members right now. Please try again.';
+const ROLE_ERROR = 'We couldn’t update that role right now. Please try again.';
+const REMOVE_ERROR = 'We couldn’t remove that organisation access right now. Please try again.';
+const LEAVE_ERROR = 'We couldn’t leave this organisation right now. Please try again.';
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ROLES: OrganisationRoleName[] = [

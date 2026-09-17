@@ -53,7 +53,7 @@ export default function OrganisationMembersScreen() {
     try {
       setMembers(await listOrganisationMembers());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'We couldnâ€™t load members.');
+      setError(cause instanceof Error ? cause.message : 'We couldn’t load members.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -88,7 +88,7 @@ export default function OrganisationMembersScreen() {
       toast(`${member.full_name} no longer has access to this organisation.`);
       await Promise.all([load(true), data.refreshTeams({ quiet: true })]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'We couldnâ€™t remove that access.');
+      setError(cause instanceof Error ? cause.message : 'We couldn’t remove that access.');
     } finally {
       setRemovingId(null);
     }
@@ -108,7 +108,7 @@ export default function OrganisationMembersScreen() {
           <View style={styles.heading}>
             <AppText variant="heading">Members of {data.organisation.name}</AppText>
             <AppText tone="secondary">
-              Manage app access and each personâ€™s one organisation role. Historical records are kept when access is removed.
+              Manage app access and each person’s one organisation role. Historical records are kept when access is removed.
             </AppText>
           </View>
 
@@ -125,13 +125,13 @@ export default function OrganisationMembersScreen() {
           {loading ? (
             <View style={styles.loading} testID="organisation-members-loading">
               <ActivityIndicator color={colors.primary} />
-              <AppText tone="secondary">Loading membersâ€¦</AppText>
+              <AppText tone="secondary">Loading members…</AppText>
             </View>
           ) : error && members.length === 0 ? (
             <View style={styles.error} accessibilityLiveRegion="polite">
               <EmptyState
                 icon="cloud-offline-outline"
-                title="We couldnâ€™t load members"
+                title="We couldn’t load members"
                 message={error}
               />
               <Button title="Try again" onPress={() => void load()} />
