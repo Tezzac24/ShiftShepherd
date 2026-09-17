@@ -23,12 +23,13 @@ describe('team creation, editing, and archive migration contract', () => {
   const migration = text(MIGRATION);
   const normalized = migration.toLowerCase();
 
-  it('precedes only the local team role migration and preserves all 31 earlier migrations byte-for-byte', () => {
+  it('precedes the team role and team creation idempotency migrations and preserves all 31 earlier migrations byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(33);
-    expect(files.at(-1)).toBe('20260719110500_add_team_role_management.sql');
-    expect(files.at(-2)).toBe(NAME);
-    expect(files.at(-3)).toBe('20260714200205_add_push_token_revocation.sql');
+    expect(files).toHaveLength(34);
+    expect(files.at(-1)).toBe('20260917093926_add_team_creation_idempotency.sql');
+    expect(files.at(-2)).toBe('20260719110500_add_team_role_management.sql');
+    expect(files.at(-3)).toBe(NAME);
+    expect(files.at(-4)).toBe('20260714200205_add_push_token_revocation.sql');
     const historical = files.filter((file) => file < NAME);
     const hash = createHash('sha256');
     for (const file of historical) {

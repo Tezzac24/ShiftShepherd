@@ -26,12 +26,13 @@ describe('team role management migration contract', () => {
   const normalized = migration.toLowerCase();
   const setRole = functionSql(migration, 'set_team_member_role');
 
-  it('is the only new migration and preserves all 32 earlier migrations byte-for-byte', () => {
+  it('precedes only the team creation idempotency migration and preserves all 32 earlier migrations byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(33);
-    expect(files.at(-1)).toBe(NAME);
-    expect(files.at(-2)).toBe('20260715004513_add_team_creation_editing_and_archive.sql');
-    const historical = files.filter((file) => file !== NAME);
+    expect(files).toHaveLength(34);
+    expect(files.at(-1)).toBe('20260917093926_add_team_creation_idempotency.sql');
+    expect(files.at(-2)).toBe(NAME);
+    expect(files.at(-3)).toBe('20260715004513_add_team_creation_editing_and_archive.sql');
+    const historical = files.filter((file) => file < NAME);
     const hash = createHash('sha256');
     for (const file of historical) {
       hash.update(file);
