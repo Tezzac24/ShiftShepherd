@@ -16,6 +16,7 @@ import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
+import { invitationExpiryLabel } from '../../lib/invitations';
 import { isChurchAdmin } from '../../lib/permissions';
 import {
   listOrganisationInvitations,
@@ -253,7 +254,7 @@ export default function InvitationAdminScreen() {
                 />
               </View>
               <AppText variant="small" tone="muted">
-                Sent {dateLabel(invitation.last_sent_at ?? invitation.created_at)} · Expires {dateLabel(invitation.expires_at)}
+                Sent {dateLabel(invitation.last_sent_at ?? invitation.created_at)} · Expires {invitationExpiryLabel(invitation.expires_at)}
               </AppText>
               {invitation.status === 'pending' ? (
                 <View style={styles.actions}>

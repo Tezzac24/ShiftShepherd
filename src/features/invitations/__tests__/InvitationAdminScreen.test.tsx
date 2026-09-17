@@ -122,6 +122,19 @@ beforeEach(() => {
   mockConfirm.mockResolvedValue(true);
 });
 
+it('shows the expiry as the explicit UTC instant the invitation email also uses', async () => {
+  mockList.mockResolvedValue([
+    { ...pendingInvitation, expires_at: '2026-07-19T00:00:00Z' },
+    { ...pendingInvitation, id: 'invite-late', expires_at: '2026-07-18T23:59:59Z' },
+  ]);
+  render(<InvitationAdminScreen />);
+
+  expect(await screen.findByText(/Expires 19 July 2026, 00:00 UTC/)).toBeTruthy();
+  expect(screen.getByText(/Expires 18 July 2026, 23:59 UTC/)).toBeTruthy();
+  expect(screen.queryByText(/Expires 18 Jul 2026(?!,)/)).toBeNull();
+  expect(screen.queryByText(/Invalid Date/)).toBeNull();
+});
+
 it('does not load or expose invitation controls to an ordinary member', async () => {
   mockOrgRole = 'general_member';
   render(<InvitationAdminScreen />);
