@@ -1,31 +1,39 @@
 /**
  * Pure dispatch rules for the send-chat-message-push Edge Function.
  *
- * Both push event kinds (chat messages and announcements) share one
- * pipeline: resolve the readers of the event, drop the actor, honour each
- * recipient's own notification preference for that kind, look up registered
- * tokens, claim idempotent ledger rows, and send a generic Expo payload.
+ * Every push kind (chat messages, announcements, and rota updates) shares
+ * one pipeline: resolve the readers of the event, drop the actor, honour
+ * each recipient's own notification preference for that kind, look up
+ * registered tokens, claim idempotent ledger rows, and send a generic Expo
+ * payload.
  *
  * Everything in this module is side-effect free: no Deno globals, no network,
  * no Supabase client. index.ts fetches rows with the service role and hands
  * them here, and the app's Jest suite imports this file directly to pin the
  * request parsing, recipient, preference, dedupe, self-exclusion,
- * cross-organisation, token, ledger-claim, and content contracts offline.
+ * cross-organisation, token, ledger-claim, coalescing, and content contracts
+ * offline.
  */
 
-export type PushEventType = 'chat_message' | 'announcement';
+export type PushEventType =
+  | 'chat_message'
+  | 'announcement'
+  | 'rota_assignment'
+  | 'rota_entry_change';
 
 /** The existing notification_preferences columns each event kind honours. */
 export type PreferenceKey =
   | 'chat_notifications'
   | 'announcement_notifications'
-  | 'team_announcement_notifications';
+  | 'team_announcement_notifications'
+  | 'rota_notifications';
 
 export type PushRequest =
   | { kind: 'chat_message'; id: string }
-  | { kind: 'announcement'; id: string };
+  | { kind: 'announcement'; id: string }
+  | { kind: 'rota'; ids: string[] };
 
-/** The profile columns needed to decide whether someone may read an announcement. */
+/** The profile columns needed to decide whether someone may read an event. */
 export interface RecipientProfileRow {
   id: string;
   organisation_id: string;
@@ -58,6 +66,49 @@ export interface DeliveryAttempt {
   error_code: 'preference_disabled' | 'no_push_token' | null;
 }
 
+/** One logical event of a request and the profiles it may notify. */
+export interface DeliveryEvent {
+  eventType: PushEventType;
+  eventId: string;
+  recipientIds: string[];
+  /** The rota entry a rota event belongs to (absent for other kinds). */
+  rotaEntryId?: string;
+}
+
+/** A ledger row this invocation actually inserted (ON CONFLICT DO NOTHING). */
+export interface ClaimedDelivery {
+  id: string;
+  event_type: string;
+  event_id: string;
+  recipient_user_id: string;
+  push_token_id: string | null;
+  status: string;
+}
+
+/** Every pending claim for one registered device in one request. */
+export interface DeviceDelivery {
+  tokenId: string;
+  token: string;
+  claims: ClaimedDelivery[];
+}
+
+/** Routing columns of a rota entry - never its title, date, time, or notes. */
+export interface RotaEntryRow {
+  id: string;
+  organisation_id: string;
+  team_id: string;
+  details_change_id: string | null;
+  details_changed_at: string | null;
+}
+
+/** Routing columns of a rota assignment - never its role name. */
+export interface RotaAssignmentRow {
+  id: string;
+  rota_entry_id: string;
+  user_id: string;
+  created_at: string;
+}
+
 export interface NotificationContent {
   title: string;
   body: string;
@@ -72,6 +123,13 @@ export type NotificationEvent =
       teamId: string | null;
       teamName: string | null;
       organisationName: string | null;
+    }
+  | {
+      kind: 'rota';
+      teamId: string;
+      teamName: string | null;
+      /** The rota events newly claimed for the one device being notified. */
+      events: { eventType: string; rotaEntryId: string }[];
     };
 
 export const UUID_RE =
@@ -82,10 +140,13 @@ export const EVENT_MAX_AGE_MS = 5 * 60 * 1000;
 export const EXPO_PUSH_CHUNK_SIZE = 100;
 /** PostgREST `in()` filters travel in the query string; keep them bounded. */
 export const LOOKUP_CHUNK_SIZE = 100;
+/** One rota push request covers at most this many entries of one team. */
+export const MAX_ROTA_ENTRIES_PER_REQUEST = 50;
 
 /**
- * Exactly one of { messageId } or { announcementId }, each a UUID. Anything
- * else is a 400 for the caller - never a guess.
+ * Exactly one of { messageId }, { announcementId } (each a UUID), or
+ * { rotaEntryIds } (1 to MAX_ROTA_ENTRIES_PER_REQUEST UUIDs, deduplicated).
+ * Anything else is a 400 for the caller - never a guess.
  */
 export function parsePushRequest(
   body: unknown,
@@ -93,25 +154,39 @@ export function parsePushRequest(
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return { error: 'Invalid JSON body' };
   }
-  const { messageId, announcementId } = body as {
+  const { messageId, announcementId, rotaEntryIds } = body as {
     messageId?: unknown;
     announcementId?: unknown;
+    rotaEntryIds?: unknown;
   };
-  const hasMessage = messageId !== undefined;
-  const hasAnnouncement = announcementId !== undefined;
-  if (hasMessage === hasAnnouncement) {
-    return { error: 'Provide exactly one of messageId or announcementId' };
+  const provided = [messageId, announcementId, rotaEntryIds].filter(
+    (value) => value !== undefined,
+  ).length;
+  if (provided !== 1) {
+    return { error: 'Provide exactly one of messageId, announcementId, or rotaEntryIds' };
   }
-  if (hasMessage) {
+  if (messageId !== undefined) {
     if (typeof messageId !== 'string' || !UUID_RE.test(messageId)) {
       return { error: 'messageId must be a UUID' };
     }
     return { request: { kind: 'chat_message', id: messageId } };
   }
-  if (typeof announcementId !== 'string' || !UUID_RE.test(announcementId)) {
-    return { error: 'announcementId must be a UUID' };
+  if (announcementId !== undefined) {
+    if (typeof announcementId !== 'string' || !UUID_RE.test(announcementId)) {
+      return { error: 'announcementId must be a UUID' };
+    }
+    return { request: { kind: 'announcement', id: announcementId } };
   }
-  return { request: { kind: 'announcement', id: announcementId } };
+  if (
+    !Array.isArray(rotaEntryIds) ||
+    rotaEntryIds.length === 0 ||
+    rotaEntryIds.length > MAX_ROTA_ENTRIES_PER_REQUEST ||
+    rotaEntryIds.some((id) => typeof id !== 'string' || !UUID_RE.test(id))
+  ) {
+    return { error: `rotaEntryIds must be 1 to ${MAX_ROTA_ENTRIES_PER_REQUEST} UUIDs` };
+  }
+  const ids = [...new Set((rotaEntryIds as string[]).map((id) => id.toLowerCase()))];
+  return { request: { kind: 'rota', ids } };
 }
 
 /** True while the event is recent enough to deliver (unparseable dates are stale). */
@@ -127,12 +202,17 @@ export function isFreshEvent(
 /**
  * The existing preference each kind honours: chat -> chat_notifications;
  * church-wide announcement -> announcement_notifications; team announcement
- * -> team_announcement_notifications. No new keys.
+ * -> team_announcement_notifications; rota -> rota_notifications. No new
+ * keys.
  */
 export function preferenceKeyFor(
-  event: { kind: 'chat_message' } | { kind: 'announcement'; teamId: string | null },
+  event:
+    | { kind: 'chat_message' }
+    | { kind: 'announcement'; teamId: string | null }
+    | { kind: 'rota' },
 ): PreferenceKey {
   if (event.kind === 'chat_message') return 'chat_notifications';
+  if (event.kind === 'rota') return 'rota_notifications';
   return event.teamId ? 'team_announcement_notifications' : 'announcement_notifications';
 }
 
@@ -183,6 +263,104 @@ export function selectAnnouncementRecipientIds(input: {
     )
     .map((profile) => profile.id);
   return uniqueExcluding(eligible, input.authorId);
+}
+
+/**
+ * Rota updates ("When you are added to a rota or a rota changes") for the
+ * entries of one team saved by the caller, who is treated as the actor and
+ * is never notified. Only people on the rota are recipients, and only while
+ * they are an active, linked profile of the organisation and a current
+ * member of the team (church admins who are not team members are not
+ * notified, matching the chat and team-announcement convention).
+ *
+ *  - Added to a rota: one `rota_assignment` event per assignment row created
+ *    within the freshness window, for that row's assignee
+ *    (event id = rota_assignments.id).
+ *  - A rota changed: one `rota_entry_change` event per entry whose
+ *    server-maintained change marker (title, date, time, notes, or
+ *    cancellation status) is within the freshness window, for the people
+ *    whose assignment already existed before that change
+ *    (event id = rota_entries.details_change_id). People added by the same
+ *    save receive the "added" event instead, so a save never tells anyone
+ *    twice.
+ *
+ * Entries outside the organisation or team are ignored. Assignment-only
+ * edits notify only the newly assigned people, and removed assignments or
+ * deleted entries notify nobody. Coalescing into one notification per
+ * device happens after claiming (see groupPendingClaimsByToken).
+ */
+export function selectRotaEvents(input: {
+  nowMs: number;
+  actorId: string;
+  organisationId: string;
+  teamId: string;
+  entries: RotaEntryRow[];
+  assignments: RotaAssignmentRow[];
+  /** Current members of the team (at least those among the assignees). */
+  memberIds: string[];
+  profiles: RecipientProfileRow[];
+  maxAgeMs?: number;
+}): DeliveryEvent[] {
+  const maxAgeMs = input.maxAgeMs ?? EVENT_MAX_AGE_MS;
+  const members = new Set(input.memberIds);
+  const profilesById = new Map(input.profiles.map((profile) => [profile.id, profile]));
+  const entries = input.entries.filter(
+    (entry) => entry.organisation_id === input.organisationId && entry.team_id === input.teamId,
+  );
+  const entryIds = new Set(entries.map((entry) => entry.id));
+  const mayNotify = (userId: string): boolean => {
+    const profile = profilesById.get(userId);
+    return (
+      userId !== input.actorId &&
+      members.has(userId) &&
+      !!profile &&
+      profile.organisation_id === input.organisationId &&
+      profile.access_status === 'active' &&
+      typeof profile.auth_user_id === 'string' &&
+      profile.auth_user_id.length > 0
+    );
+  };
+
+  const events: DeliveryEvent[] = [];
+  for (const assignment of input.assignments) {
+    if (!entryIds.has(assignment.rota_entry_id)) continue;
+    if (!isFreshEvent(assignment.created_at, input.nowMs, maxAgeMs)) continue;
+    if (!mayNotify(assignment.user_id)) continue;
+    events.push({
+      eventType: 'rota_assignment',
+      eventId: assignment.id,
+      rotaEntryId: assignment.rota_entry_id,
+      recipientIds: [assignment.user_id],
+    });
+  }
+
+  for (const entry of entries) {
+    if (!entry.details_change_id || !entry.details_changed_at) continue;
+    if (!isFreshEvent(entry.details_changed_at, input.nowMs, maxAgeMs)) continue;
+    const changedAtMs = Date.parse(entry.details_changed_at);
+    const alreadyOnRota = input.assignments
+      .filter(
+        (assignment) =>
+          assignment.rota_entry_id === entry.id &&
+          Date.parse(assignment.created_at) < changedAtMs &&
+          mayNotify(assignment.user_id),
+      )
+      .map((assignment) => assignment.user_id);
+    const recipientIds = uniqueExcluding(alreadyOnRota, input.actorId);
+    if (recipientIds.length === 0) continue;
+    events.push({
+      eventType: 'rota_entry_change',
+      eventId: entry.details_change_id,
+      rotaEntryId: entry.id,
+      recipientIds,
+    });
+  }
+  return events;
+}
+
+/** Every profile any event may notify, once each, in first-seen order. */
+export function uniqueRecipientIds(events: DeliveryEvent[]): string[] {
+  return [...new Set(events.flatMap((event) => event.recipientIds))];
 }
 
 /**
@@ -259,11 +437,56 @@ export function buildDeliveryAttempts(input: {
   return attempts;
 }
 
+/** Ledger rows for every event of a request (a single event for chat and announcements). */
+export function buildEventDeliveryAttempts(input: {
+  events: DeliveryEvent[];
+  disabled: Set<string>;
+  tokensByUser: Map<string, RegisteredToken[]>;
+}): DeliveryAttempt[] {
+  return input.events.flatMap((event) =>
+    buildDeliveryAttempts({
+      eventType: event.eventType,
+      eventId: event.eventId,
+      recipientIds: event.recipientIds,
+      disabled: input.disabled,
+      tokensByUser: input.tokensByUser,
+    }),
+  );
+}
+
+/**
+ * The coalescing rule: all pending rows this invocation newly claimed for one
+ * registered device become ONE notification to that device, and every row in
+ * the group records that notification's outcome. A chat message or
+ * announcement is a single event, so each device keeps exactly one claim; a
+ * rota save covering several assignments or entries tells each device once.
+ * Claims whose token is not in the lookup are left untouched (still pending).
+ */
+export function groupPendingClaimsByToken(
+  claimed: ClaimedDelivery[],
+  tokenById: Map<string, string>,
+): DeviceDelivery[] {
+  const devices = new Map<string, DeviceDelivery>();
+  for (const row of claimed) {
+    if (row.status !== 'pending' || !row.push_token_id) continue;
+    const token = tokenById.get(row.push_token_id);
+    if (!token) continue;
+    const device = devices.get(row.push_token_id) ?? {
+      tokenId: row.push_token_id,
+      token,
+      claims: [],
+    };
+    device.claims.push(row);
+    devices.set(row.push_token_id, device);
+  }
+  return [...devices.values()];
+}
+
 /**
  * Deliberately generic content with route-safe ids only. Message text,
- * announcement title/body, images, and author names never appear: a lock
- * screen may be read by anyone, and a recipient opens the app to see the
- * real content under RLS.
+ * announcement title/body, rota titles/dates/times/notes/roles, images, and
+ * author names never appear: a lock screen may be read by anyone, and a
+ * recipient opens the app to see the real content under RLS.
  */
 export function notificationContentFor(event: NotificationEvent): NotificationContent {
   if (event.kind === 'chat_message') {
@@ -272,6 +495,9 @@ export function notificationContentFor(event: NotificationEvent): NotificationCo
       body: `You have a new message in ${event.teamName ?? 'your team'}.`,
       data: { type: 'chat_message', teamId: event.teamId, messageId: event.messageId },
     };
+  }
+  if (event.kind === 'rota') {
+    return rotaNotificationContent(event);
   }
   if (event.teamId) {
     return {
@@ -285,6 +511,40 @@ export function notificationContentFor(event: NotificationEvent): NotificationCo
     body: `A new announcement was posted for ${event.organisationName ?? 'your church'}.`,
     data: { type: 'announcement', announcementId: event.announcementId },
   };
+}
+
+/**
+ * Rota wording for one device: "added" when every newly claimed event added
+ * the recipient to a date, "changed" when every one is a change to a date
+ * they were already on, and a combined update otherwise. The team name is
+ * the only detail; the entry id is included only when exactly one entry is
+ * involved.
+ */
+function rotaNotificationContent(
+  event: Extract<NotificationEvent, { kind: 'rota' }>,
+): NotificationContent {
+  const rota = event.teamName ? `the ${event.teamName} rota` : 'your team rota';
+  const entryIds = [...new Set(event.events.map((item) => item.rotaEntryId))];
+  const added = event.events.some((item) => item.eventType === 'rota_assignment');
+  const changed = event.events.some((item) => item.eventType === 'rota_entry_change');
+  const data: Record<string, string> =
+    entryIds.length === 1
+      ? { type: 'rota', teamId: event.teamId, rotaEntryId: entryIds[0] }
+      : { type: 'rota', teamId: event.teamId };
+  if (added && !changed) {
+    return { title: 'New rota assignment', body: `You have been added to ${rota}.`, data };
+  }
+  if (changed && !added) {
+    return {
+      title: 'Rota updated',
+      body:
+        entryIds.length === 1
+          ? `A date you are on in ${rota} has changed.`
+          : `Some dates you are on in ${rota} have changed.`,
+      data,
+    };
+  }
+  return { title: 'Rota updated', body: `Your dates on ${rota} have been updated.`, data };
 }
 
 export function buildExpoMessages(

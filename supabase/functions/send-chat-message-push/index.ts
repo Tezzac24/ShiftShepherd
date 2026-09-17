@@ -1,11 +1,14 @@
 /**
- * send-chat-message-push — Push Delivery V1 (chat messages + announcements).
+ * send-chat-message-push — Push Delivery V1 (chat messages, announcements,
+ * and rota updates).
  *
  * The app calls this Edge Function best-effort after a live write succeeds,
- * passing exactly one id: { messageId } after a chat message send (Chat
- * Message Push Delivery V1, unchanged) or { announcementId } after an
- * announcement is posted (Announcement Push Delivery V1). Everything else is
- * validated server-side against the database:
+ * passing exactly one of: { messageId } after a chat message send (Chat
+ * Message Push Delivery V1, unchanged), { announcementId } after an
+ * announcement is posted (Announcement Push Delivery V1, unchanged), or
+ * { rotaEntryIds } after a rota save (Rota Push Delivery V1: one entry save,
+ * cancel, or restore, or every entry of one Plan the Month batch). Everything
+ * else is validated server-side against the database:
  *
  *  - the caller holds a valid Supabase user JWT (verify_jwt also gates this
  *    at the platform level) and maps to the server-validated active profile
@@ -22,6 +25,16 @@
  *    members — filtered by announcement_notifications (church-wide) or
  *    team_announcement_notifications (team). The author is never notified,
  *    and each profile is notified at most once.
+ *  - rota: every entry exists in the caller's organisation, all belong to one
+ *    active (non-archived) team, and the caller may manage that rota (team
+ *    leader or church admin, mirroring can_manage_team). Recipients are the
+ *    people on those entries who are active, linked, same-organisation
+ *    current team members, filtered by rota_notifications: an assignee whose
+ *    assignment row is at most 5 minutes old was added to a rota
+ *    (rota_assignment), and an assignee already on an entry whose
+ *    trigger-maintained change marker (title, date, time, notes, or
+ *    cancellation status) is at most 5 minutes old saw that rota change
+ *    (rota_entry_change). The caller is never notified.
  *  - a missing notification_preferences row means the app's all-on
  *    defaults, so only an explicit false disables delivery; recipients need
  *    at least one registered push token.
@@ -33,30 +46,36 @@
  * acted on, so duplicate app calls or races can never double-send. Skips
  * (preference off / no token) are logged with a reason; Expo outcomes are
  * written back per token (sent + ticket id, or failed + safe error code).
+ * Coalescing: every row newly claimed for one device in one request becomes
+ * one notification, so a rota save touching several assignments or dates
+ * tells each device once (chat and announcements have one row per device).
  *
  * Privacy: notifications are deliberately generic — "New team message" /
  * "You have a new message in <Team Name>.", "New team announcement" /
  * "A new announcement was posted in <Team Name>.", "New church
- * announcement" / "A new announcement was posted for <Organisation Name>."
- * — with route-safe ids in data. Message text, announcement title/body,
- * image details, and author names are never included. Push tokens are
- * never logged, never returned, and are scrubbed from any Expo error text
- * before it is stored.
+ * announcement" / "A new announcement was posted for <Organisation Name>.",
+ * "New rota assignment" / "You have been added to the <Team Name> rota.",
+ * "Rota updated" / "A date you are on in the <Team Name> rota has changed."
+ * — with route-safe ids in data. Message text, announcement title/body, rota
+ * titles/dates/times/notes/roles, image details, and author names are never
+ * included (never even selected). Push tokens are never logged, never
+ * returned, and are scrubbed from any Expo error text before it is stored.
  *
  * The service role key exists only in the Edge Function runtime env (it is
  * required here because this project grants the Data API roles nothing by
  * default); it never ships in the app. No receipts polling, no cron, no
- * triggers, no other event types. The pure rules live in ./dispatch.ts so
- * the app's Jest suite can pin them offline.
+ * queue, no push-sending triggers, no other event types. The pure rules live
+ * in ./dispatch.ts so the app's Jest suite can pin them offline.
  */
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 import {
-  buildDeliveryAttempts,
+  buildEventDeliveryAttempts,
   buildExpoMessages,
   chunk,
   disabledRecipientIds,
   EXPO_PUSH_CHUNK_SIZE,
+  groupPendingClaimsByToken,
   groupTokensByUser,
   isFreshEvent,
   LOOKUP_CHUNK_SIZE,
@@ -66,11 +85,17 @@ import {
   scrubTokens,
   selectAnnouncementRecipientIds,
   selectChatRecipientIds,
+  selectRotaEvents,
+  uniqueRecipientIds,
+  type ClaimedDelivery,
+  type DeliveryEvent,
   type NotificationContent,
   type PreferenceKey,
   type PreferenceRow,
   type PushEventType,
   type RecipientProfileRow,
+  type RotaAssignmentRow,
+  type RotaEntryRow,
   type TokenRow,
 } from './dispatch.ts';
 
@@ -101,6 +126,19 @@ interface ResolvedEvent {
 }
 
 type Resolution = { event: ResolvedEvent } | { response: Response };
+
+/** Everything the shared delivery pipeline needs for one request of any kind. */
+interface ResolvedDelivery {
+  events: DeliveryEvent[];
+  preferenceKey: PreferenceKey;
+  /** Content for one device, from the ledger rows newly claimed for it. */
+  contentFor: (claims: ClaimedDelivery[]) => Promise<NotificationContent>;
+}
+
+type DeliveryResolution = { delivery: ResolvedDelivery } | { response: Response };
+
+/** Rows per page for lookups that an id list alone does not bound. */
+const PAGE_SIZE = 500;
 
 interface ExpoPushTicket {
   status: 'ok' | 'error';
@@ -157,6 +195,23 @@ async function selectInChunks<T>(
     rows.push(...(data ?? []));
   }
   return { rows };
+}
+
+/**
+ * Read every row of an ordered query in pages (smaller than the Data API's
+ * default 1000-row cap), so a large rota is never silently cut off.
+ */
+async function selectAllPages<T>(
+  load: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: QueryError | null }>,
+): Promise<{ rows: T[] } | { error: QueryError }> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await load(from, from + PAGE_SIZE - 1);
+    if (error) return { error };
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return { rows };
+  }
 }
 
 async function sendExpoChunk(
@@ -403,6 +458,151 @@ async function resolveAnnouncement(
   };
 }
 
+/**
+ * A chat message or announcement is one event with the same content for
+ * every device; its display names are loaded once, only if something sends.
+ */
+function singleEventDelivery(event: ResolvedEvent): ResolvedDelivery {
+  let content: Promise<NotificationContent> | null = null;
+  return {
+    events: [
+      { eventType: event.eventType, eventId: event.eventId, recipientIds: event.recipientIds },
+    ],
+    preferenceKey: event.preferenceKey,
+    contentFor: () => {
+      content ??= event.content();
+      return content;
+    },
+  };
+}
+
+// --- Rota: one team's entries, caller manages that rota, events resolved ---
+async function resolveRota(
+  admin: SupabaseClient,
+  profile: CallerProfile,
+  entryIds: string[],
+): Promise<DeliveryResolution> {
+  // Only routing columns: titles, dates, times, notes, and role names are
+  // never read here, so they can never reach a notification payload.
+  const { data: entryRows, error: entriesError } = await admin
+    .from('rota_entries')
+    .select('id, organisation_id, team_id, details_change_id, details_changed_at')
+    .in('id', entryIds);
+  if (entriesError) return { response: serverError('rota entries lookup', entriesError) };
+  const entries = (entryRows ?? []) as RotaEntryRow[];
+  if (entries.length !== entryIds.length) {
+    return { response: jsonResponse(404, { error: 'Rota entry not found' }) };
+  }
+  if (entries.some((entry) => entry.organisation_id !== profile.organisation_id)) {
+    return { response: jsonResponse(403, { error: 'No access to this rota' }) };
+  }
+  if (new Set(entries.map((entry) => entry.team_id)).size !== 1) {
+    return { response: jsonResponse(400, { error: 'Rota entries must belong to one team' }) };
+  }
+  const organisationId = profile.organisation_id;
+  const teamId = entries[0].team_id;
+
+  // Archived teams have no active rota readers or managers.
+  const { data: team, error: teamError } = await admin
+    .from('teams')
+    .select('id, name, archived_at')
+    .eq('id', teamId)
+    .eq('organisation_id', organisationId)
+    .maybeSingle();
+  if (teamError) return { response: serverError('team lookup', teamError) };
+  if (!team || team.archived_at) {
+    return {
+      response: jsonResponse(409, { error: 'This team is not available for push delivery' }),
+    };
+  }
+
+  // Only someone who may manage this rota (the team's leader or a church
+  // admin of its organisation, mirroring can_manage_team) can ask.
+  const { data: leadership, error: leadershipError } = await admin
+    .from('team_memberships')
+    .select('id')
+    .eq('team_id', teamId)
+    .eq('user_id', profile.id)
+    .eq('role', 'team_leader')
+    .maybeSingle();
+  if (leadershipError) return { response: serverError('leader lookup', leadershipError) };
+  if (!leadership) {
+    const { data: adminRole, error: adminRoleError } = await admin
+      .from('organisation_roles')
+      .select('id')
+      .eq('organisation_id', organisationId)
+      .eq('user_id', profile.id)
+      .eq('role', 'church_admin')
+      .maybeSingle();
+    if (adminRoleError) return { response: serverError('role lookup', adminRoleError) };
+    if (!adminRole) {
+      return { response: jsonResponse(403, { error: 'Only rota managers can request delivery' }) };
+    }
+  }
+
+  // Routing columns only (never role_name), every page.
+  const assignments = await selectAllPages<RotaAssignmentRow>((from, to) =>
+    admin
+      .from('rota_assignments')
+      .select('id, rota_entry_id, user_id, created_at')
+      .in('rota_entry_id', entryIds)
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
+  if ('error' in assignments) {
+    return { response: serverError('assignments lookup', assignments.error) };
+  }
+  const assigneeIds = [...new Set(assignments.rows.map((row) => row.user_id))];
+
+  const profiles = await selectInChunks<RecipientProfileRow>(assigneeIds, (part) =>
+    admin
+      .from('profiles')
+      .select('id, organisation_id, auth_user_id, access_status')
+      .in('id', part),
+  );
+  if ('error' in profiles) return { response: serverError('profiles lookup', profiles.error) };
+
+  const members = await selectInChunks<{ user_id: string }>(assigneeIds, (part) =>
+    admin.from('team_memberships').select('user_id').eq('team_id', teamId).in('user_id', part),
+  );
+  if ('error' in members) return { response: serverError('memberships lookup', members.error) };
+
+  const events = selectRotaEvents({
+    nowMs: Date.now(),
+    actorId: profile.id,
+    organisationId,
+    teamId,
+    entries,
+    assignments: assignments.rows,
+    memberIds: members.rows.map((row) => row.user_id),
+    profiles: profiles.rows,
+  });
+  const entryByEvent = new Map<string, string>();
+  for (const event of events) {
+    if (event.rotaEntryId) entryByEvent.set(`${event.eventType}:${event.eventId}`, event.rotaEntryId);
+  }
+  const teamName = (team.name as string | undefined) ?? null;
+
+  return {
+    delivery: {
+      events,
+      preferenceKey: preferenceKeyFor({ kind: 'rota' }),
+      contentFor: (claims) =>
+        Promise.resolve(
+          notificationContentFor({
+            kind: 'rota',
+            teamId,
+            teamName,
+            events: claims.flatMap((claim) => {
+              const rotaEntryId = entryByEvent.get(`${claim.event_type}:${claim.event_id}`);
+              return rotaEntryId ? [{ eventType: claim.event_type, rotaEntryId }] : [];
+            }),
+          }),
+        ),
+    },
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
@@ -470,12 +670,20 @@ Deno.serve(async (req) => {
   };
 
   // --- Event: kind-specific validation and readership --------------------
-  const resolution =
-    parsed.request.kind === 'chat_message'
-      ? await resolveChatMessage(admin, caller, parsed.request.id)
-      : await resolveAnnouncement(admin, caller, parsed.request.id);
+  const request = parsed.request;
+  let resolution: DeliveryResolution;
+  if (request.kind === 'rota') {
+    resolution = await resolveRota(admin, caller, request.ids);
+  } else {
+    const single =
+      request.kind === 'chat_message'
+        ? await resolveChatMessage(admin, caller, request.id)
+        : await resolveAnnouncement(admin, caller, request.id);
+    resolution = 'response' in single ? single : { delivery: singleEventDelivery(single.event) };
+  }
   if ('response' in resolution) return resolution.response;
-  const { eventType, eventId, recipientIds, preferenceKey, content } = resolution.event;
+  const { events, preferenceKey, contentFor } = resolution.delivery;
+  const recipientIds = uniqueRecipientIds(events);
   if (recipientIds.length === 0) {
     return jsonResponse(200, { sent: 0, skipped: 0, failed: 0 });
   }
@@ -498,13 +706,7 @@ Deno.serve(async (req) => {
   const tokensByUser = groupTokensByUser(tokens.rows);
 
   // --- Claim idempotent delivery rows ------------------------------------
-  const attempts = buildDeliveryAttempts({
-    eventType,
-    eventId,
-    recipientIds,
-    disabled,
-    tokensByUser,
-  });
+  const attempts = buildEventDeliveryAttempts({ events, disabled, tokensByUser });
 
   // ON CONFLICT DO NOTHING against the idempotency index: only rows this
   // invocation actually inserted come back, so duplicates send nothing.
@@ -514,49 +716,42 @@ Deno.serve(async (req) => {
       onConflict: 'event_type,event_id,recipient_user_id,push_token_id',
       ignoreDuplicates: true,
     })
-    .select('id, recipient_user_id, push_token_id, status');
+    .select('id, event_type, event_id, recipient_user_id, push_token_id, status');
   if (claimError) return serverError('delivery claim', claimError);
-  const claimed = claimedRows ?? [];
+  const claimed = (claimedRows ?? []) as ClaimedDelivery[];
   const skipped = claimed.filter((row) => row.status === 'skipped').length;
 
   const tokenById = new Map<string, string>();
   for (const list of tokensByUser.values()) {
     for (const token of list) tokenById.set(token.id, token.token);
   }
-  const pendingClaims = claimed
-    .filter((row) => row.status === 'pending' && row.push_token_id)
-    .map((row) => ({
-      deliveryId: row.id as string,
-      token: tokenById.get(row.push_token_id as string),
-    }))
-    .filter((claim): claim is { deliveryId: string; token: string } => !!claim.token);
+  // One notification per device per request (one claim each for chat and
+  // announcements; a rota save's claims for a device are coalesced).
+  const devices = groupPendingClaimsByToken(claimed, tokenById);
 
-  if (pendingClaims.length === 0) {
+  if (devices.length === 0) {
     return jsonResponse(200, { sent: 0, skipped, failed: 0 });
   }
 
   // --- Send via Expo and record outcomes ---------------------------------
-  const notification = await content();
-
   let sent = 0;
   let failed = 0;
-  for (const part of chunk(pendingClaims, EXPO_PUSH_CHUNK_SIZE)) {
+  for (const part of chunk(devices, EXPO_PUSH_CHUNK_SIZE)) {
+    const contents = await Promise.all(part.map((device) => contentFor(device.claims)));
     const result = await sendExpoChunk(
-      buildExpoMessages(
-        part.map((claim) => claim.token),
-        notification,
-      ),
+      part.flatMap((device, index) => buildExpoMessages([device.token], contents[index])),
     );
 
     if ('requestError' in result) {
-      failed += part.length;
+      const claims = part.flatMap((device) => device.claims);
+      failed += claims.length;
       console.warn(`${LOG_PREFIX} Expo request failed`, {
         code: result.requestError,
         messages: part.length,
       });
       await Promise.all(
-        part.map((claim) =>
-          markDelivery(admin, claim.deliveryId, {
+        claims.map((claim) =>
+          markDelivery(admin, claim.id, {
             status: 'failed',
             error_code: 'expo_request_failed',
             error_message: scrubTokens(result.requestError),
@@ -566,24 +761,29 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // Tickets come back in the same order as the messages in the request.
+    // Tickets come back in the same order as the messages in the request;
+    // every claim coalesced into a device's message shares its outcome.
     await Promise.all(
-      part.map((claim, index) => {
+      part.flatMap((device, index) => {
         const ticket = result.tickets[index];
         if (ticket && ticket.status === 'ok') {
-          sent += 1;
-          return markDelivery(admin, claim.deliveryId, {
-            status: 'sent',
-            expo_ticket_id: ticket.id ?? null,
-            sent_at: new Date().toISOString(),
-          });
+          sent += device.claims.length;
+          return device.claims.map((claim) =>
+            markDelivery(admin, claim.id, {
+              status: 'sent',
+              expo_ticket_id: ticket.id ?? null,
+              sent_at: new Date().toISOString(),
+            }),
+          );
         }
-        failed += 1;
-        return markDelivery(admin, claim.deliveryId, {
-          status: 'failed',
-          error_code: ticket?.details?.error ?? 'unknown_ticket',
-          error_message: scrubTokens(ticket?.message ?? 'No ticket returned'),
-        });
+        failed += device.claims.length;
+        return device.claims.map((claim) =>
+          markDelivery(admin, claim.id, {
+            status: 'failed',
+            error_code: ticket?.details?.error ?? 'unknown_ticket',
+            error_message: scrubTokens(ticket?.message ?? 'No ticket returned'),
+          }),
+        );
       }),
     );
   }
