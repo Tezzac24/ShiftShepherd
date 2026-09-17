@@ -386,7 +386,7 @@ Church Admin can:
 - Access admin-style actions inside the mobile app
 - Select the creator as initial team admin only when explicitly chosen
 
-Team Role Management V1 (implemented locally; migration undeployed) adds church-admin-only team-role changes through one `set_team_member_role` RPC: promote a member to team admin, demote a team admin to member (including the final team admin, deliberately leaving zero leaders), recover a zero-leader team by promotion, and change the admin's own membership role. Team leaders alone cannot change roles, archived teams reject role changes, no membership is created or removed, and the existing final-leader remove/leave protections stay in place (demote first).
+Team Role Management V1 (deployed to `shift-shepherd-dev` and hosted-contract verified; manual app QA pending) adds church-admin-only team-role changes through one `set_team_member_role` RPC: promote a member to team admin, demote a team admin to member (including the final team admin, deliberately leaving zero leaders), recover a zero-leader team by promotion, and change the admin's own membership role. Team leaders alone cannot change roles, archived teams reject role changes, no membership is created or removed, and the existing final-leader remove/leave protections stay in place (demote first).
 
 Announcement Manager can:
 - Create church-wide announcements
