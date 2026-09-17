@@ -1,8 +1,8 @@
 # Production Email & Invitation Delivery Readiness
 
-This runbook lists everything that must be true before Shift Shepherd sends email to real people, the exact owner actions that are still outstanding, and how the app and the `manage-organisation-invitations` Edge Function behave until they are done. The repository side (configuration validation, link building, provider error handling, and plain-language app messages) is implemented; the remaining items are owner-controlled accounts, DNS, secrets, and hosted Supabase Auth settings that code cannot change.
+This runbook lists everything that must be true before Shift Shepherd sends email to real people, the exact owner actions that are still outstanding, and how the app and the `manage-organisation-invitations` Edge Function behave until they are done. The repository side (configuration validation, link building, provider error handling, and plain-language app messages) is implemented and deployed to `shift-shepherd-dev` as `manage-organisation-invitations` v3 (2026-09-17); the remaining items are owner-controlled accounts, DNS, secrets, and hosted Supabase Auth settings that code cannot change.
 
-Nothing in this runbook has been executed against the hosted project by automation. Live delivery QA, including the first invitation to an arbitrary recipient, remains a manual owner step (section 5).
+None of the owner actions in section 3 has been performed; only the function deployment has. Live delivery QA, including the first invitation to an arbitrary recipient, remains a manual owner step (section 5).
 
 ## 1. What sends email
 
@@ -15,7 +15,7 @@ Nothing in this runbook has been executed against the hosted project by automati
 
 ## 2. Known limits of the current development setup
 
-- **Resend test sender.** Invitations are sent from `onboarding@resend.dev`. Resend's testing domain delivers only to the Resend account owner's own address and rejects every other recipient with HTTP 403 (`validation_error`). Only a verified sending domain removes this limit.
+- **Resend test sender.** Invitations are sent from `onboarding@resend.dev` (on 2026-09-17 a digest comparison, without reading the values, confirmed the hosted `INVITATION_FROM_EMAIL` is its display-name form and `INVITATION_APP_BASE_URL` is `shiftshepherd://`; v3 accepts both and logs the two not-production-ready warnings on send and resend). Resend's testing domain delivers only to the Resend account owner's own address and rejects every other recipient with HTTP 403 (`validation_error`). Only a verified sending domain removes this limit.
 - **Custom-scheme links.** Invitation links use the `shiftshepherd://` app scheme. They open only on a device with a development or store build that registers the scheme (Expo Go cannot), and many email clients do not make custom-scheme links clickable. The email now also prints the link as copyable text, but production links should be https.
 - **Built-in Auth email service.** Without custom SMTP, Supabase Auth sends only to addresses that are members of the Supabase organisation's team (others fail with `email_address_not_authorized`), applies a low hourly email limit (`over_email_send_rate_limit`), and offers no delivery guarantee.
 - **Addresses without mail servers.** Supabase Auth rejects sign-ups for domains that cannot receive email, such as `example.com`, `.test`, or `.invalid` (`email_address_invalid`). Use real inboxes (plus-addressing works) for QA accounts.
@@ -65,7 +65,7 @@ Supabase dashboard, **Authentication**, **SMTP Settings** (`/dashboard/project/<
 - Sender email: an address on the verified domain (for example `no-reply@<verified sending domain>`); sender name: `Shift Shepherd`.
 - Host `smtp.resend.com`; port `465` (implicit TLS) or `587` (STARTTLS); username `resend`; password: the Resend API key.
 
-After saving, Supabase applies a 30 emails per hour limit. Raise it to the expected sign-up volume under **Authentication**, **Rate Limits** (`/dashboard/project/<project-ref>/auth/rate-limits`).
+After saving, Supabase applies a low default limit (30 emails per hour according to the Supabase custom SMTP guide at the time of writing). Raise it to the expected sign-up volume under **Authentication**, **Rate Limits** (`/dashboard/project/<project-ref>/auth/rate-limits`).
 
 ### 3.7 Set the Site URL and redirect URLs
 
