@@ -28,11 +28,12 @@ describe('team role management migration contract', () => {
 
   it('precedes the team creation idempotency and announcement push delivery migrations and preserves all 32 earlier migrations byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(35);
-    expect(files.at(-1)).toBe('20260917110331_add_announcement_push_delivery.sql');
-    expect(files.at(-2)).toBe('20260917093926_add_team_creation_idempotency.sql');
-    expect(files.at(-3)).toBe(NAME);
-    expect(files.at(-4)).toBe('20260715004513_add_team_creation_editing_and_archive.sql');
+    expect(files).toHaveLength(36);
+    expect(files.at(-1)).toBe('20260917124856_add_rota_push_delivery.sql');
+    expect(files.at(-2)).toBe('20260917110331_add_announcement_push_delivery.sql');
+    expect(files.at(-3)).toBe('20260917093926_add_team_creation_idempotency.sql');
+    expect(files.at(-4)).toBe(NAME);
+    expect(files.at(-5)).toBe('20260715004513_add_team_creation_editing_and_archive.sql');
     const historical = files.filter((file) => file < NAME);
     const hash = createHash('sha256');
     for (const file of historical) {

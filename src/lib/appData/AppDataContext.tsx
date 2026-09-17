@@ -105,6 +105,7 @@ import * as chatReadStateService from '../supabase/services/chatReadState';
 import {
   requestAnnouncementPushDelivery,
   requestChatMessagePushDelivery,
+  requestRotaPushDelivery,
 } from '../supabase/services/pushDelivery';
 import * as eventsService from '../supabase/services/events';
 import * as notificationsService from '../supabase/services/notifications';
@@ -128,6 +129,7 @@ import {
   upsertMembership,
   withoutMembership,
 } from './membershipState';
+import { saveRotaEntriesInOrder, type SavedRotaEntryResult } from './rotaEntryBatch';
 import {
   activeMembershipsForProfile,
   applyTeamCreation,
@@ -376,6 +378,15 @@ interface AppDataContextValue {
     input: NewRotaEntryInput,
     assignments: NewRotaAssignmentInput[],
   ) => Promise<RotaEntry>;
+  /**
+   * Creates several entries in order as one plan (Plan the Month), stopping at
+   * the first failure. Resolves with the entries saved before any failure and
+   * that failure (null when every entry was saved), so the caller can report
+   * partial progress. Live mode sends one rota push request for the plan.
+   */
+  addRotaEntries: (
+    items: { input: NewRotaEntryInput; assignments: NewRotaAssignmentInput[] }[],
+  ) => Promise<{ created: RotaEntry[]; error: unknown }>;
   updateRotaEntry: (
     id: string,
     patch: Partial<RotaEntry>,
@@ -1946,8 +1957,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     queueSharedRefreshRef.current(['rotas']);
   }, []);
 
-  const addRotaEntry: AppDataContextValue['addRotaEntry'] = useCallback(
-    async (input, assignments) => {
+  // Saves one new entry (live or demo) without asking for push delivery; the
+  // public actions below decide how saves are grouped into push requests.
+  const saveNewRotaEntry = useCallback(
+    async (
+      input: NewRotaEntryInput,
+      assignments: NewRotaAssignmentInput[],
+    ): Promise<SavedRotaEntryResult> => {
       if (rotasLive && supabaseProfileId) {
         const created = await rotasService.createRotaEntry(
           input,
@@ -1964,7 +1980,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             : { entries: [created.entry], assignments: created.assignments, responses: [] },
         );
         resyncLiveRotas();
-        return created.entry;
+        return { entry: created.entry, live: true };
       }
       const record: RotaEntry = {
         ...input,
@@ -1988,9 +2004,36 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           created_at: now(),
         })),
       ]);
-      return record;
+      return { entry: record, live: false };
     },
     [rotasLive, supabaseProfileId, resyncLiveRotas],
+  );
+
+  const addRotaEntry: AppDataContextValue['addRotaEntry'] = useCallback(
+    async (input, assignments) => {
+      const saved = await saveNewRotaEntry(input, assignments);
+      // Best-effort push to the people just added — only ever from a local
+      // save-success path (realtime arrivals and refetches never ask).
+      // Fire-and-forget by design; the server decides who is notified.
+      if (saved.live) requestRotaPushDelivery([saved.entry.id]);
+      return saved.entry;
+    },
+    [saveNewRotaEntry],
+  );
+
+  const addRotaEntries: AppDataContextValue['addRotaEntries'] = useCallback(
+    async (items) => {
+      const result = await saveRotaEntriesInOrder(items, (item) =>
+        saveNewRotaEntry(item.input, item.assignments),
+      );
+      // One push request for the whole plan (even a partly created one), so
+      // each person hears once however many dates they were added to.
+      if (result.live && result.created.length > 0) {
+        requestRotaPushDelivery(result.created.map((entry) => entry.id));
+      }
+      return { created: result.created, error: result.error };
+    },
+    [saveNewRotaEntry],
   );
 
   const updateRotaEntry: AppDataContextValue['updateRotaEntry'] = useCallback(
@@ -2016,6 +2059,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             ),
           };
         });
+        // Best-effort push for newly assigned people and, when the entry's
+        // details changed, the people already on it. Fire-and-forget.
+        requestRotaPushDelivery([id]);
         resyncLiveRotas();
         return;
       }
@@ -2108,6 +2154,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             ? { ...prev, entries: prev.entries.map((e) => (e.id === id ? cancelled : e)) }
             : prev,
         );
+        // Best-effort push to the people on this date. Fire-and-forget.
+        requestRotaPushDelivery([id]);
         resyncLiveRotas();
         return;
       }
@@ -2138,6 +2186,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             ? { ...prev, entries: prev.entries.map((e) => (e.id === id ? restored : e)) }
             : prev,
         );
+        // Best-effort push to the people on this date. Fire-and-forget.
+        requestRotaPushDelivery([id]);
         resyncLiveRotas();
         return;
       }
@@ -2924,6 +2974,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       updateEvent,
       deleteEvent,
       addRotaEntry,
+      addRotaEntries,
       updateRotaEntry,
       deleteRotaEntry,
       cancelRotaEntry,
@@ -3020,6 +3071,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       updateEvent,
       deleteEvent,
       addRotaEntry,
+      addRotaEntries,
       updateRotaEntry,
       deleteRotaEntry,
       cancelRotaEntry,

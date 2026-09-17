@@ -16,11 +16,12 @@ describe('announcement push delivery migration contract', () => {
   const migration = text(join(MIGRATIONS, NAME));
   const normalized = migration.toLowerCase();
 
-  it('is the only new migration and preserves all 34 earlier migrations byte-for-byte', () => {
+  it('stays immediately before the rota push delivery migration and preserves all 34 earlier migrations byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(35);
-    expect(files.at(-1)).toBe(NAME);
-    expect(files.at(-2)).toBe('20260917093926_add_team_creation_idempotency.sql');
+    expect(files).toHaveLength(36);
+    expect(files.at(-1)).toBe('20260917124856_add_rota_push_delivery.sql');
+    expect(files.at(-2)).toBe(NAME);
+    expect(files.at(-3)).toBe('20260917093926_add_team_creation_idempotency.sql');
     const historical = files.filter((file) => file < NAME);
     const hash = createHash('sha256');
     for (const file of historical) {
