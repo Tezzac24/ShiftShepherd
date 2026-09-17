@@ -102,7 +102,10 @@ import * as chatService from '../supabase/services/chat';
 import type { ChatRealtimeStatus } from '../supabase/services/chatBroadcast';
 import * as chatAttachmentsService from '../supabase/services/chatAttachments';
 import * as chatReadStateService from '../supabase/services/chatReadState';
-import { requestChatMessagePushDelivery } from '../supabase/services/pushDelivery';
+import {
+  requestAnnouncementPushDelivery,
+  requestChatMessagePushDelivery,
+} from '../supabase/services/pushDelivery';
 import * as eventsService from '../supabase/services/events';
 import * as notificationsService from '../supabase/services/notifications';
 import * as profileAvatarsService from '../supabase/services/profileAvatars';
@@ -874,6 +877,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           supabaseProfileId,
         );
         setLiveAnnouncements((prev) => [created, ...prev]);
+        // Best-effort push to the people who may read it — only ever from this
+        // create-success path (edits, realtime arrivals, and refetches never
+        // ask). Fire-and-forget by design.
+        requestAnnouncementPushDelivery(created.id);
         resyncLiveAnnouncements();
         return created;
       }
