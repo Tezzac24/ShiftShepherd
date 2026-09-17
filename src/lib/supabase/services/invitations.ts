@@ -10,6 +10,14 @@ export const INVITATION_FUNCTION_NAME = 'manage-organisation-invitations';
 const OFFLINE_ERROR = 'We couldn’t reach the server. Please check your connection and try again.';
 const SETUP_ERROR = 'Invitations are not switched on yet. Please try again later.';
 const ACTION_ERROR = 'We couldn’t update that invitation right now. Please try again.';
+const EMAIL_NOT_CONFIGURED_ERROR =
+  'Invitation emails aren’t set up yet, so nothing was sent. Please try again later.';
+const EMAIL_UNAVAILABLE_ERROR =
+  'The invitation was saved, but the email service is busy right now. Please use Resend in a few minutes.';
+const EMAIL_REJECTED_ERROR =
+  'The invitation was saved, but its email couldn’t be delivered. Check the email address, then use Resend. If it keeps failing, invitation emails may not be fully set up yet.';
+const EMAIL_NOT_SENT_ERROR =
+  'The invitation was saved, but its email couldn’t be sent. Please use Resend to try again.';
 
 interface InvitationRow {
   invitation_id: string;
@@ -57,8 +65,31 @@ function messageOf(error: unknown): string {
     : String((error as { message?: string })?.message ?? '');
 }
 
+/**
+ * The Edge Function issued (or re-issued) the invitation, but its email was not
+ * sent. The pending row stays in the history list with Resend as the recovery.
+ */
+function savedButNotSent(message: string): Error {
+  return Object.assign(new Error(message), { invitationSaved: true as const });
+}
+
+/** True when a failed send/resend still saved a pending invitation. */
+export function wasInvitationSaved(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    (error as { invitationSaved?: unknown }).invitationSaved === true
+  );
+}
+
 function friendly(error: unknown, fallback = ACTION_ERROR): Error {
   const message = messageOf(error);
+  // Invitation email outcomes first: nothing was issued for a configuration
+  // problem, while every delivery failure happens after the row was saved.
+  if (/INVITATION_EMAIL_NOT_CONFIGURED/.test(message)) return new Error(EMAIL_NOT_CONFIGURED_ERROR);
+  if (/EMAIL_DELIVERY_UNAVAILABLE/.test(message)) return savedButNotSent(EMAIL_UNAVAILABLE_ERROR);
+  if (/EMAIL_DELIVERY_REJECTED/.test(message)) return savedButNotSent(EMAIL_REJECTED_ERROR);
+  if (/EMAIL_DELIVERY_FAILED/.test(message)) return savedButNotSent(EMAIL_NOT_SENT_ERROR);
   if (/fetch|network|timeout/i.test(message)) return new Error(OFFLINE_ERROR);
   if (/404|not found|Failed to send a request to the Edge Function/i.test(message)) {
     return new Error(SETUP_ERROR);

@@ -9,6 +9,7 @@ import {
   resendOrganisationInvitation,
   revokeOrganisationInvitation,
   sendOrganisationInvitation,
+  wasInvitationSaved,
 } from '../invitations';
 
 jest.mock('../../client', () => ({ getSupabase: jest.fn() }));
@@ -136,21 +137,165 @@ describe('organisation invitation service', () => {
   });
 
   it('keeps token generation, hashing, provider secrets, and raw-token returns server-side', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'supabase/functions/manage-organisation-invitations/index.ts'),
-      'utf8',
-    );
+    const source = functionSource('index.ts');
     expect(source).toContain('crypto.getRandomValues(new Uint8Array(32))');
     expect(source).toContain("crypto.subtle.digest('SHA-256'");
-    expect(source).toContain("Deno.env.get('INVITATION_APP_BASE_URL')");
+    // The three invitation secrets are read only through the validated config.
+    expect(source).toContain('readInvitationEmailConfig((name) => Deno.env.get(name))');
+    expect(source).not.toMatch(/Deno\.env\.get\('(RESEND_API_KEY|INVITATION_FROM_EMAIL|INVITATION_APP_BASE_URL)'\)/);
     expect(source).not.toMatch(/console\.(log|warn|error)\([^\n]*(token|invitationUrl)/i);
     expect(source).not.toMatch(/response\([^\n]*raw/i);
 
-    const provider = readFileSync(
-      join(process.cwd(), 'supabase/functions/manage-organisation-invitations/emailProvider.ts'),
-      'utf8',
+    const config = functionSource('invitationConfig.ts');
+    for (const name of ['RESEND_API_KEY', 'INVITATION_FROM_EMAIL', 'INVITATION_APP_BASE_URL']) {
+      expect(config).toContain(`'${name}'`);
+    }
+    // The pure modules stay importable by Jest: no Deno globals, no imports.
+    for (const file of ['invitationConfig.ts', 'emailProvider.ts', 'invitationEmail.ts']) {
+      const code = functionSource(file)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '');
+      expect(code).not.toMatch(/\bDeno\./);
+      expect(code).not.toMatch(/^import\s/m);
+    }
+  });
+});
+
+function functionSource(file: string): string {
+  return readFileSync(
+    join(process.cwd(), 'supabase/functions/manage-organisation-invitations', file),
+    'utf8',
+  );
+}
+
+/** Returns each `console.*(...)` call with its full, balanced argument list. */
+function consoleCalls(source: string): string[] {
+  const calls: string[] = [];
+  const pattern = /console\.(log|info|warn|error|debug)\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(source))) {
+    let depth = 1;
+    let index = match.index + match[0].length;
+    for (; index < source.length && depth > 0; index += 1) {
+      if (source[index] === '(') depth += 1;
+      else if (source[index] === ')') depth -= 1;
+    }
+    calls.push(source.slice(match.index, index));
+  }
+  return calls;
+}
+
+function errorResponse(code: string) {
+  return {
+    data: null,
+    error: { context: { json: jest.fn().mockResolvedValue({ error: code }) } },
+  };
+}
+
+describe('invitation email outcomes', () => {
+  it('explains a configuration problem without claiming anything was saved', async () => {
+    const { invoke } = client();
+    invoke.mockResolvedValue(errorResponse('INVITATION_EMAIL_NOT_CONFIGURED'));
+    const failure = await sendOrganisationInvitation({
+      organisationId: ORG,
+      email: 'person@example.com',
+    }).catch((error: unknown) => error);
+    expect(failure).toEqual(
+      new Error('Invitation emails aren’t set up yet, so nothing was sent. Please try again later.'),
     );
-    expect(provider).toContain("Deno.env.get('RESEND_API_KEY')");
-    expect(provider).toContain("Deno.env.get('INVITATION_FROM_EMAIL')");
+    expect(wasInvitationSaved(failure)).toBe(false);
+  });
+
+  it.each([
+    [
+      'EMAIL_DELIVERY_UNAVAILABLE',
+      'The invitation was saved, but the email service is busy right now. Please use Resend in a few minutes.',
+    ],
+    [
+      'EMAIL_DELIVERY_REJECTED',
+      'The invitation was saved, but its email couldn’t be delivered. Check the email address, then use Resend. If it keeps failing, invitation emails may not be fully set up yet.',
+    ],
+    [
+      'EMAIL_DELIVERY_FAILED',
+      'The invitation was saved, but its email couldn’t be sent. Please use Resend to try again.',
+    ],
+  ])('marks %s as saved but not sent, for send and resend', async (code, message) => {
+    const { invoke } = client();
+    invoke.mockResolvedValue(errorResponse(code));
+
+    const sendFailure = await sendOrganisationInvitation({
+      organisationId: ORG,
+      targetProfileId: PROFILE,
+    }).catch((error: unknown) => error);
+    expect(sendFailure).toEqual(new Error(message));
+    expect(wasInvitationSaved(sendFailure)).toBe(true);
+
+    const resendFailure = await resendOrganisationInvitation(INVITE).catch((error: unknown) => error);
+    expect(resendFailure).toEqual(new Error(message));
+    expect(wasInvitationSaved(resendFailure)).toBe(true);
+  });
+
+  it('does not treat unrelated failures as saved invitations', async () => {
+    const { invoke } = client();
+    invoke.mockResolvedValue(errorResponse('INVITATION_ALREADY_PENDING'));
+    const failure = await sendOrganisationInvitation({
+      organisationId: ORG,
+      email: 'person@example.com',
+    }).catch((error: unknown) => error);
+    expect(wasInvitationSaved(failure)).toBe(false);
+    expect(wasInvitationSaved(null)).toBe(false);
+    expect(wasInvitationSaved({ invitationSaved: 'yes' })).toBe(false);
+  });
+});
+
+describe('manage-organisation-invitations function contract', () => {
+  it('validates the email configuration before issuing or superseding an invitation', () => {
+    const source = functionSource('index.ts');
+    const sendBlock = source.slice(
+      source.indexOf("if (action === 'send') {"),
+      source.indexOf("if (action === 'resend') {"),
+    );
+    const resendBlock = source.slice(
+      source.indexOf("if (action === 'resend') {"),
+      source.indexOf("if (action === 'revoke') {"),
+    );
+    for (const block of [sendBlock, resendBlock]) {
+      const configIndex = block.indexOf('loadInvitationEmailConfig()');
+      expect(configIndex).toBeGreaterThan(-1);
+      expect(block.indexOf('if (config instanceof Response) return config;')).toBeGreaterThan(
+        configIndex,
+      );
+      expect(block.indexOf('return issueAndEmail({')).toBeGreaterThan(configIndex);
+    }
+    // The issuing RPCs run only inside issueAndEmail, which requires the config.
+    expect(source).toMatch(
+      /async function issueAndEmail\(input: \{\n\s+admin: SupabaseClient;\n\s+config: InvitationEmailConfig;/,
+    );
+    expect(source.split("'issue_organisation_invitation_internal'")).toHaveLength(2);
+    expect(source.split("'resend_organisation_invitation_internal'")).toHaveLength(2);
+    expect(source).toContain("response(503, { error: 'INVITATION_EMAIL_NOT_CONFIGURED' })");
+    expect(source).toContain('response(502, { error: deliveryErrorCode(delivery.failure) })');
+  });
+
+  it('logs only bounded codes: no token, link, address, key, or message content', () => {
+    const calls = consoleCalls(functionSource('index.ts'));
+    expect(calls.length).toBeGreaterThanOrEqual(5);
+    for (const call of calls) {
+      // Inspect only the arguments, without string literals. The error object
+      // may reach the log only through preparationErrorCode, which returns a
+      // fixed code.
+      const argumentsOnly = call
+        .slice(call.indexOf('(') + 1)
+        .replace(/'[^']*'/g, "''")
+        .replace('preparationErrorCode(error)', 'preparationErrorCode()');
+      expect(argumentsOnly).not.toMatch(
+        /\b(token|raw|hash|invitationUrl|invited_email|email|resendApiKey|apiKey|from|html|subject|content|body|message|error)\b/,
+      );
+    }
+    const logged = calls.join('\n');
+    expect(logged).toContain('problems: result.problems');
+    expect(logged).toContain('notices: result.config.notices');
+    expect(logged).toContain('providerStatus: delivery.providerStatus');
+    expect(logged).toContain('providerError: delivery.providerError');
   });
 });

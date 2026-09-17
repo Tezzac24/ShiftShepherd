@@ -8,10 +8,23 @@
  * intentionally token-authenticated and returns only a masked email and org
  * name. Database functions repeat church-admin, tenant, verified-email,
  * locking, replay, and status checks transactionally.
+ *
+ * Send and resend validate the invitation email secrets before any invitation
+ * row is issued or superseded, so a missing or malformed secret returns
+ * INVITATION_EMAIL_NOT_CONFIGURED and changes nothing. Provider outcomes are
+ * reduced to EMAIL_DELIVERY_REJECTED (retrying unchanged will fail again) or
+ * EMAIL_DELIVERY_UNAVAILABLE (retry later); logs carry only fixed codes and
+ * the provider's HTTP status and error name.
  */
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
-import { sendInvitationEmail } from './emailProvider.ts';
+import { deliveryErrorCode, sendInvitationEmail } from './emailProvider.ts';
+import {
+  buildInvitationUrl,
+  type InvitationEmailConfig,
+  readInvitationEmailConfig,
+} from './invitationConfig.ts';
+import { buildInvitationEmail } from './invitationEmail.ts';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -105,12 +118,32 @@ async function newToken(): Promise<{ raw: string; hash: string }> {
   return { raw, hash: await sha256Hex(raw) };
 }
 
-function invitationUrl(rawToken: string): string {
-  const base = Deno.env.get('INVITATION_APP_BASE_URL');
-  if (!base) throw new Error('INVITATION_URL_NOT_CONFIGURED');
-  const url = new URL('/invite/accept', base);
-  url.searchParams.set('token', rawToken);
-  return url.toString();
+/**
+ * Reads RESEND_API_KEY, INVITATION_FROM_EMAIL, and INVITATION_APP_BASE_URL and
+ * validates them before anything is issued. The log names only fixed problem
+ * or notice codes, never a configured value.
+ */
+function loadInvitationEmailConfig(): InvitationEmailConfig | Response {
+  const result = readInvitationEmailConfig((name) => Deno.env.get(name));
+  if (!result.ok) {
+    console.error('[manage-organisation-invitations] invitation email configuration invalid', {
+      problems: result.problems,
+    });
+    return response(503, { error: 'INVITATION_EMAIL_NOT_CONFIGURED' });
+  }
+  if (result.config.notices.length > 0) {
+    console.warn('[manage-organisation-invitations] invitation email configuration is not production-ready', {
+      notices: result.config.notices,
+    });
+  }
+  return result.config;
+}
+
+const PREPARATION_ERROR_CODES = new Set(['INVITATION_EXPIRY_INVALID', 'INVITATION_LINK_UNAVAILABLE']);
+
+function preparationErrorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  return PREPARATION_ERROR_CODES.has(message) ? message : 'EMAIL_PREPARATION_FAILED';
 }
 
 async function authenticatedUserId(
@@ -125,6 +158,7 @@ async function authenticatedUserId(
 
 async function issueAndEmail(input: {
   admin: SupabaseClient;
+  config: InvitationEmailConfig;
   userId: string;
   action: 'send' | 'resend';
   organisationId?: string;
@@ -151,18 +185,41 @@ async function issueAndEmail(input: {
   const row = oneRow<InvitationIssueRow>(data);
   if (!row) return response(500, { error: 'INVITATION_REQUEST_FAILED' });
 
+  // The row now exists (a resend has also superseded the previous link). If
+  // the email cannot be sent it stays pending with no last_sent_at, which the
+  // admin list shows as not sent, with Resend as the recovery.
+  let content: { subject: string; html: string };
   try {
-    await sendInvitationEmail({
-      to: row.invited_email,
+    content = buildInvitationEmail({
       organisationName: row.organisation_name,
-      invitationUrl: invitationUrl(token.raw),
+      invitationUrl: buildInvitationUrl(input.config.linkBase, token.raw),
       expiresAt: row.expires_at,
     });
   } catch (error) {
-    console.error('[manage-organisation-invitations] email delivery failed', {
-      code: error instanceof Error ? error.message : 'EMAIL_DELIVERY_FAILED',
+    console.error('[manage-organisation-invitations] invitation email could not be prepared', {
+      code: preparationErrorCode(error),
     });
     return response(502, { error: 'EMAIL_DELIVERY_FAILED' });
+  }
+
+  const delivery = await sendInvitationEmail({
+    apiKey: input.config.resendApiKey,
+    message: {
+      from: input.config.from,
+      to: row.invited_email,
+      subject: content.subject,
+      html: content.html,
+    },
+    fetch: (url, init) => fetch(url, init),
+  });
+  if (!delivery.ok) {
+    console.error('[manage-organisation-invitations] email delivery failed', {
+      failure: delivery.failure,
+      reason: delivery.reason,
+      providerStatus: delivery.providerStatus,
+      providerError: delivery.providerError,
+    });
+    return response(502, { error: deliveryErrorCode(delivery.failure) });
   }
 
   const { error: sentError } = await input.admin.rpc(
@@ -247,8 +304,11 @@ Deno.serve(async (request) => {
     const existingPath = typeof targetProfileId === 'string' && UUID_RE.test(targetProfileId);
     const newPath = targetProfileId == null && typeof email === 'string' && email.length <= 320;
     if (!existingPath && !newPath) return response(400, { error: 'INVALID_REQUEST' });
+    const config = loadInvitationEmailConfig();
+    if (config instanceof Response) return config;
     return issueAndEmail({
       admin,
+      config,
       userId,
       action: 'send',
       organisationId,
@@ -261,8 +321,11 @@ Deno.serve(async (request) => {
     if (typeof body.invitationId !== 'string' || !UUID_RE.test(body.invitationId)) {
       return response(400, { error: 'INVALID_REQUEST' });
     }
+    const config = loadInvitationEmailConfig();
+    if (config instanceof Response) return config;
     return issueAndEmail({
       admin,
+      config,
       userId,
       action: 'resend',
       invitationId: body.invitationId,
