@@ -6,6 +6,7 @@ const NAME = '20260714200205_add_push_token_revocation.sql';
 const TEAM_LIFECYCLE = '20260715004513_add_team_creation_editing_and_archive.sql';
 const TEAM_ROLE = '20260719110500_add_team_role_management.sql';
 const TEAM_CREATION_IDEMPOTENCY = '20260917093926_add_team_creation_idempotency.sql';
+const ANNOUNCEMENT_PUSH = '20260917110331_add_announcement_push_delivery.sql';
 
 function text(path: string): string {
   return readFileSync(path, 'utf8');
@@ -25,14 +26,15 @@ describe('push token lifecycle migration contract', () => {
   const normalized = migration.toLowerCase();
   const unregister = functionSql(migration, 'unregister_push_token');
 
-  it('remains immediately before the team lifecycle, team role, and team creation idempotency migrations', () => {
+  it('remains immediately before the team lifecycle, team role, team creation idempotency, and announcement push delivery migrations', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(34);
-    expect(files.at(-1)).toBe(TEAM_CREATION_IDEMPOTENCY);
-    expect(files.at(-2)).toBe(TEAM_ROLE);
-    expect(files.at(-3)).toBe(TEAM_LIFECYCLE);
-    expect(files.at(-4)).toBe(NAME);
-    expect(files.at(-5)).toBe(
+    expect(files).toHaveLength(35);
+    expect(files.at(-1)).toBe(ANNOUNCEMENT_PUSH);
+    expect(files.at(-2)).toBe(TEAM_CREATION_IDEMPOTENCY);
+    expect(files.at(-3)).toBe(TEAM_ROLE);
+    expect(files.at(-4)).toBe(TEAM_LIFECYCLE);
+    expect(files.at(-5)).toBe(NAME);
+    expect(files.at(-6)).toBe(
       '20260712103321_add_organisation_membership_role_management.sql',
     );
   });

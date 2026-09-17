@@ -1,19 +1,30 @@
 /**
- * send-chat-message-push — Chat Message Push Delivery V1.
+ * send-chat-message-push — Push Delivery V1 (chat messages + announcements).
  *
- * The app calls this Edge Function best-effort after a chat message send
- * succeeds, passing only { messageId }. Everything else is validated
- * server-side against the database:
+ * The app calls this Edge Function best-effort after a live write succeeds,
+ * passing exactly one id: { messageId } after a chat message send (Chat
+ * Message Push Delivery V1, unchanged) or { announcementId } after an
+ * announcement is posted (Announcement Push Delivery V1). Everything else is
+ * validated server-side against the database:
  *
  *  - the caller holds a valid Supabase user JWT (verify_jwt also gates this
- *    at the platform level) and maps to a linked profile;
- *  - the message exists, the caller is its sender, it is recent (≤ 5
+ *    at the platform level) and maps to the server-validated active profile
+ *    of a multi-organisation account;
+ *  - chat: the message exists, the caller is its sender, it is recent (≤ 5
  *    minutes old — stale/replayed ids are refused), and the caller can
- *    access the team (membership or church_admin);
- *  - recipients are the team's other members, filtered by their
- *    chat_notifications preference (a missing notification_preferences row
- *    means the app's all-on defaults, so it counts as enabled) and by
- *    having at least one registered push token.
+ *    access the team (membership or church_admin); recipients are the team's
+ *    other members, filtered by their chat_notifications preference;
+ *  - announcement: the announcement exists, the caller is its author in the
+ *    same organisation, it is recent (same 5-minute window), and for a team
+ *    announcement the team is active (archived teams deliver nothing);
+ *    recipients mirror the announcements SELECT policy — active, linked
+ *    profiles of that organisation, and for a team announcement the team's
+ *    members — filtered by announcement_notifications (church-wide) or
+ *    team_announcement_notifications (team). The author is never notified,
+ *    and each profile is notified at most once.
+ *  - a missing notification_preferences row means the app's all-on
+ *    defaults, so only an explicit false disables delivery; recipients need
+ *    at least one registered push token.
  *
  * Idempotency: every attempt is first claimed as a row in
  * public.push_notification_deliveries via ON CONFLICT DO NOTHING on the
@@ -23,25 +34,48 @@
  * (preference off / no token) are logged with a reason; Expo outcomes are
  * written back per token (sent + ticket id, or failed + safe error code).
  *
- * Privacy: the notification is deliberately generic — "New team message" /
- * "You have a new message in <Team Name>." with route-safe ids in data.
- * Message text and image details are never included. Push tokens are never
- * logged, never returned, and are scrubbed from any Expo error text before
- * it is stored.
+ * Privacy: notifications are deliberately generic — "New team message" /
+ * "You have a new message in <Team Name>.", "New team announcement" /
+ * "A new announcement was posted in <Team Name>.", "New church
+ * announcement" / "A new announcement was posted for <Organisation Name>."
+ * — with route-safe ids in data. Message text, announcement title/body,
+ * image details, and author names are never included. Push tokens are
+ * never logged, never returned, and are scrubbed from any Expo error text
+ * before it is stored.
  *
  * The service role key exists only in the Edge Function runtime env (it is
  * required here because this project grants the Data API roles nothing by
  * default); it never ships in the app. No receipts polling, no cron, no
- * triggers, no other event types in this slice.
+ * triggers, no other event types. The pure rules live in ./dispatch.ts so
+ * the app's Jest suite can pin them offline.
  */
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
+import {
+  buildDeliveryAttempts,
+  buildExpoMessages,
+  chunk,
+  disabledRecipientIds,
+  EXPO_PUSH_CHUNK_SIZE,
+  groupTokensByUser,
+  isFreshEvent,
+  LOOKUP_CHUNK_SIZE,
+  notificationContentFor,
+  parsePushRequest,
+  preferenceKeyFor,
+  scrubTokens,
+  selectAnnouncementRecipientIds,
+  selectChatRecipientIds,
+  type NotificationContent,
+  type PreferenceKey,
+  type PreferenceRow,
+  type PushEventType,
+  type RecipientProfileRow,
+  type TokenRow,
+} from './dispatch.ts';
+
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
-// Expo accepts at most 100 messages per request (rate limit 600/s).
-const EXPO_PUSH_CHUNK_SIZE = 100;
-const MESSAGE_MAX_AGE_MS = 5 * 60 * 1000;
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LOG_PREFIX = '[send-chat-message-push]';
 
 // The app is native-first; CORS only matters for Expo web dev. The JWT (not
 // CORS) is the security boundary, so a permissive origin is acceptable here.
@@ -52,20 +86,31 @@ const CORS_HEADERS: Record<string, string> = {
     'authorization, apikey, content-type, x-client-info',
 };
 
-interface DeliveryAttempt {
-  event_type: 'chat_message';
-  event_id: string;
-  recipient_user_id: string;
-  push_token_id: string | null;
-  status: 'pending' | 'skipped';
-  error_code: string | null;
+interface CallerProfile {
+  id: string;
+  organisation_id: string;
 }
+
+interface ResolvedEvent {
+  eventType: PushEventType;
+  eventId: string;
+  recipientIds: string[];
+  preferenceKey: PreferenceKey;
+  /** Display names are fetched lazily — only when something will be sent. */
+  content: () => Promise<NotificationContent>;
+}
+
+type Resolution = { event: ResolvedEvent } | { response: Response };
 
 interface ExpoPushTicket {
   status: 'ok' | 'error';
   id?: string;
   message?: string;
   details?: { error?: string };
+}
+
+interface QueryError {
+  code?: string;
 }
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -75,9 +120,10 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
-/** Expo push tokens must never appear in stored errors or logs. */
-function scrubTokens(text: string): string {
-  return text.replace(/Expo(nent)?PushToken\[[^\]]*\]/g, 'ExponentPushToken[redacted]');
+/** A database read failed: log the code only and answer generically. */
+function serverError(step: string, error: QueryError): Response {
+  console.error(`${LOG_PREFIX} ${step} failed`, error.code);
+  return jsonResponse(500, { error: 'Could not process this request' });
 }
 
 /** Prefer the legacy env name; fall back to the newer secret-keys dictionary. */
@@ -94,6 +140,23 @@ function getServiceRoleKey(): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Run an `in()` lookup in bounded chunks so a large organisation never
+ * produces an over-long PostgREST query string.
+ */
+async function selectInChunks<T>(
+  ids: string[],
+  load: (part: string[]) => PromiseLike<{ data: T[] | null; error: QueryError | null }>,
+): Promise<{ rows: T[] } | { error: QueryError }> {
+  const rows: T[] = [];
+  for (const part of chunk(ids, LOOKUP_CHUNK_SIZE)) {
+    const { data, error } = await load(part);
+    if (error) return { error };
+    rows.push(...(data ?? []));
+  }
+  return { rows };
 }
 
 async function sendExpoChunk(
@@ -138,11 +201,206 @@ async function markDelivery(
   if (error) {
     // The push outcome is already decided; a ledger write failure is only
     // worth a calm log line (the row stays 'pending').
-    console.warn('[send-chat-message-push] could not update delivery row', {
+    console.warn(`${LOG_PREFIX} could not update delivery row`, {
       code: error.code,
       message: scrubTokens(error.message ?? ''),
     });
   }
+}
+
+// --- Chat message: exists, caller is the sender, recent, team accessible ---
+async function resolveChatMessage(
+  admin: SupabaseClient,
+  profile: CallerProfile,
+  messageId: string,
+): Promise<Resolution> {
+  const { data: message, error: messageError } = await admin
+    .from('chat_messages')
+    .select('id, organisation_id, team_id, sender_id, created_at')
+    .eq('id', messageId)
+    .maybeSingle();
+  if (messageError) return { response: serverError('message lookup', messageError) };
+  if (!message) return { response: jsonResponse(404, { error: 'Message not found' }) };
+  if (message.sender_id !== profile.id) {
+    return { response: jsonResponse(403, { error: 'Only the sender can request delivery' }) };
+  }
+  if (!isFreshEvent(message.created_at as string, Date.now())) {
+    return {
+      response: jsonResponse(409, { error: 'Message is no longer eligible for push delivery' }),
+    };
+  }
+
+  const { data: senderMembership, error: senderMembershipError } = await admin
+    .from('team_memberships')
+    .select('id')
+    .eq('team_id', message.team_id)
+    .eq('user_id', profile.id)
+    .maybeSingle();
+  if (senderMembershipError) {
+    return { response: serverError('sender membership lookup', senderMembershipError) };
+  }
+  if (!senderMembership) {
+    // Church admins may post in any of their organisation's team chats.
+    const { data: adminRole, error: adminRoleError } = await admin
+      .from('organisation_roles')
+      .select('id')
+      .eq('organisation_id', message.organisation_id)
+      .eq('user_id', profile.id)
+      .eq('role', 'church_admin')
+      .maybeSingle();
+    if (adminRoleError) return { response: serverError('role lookup', adminRoleError) };
+    if (!adminRole) return { response: jsonResponse(403, { error: 'No access to this team' }) };
+  }
+
+  const { data: memberships, error: membershipsError } = await admin
+    .from('team_memberships')
+    .select('user_id')
+    .eq('team_id', message.team_id)
+    .neq('user_id', profile.id);
+  if (membershipsError) return { response: serverError('memberships lookup', membershipsError) };
+
+  const teamId = message.team_id as string;
+  return {
+    event: {
+      eventType: 'chat_message',
+      eventId: message.id as string,
+      recipientIds: selectChatRecipientIds({
+        senderId: profile.id,
+        memberIds: (memberships ?? []).map((row) => row.user_id as string),
+      }),
+      preferenceKey: preferenceKeyFor({ kind: 'chat_message' }),
+      content: async () => {
+        const { data: team } = await admin
+          .from('teams')
+          .select('name')
+          .eq('id', teamId)
+          .maybeSingle();
+        return notificationContentFor({
+          kind: 'chat_message',
+          messageId: message.id as string,
+          teamId,
+          teamName: (team?.name as string | undefined) ?? null,
+        });
+      },
+    },
+  };
+}
+
+// --- Announcement: exists, caller is the author, recent, readers resolved ---
+async function resolveAnnouncement(
+  admin: SupabaseClient,
+  profile: CallerProfile,
+  announcementId: string,
+): Promise<Resolution> {
+  // Only routing/eligibility columns: title, body, and image_url are never
+  // read here, so they can never reach a notification payload.
+  const { data: announcement, error: announcementError } = await admin
+    .from('announcements')
+    .select('id, organisation_id, team_id, created_by, created_at')
+    .eq('id', announcementId)
+    .maybeSingle();
+  if (announcementError) {
+    return { response: serverError('announcement lookup', announcementError) };
+  }
+  if (!announcement) {
+    return { response: jsonResponse(404, { error: 'Announcement not found' }) };
+  }
+  if (
+    announcement.created_by !== profile.id ||
+    announcement.organisation_id !== profile.organisation_id
+  ) {
+    return { response: jsonResponse(403, { error: 'Only the author can request delivery' }) };
+  }
+  if (!isFreshEvent(announcement.created_at as string, Date.now())) {
+    return {
+      response: jsonResponse(409, {
+        error: 'Announcement is no longer eligible for push delivery',
+      }),
+    };
+  }
+
+  const organisationId = announcement.organisation_id as string;
+  const teamId = (announcement.team_id as string | null) ?? null;
+  let teamName: string | null = null;
+  let memberIds: string[] | null = null;
+  let profileRows: RecipientProfileRow[];
+
+  if (teamId) {
+    // Team announcements reach the team's members only, and archived teams
+    // have no active readers (the access helpers fail closed for them).
+    const { data: team, error: teamError } = await admin
+      .from('teams')
+      .select('id, name, archived_at')
+      .eq('id', teamId)
+      .eq('organisation_id', organisationId)
+      .maybeSingle();
+    if (teamError) return { response: serverError('team lookup', teamError) };
+    if (!team || team.archived_at) {
+      return {
+        response: jsonResponse(409, { error: 'This team is not available for push delivery' }),
+      };
+    }
+    teamName = (team.name as string | undefined) ?? null;
+
+    const { data: memberships, error: membershipsError } = await admin
+      .from('team_memberships')
+      .select('user_id')
+      .eq('team_id', teamId);
+    if (membershipsError) {
+      return { response: serverError('memberships lookup', membershipsError) };
+    }
+    memberIds = [...new Set((memberships ?? []).map((row) => row.user_id as string))];
+
+    const loaded = await selectInChunks<RecipientProfileRow>(memberIds, (part) =>
+      admin
+        .from('profiles')
+        .select('id, organisation_id, auth_user_id, access_status')
+        .in('id', part),
+    );
+    if ('error' in loaded) return { response: serverError('profiles lookup', loaded.error) };
+    profileRows = loaded.rows;
+  } else {
+    const { data: profiles, error: profilesError } = await admin
+      .from('profiles')
+      .select('id, organisation_id, auth_user_id, access_status')
+      .eq('organisation_id', organisationId)
+      .eq('access_status', 'active')
+      .not('auth_user_id', 'is', null);
+    if (profilesError) return { response: serverError('profiles lookup', profilesError) };
+    profileRows = (profiles ?? []) as RecipientProfileRow[];
+  }
+
+  return {
+    event: {
+      eventType: 'announcement',
+      eventId: announcement.id as string,
+      recipientIds: selectAnnouncementRecipientIds({
+        organisationId,
+        authorId: profile.id,
+        profiles: profileRows,
+        memberIds,
+      }),
+      preferenceKey: preferenceKeyFor({ kind: 'announcement', teamId }),
+      content: async () => {
+        let organisationName: string | null = null;
+        if (!teamId) {
+          const { data: organisation } = await admin
+            .from('organisations')
+            .select('name')
+            .eq('id', organisationId)
+            .maybeSingle();
+          organisationName = (organisation?.name as string | undefined) ?? null;
+        }
+        return notificationContentFor({
+          kind: 'announcement',
+          announcementId: announcement.id as string,
+          teamId,
+          teamName,
+          organisationName,
+        });
+      },
+    },
+  };
 }
 
 Deno.serve(async (req) => {
@@ -153,20 +411,21 @@ Deno.serve(async (req) => {
     return jsonResponse(405, { error: 'Method not allowed' });
   }
 
-  let messageId: unknown;
+  let body: unknown;
   try {
-    ({ messageId } = (await req.json()) as { messageId?: unknown });
+    body = await req.json();
   } catch {
     return jsonResponse(400, { error: 'Invalid JSON body' });
   }
-  if (typeof messageId !== 'string' || !UUID_RE.test(messageId)) {
-    return jsonResponse(400, { error: 'messageId must be a UUID' });
+  const parsed = parsePushRequest(body);
+  if ('error' in parsed) {
+    return jsonResponse(400, { error: parsed.error });
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceRoleKey = getServiceRoleKey();
   if (!supabaseUrl || !serviceRoleKey) {
-    console.error('[send-chat-message-push] missing runtime configuration');
+    console.error(`${LOG_PREFIX} missing runtime configuration`);
     return jsonResponse(500, { error: 'Server configuration error' });
   }
 
@@ -192,10 +451,7 @@ Deno.serve(async (req) => {
     .select('active_profile_id')
     .eq('auth_user_id', userData.user.id)
     .maybeSingle();
-  if (accountError) {
-    console.error('[send-chat-message-push] account lookup failed', accountError.code);
-    return jsonResponse(500, { error: 'Could not process this request' });
-  }
+  if (accountError) return serverError('account lookup', accountError);
   const { data: profile, error: profileError } = account?.active_profile_id
     ? await admin
         .from('profiles')
@@ -204,151 +460,51 @@ Deno.serve(async (req) => {
         .eq('auth_user_id', userData.user.id)
         .maybeSingle()
     : { data: null, error: null };
-  if (profileError) {
-    console.error('[send-chat-message-push] profile lookup failed', profileError.code);
-    return jsonResponse(500, { error: 'Could not process this request' });
-  }
+  if (profileError) return serverError('profile lookup', profileError);
   if (!profile) {
     return jsonResponse(403, { error: 'No linked profile' });
   }
+  const caller: CallerProfile = {
+    id: profile.id as string,
+    organisation_id: profile.organisation_id as string,
+  };
 
-  // --- Message: exists, caller is the sender, recent, team accessible ---
-  const { data: message, error: messageError } = await admin
-    .from('chat_messages')
-    .select('id, organisation_id, team_id, sender_id, created_at')
-    .eq('id', messageId)
-    .maybeSingle();
-  if (messageError) {
-    console.error('[send-chat-message-push] message lookup failed', messageError.code);
-    return jsonResponse(500, { error: 'Could not process this request' });
-  }
-  if (!message) {
-    return jsonResponse(404, { error: 'Message not found' });
-  }
-  if (message.sender_id !== profile.id) {
-    return jsonResponse(403, { error: 'Only the sender can request delivery' });
-  }
-  const createdAtMs = Date.parse(message.created_at);
-  if (Number.isNaN(createdAtMs) || Date.now() - createdAtMs > MESSAGE_MAX_AGE_MS) {
-    return jsonResponse(409, { error: 'Message is no longer eligible for push delivery' });
-  }
-
-  const { data: senderMembership, error: senderMembershipError } = await admin
-    .from('team_memberships')
-    .select('id')
-    .eq('team_id', message.team_id)
-    .eq('user_id', profile.id)
-    .maybeSingle();
-  if (senderMembershipError) {
-    console.error('[send-chat-message-push] sender membership lookup failed', senderMembershipError.code);
-    return jsonResponse(500, { error: 'Could not process this request' });
-  }
-  if (!senderMembership) {
-    // Church admins may post in any of their organisation's team chats.
-    const { data: adminRole, error: adminRoleError } = await admin
-      .from('organisation_roles')
-      .select('id')
-      .eq('organisation_id', message.organisation_id)
-      .eq('user_id', profile.id)
-      .eq('role', 'church_admin')
-      .maybeSingle();
-    if (adminRoleError) {
-      console.error('[send-chat-message-push] role lookup failed', adminRoleError.code);
-      return jsonResponse(500, { error: 'Could not process this request' });
-    }
-    if (!adminRole) {
-      return jsonResponse(403, { error: 'No access to this team' });
-    }
-  }
-
-  // --- Recipients: other team members, preference-filtered --------------
-  const { data: memberships, error: membershipsError } = await admin
-    .from('team_memberships')
-    .select('user_id')
-    .eq('team_id', message.team_id)
-    .neq('user_id', profile.id);
-  if (membershipsError) {
-    console.error('[send-chat-message-push] memberships lookup failed', membershipsError.code);
-    return jsonResponse(500, { error: 'Could not process this request' });
-  }
-  const recipientIds = [
-    ...new Set<string>((memberships ?? []).map((m) => m.user_id as string)),
-  ];
+  // --- Event: kind-specific validation and readership --------------------
+  const resolution =
+    parsed.request.kind === 'chat_message'
+      ? await resolveChatMessage(admin, caller, parsed.request.id)
+      : await resolveAnnouncement(admin, caller, parsed.request.id);
+  if ('response' in resolution) return resolution.response;
+  const { eventType, eventId, recipientIds, preferenceKey, content } = resolution.event;
   if (recipientIds.length === 0) {
     return jsonResponse(200, { sent: 0, skipped: 0, failed: 0 });
   }
 
-  // A missing notification_preferences row means the app's all-on defaults,
-  // so only an explicit chat_notifications = false disables chat push.
-  const { data: prefRows, error: prefError } = await admin
-    .from('notification_preferences')
-    .select('user_id, chat_notifications')
-    .in('user_id', recipientIds);
-  if (prefError) {
-    console.error('[send-chat-message-push] preferences lookup failed', prefError.code);
-    return jsonResponse(500, { error: 'Could not process this request' });
-  }
-  const disabled = new Set<string>(
-    (prefRows ?? [])
-      .filter((row) => row.chat_notifications === false)
-      .map((row) => row.user_id as string),
+  // --- Recipients: preference-filtered, token-resolved -------------------
+  const preferences = await selectInChunks<PreferenceRow>(recipientIds, (part) =>
+    admin
+      .from('notification_preferences')
+      .select(`user_id, ${preferenceKey}`)
+      .in('user_id', part),
   );
+  if ('error' in preferences) return serverError('preferences lookup', preferences.error);
+  const disabled = disabledRecipientIds(preferences.rows, preferenceKey);
   const enabledIds = recipientIds.filter((id) => !disabled.has(id));
 
-  const tokensByUser = new Map<string, { id: string; token: string }[]>();
-  if (enabledIds.length > 0) {
-    const { data: tokenRows, error: tokenError } = await admin
-      .from('push_tokens')
-      .select('id, user_id, token')
-      .in('user_id', enabledIds);
-    if (tokenError) {
-      console.error('[send-chat-message-push] token lookup failed', tokenError.code);
-      return jsonResponse(500, { error: 'Could not process this request' });
-    }
-    for (const row of tokenRows ?? []) {
-      const list = tokensByUser.get(row.user_id as string) ?? [];
-      list.push({ id: row.id as string, token: row.token as string });
-      tokensByUser.set(row.user_id as string, list);
-    }
-  }
+  const tokens = await selectInChunks<TokenRow>(enabledIds, (part) =>
+    admin.from('push_tokens').select('id, user_id, token').in('user_id', part),
+  );
+  if ('error' in tokens) return serverError('token lookup', tokens.error);
+  const tokensByUser = groupTokensByUser(tokens.rows);
 
   // --- Claim idempotent delivery rows ------------------------------------
-  const attempts: DeliveryAttempt[] = [];
-  for (const recipientId of recipientIds) {
-    if (disabled.has(recipientId)) {
-      attempts.push({
-        event_type: 'chat_message',
-        event_id: message.id,
-        recipient_user_id: recipientId,
-        push_token_id: null,
-        status: 'skipped',
-        error_code: 'preference_disabled',
-      });
-      continue;
-    }
-    const tokens = tokensByUser.get(recipientId) ?? [];
-    if (tokens.length === 0) {
-      attempts.push({
-        event_type: 'chat_message',
-        event_id: message.id,
-        recipient_user_id: recipientId,
-        push_token_id: null,
-        status: 'skipped',
-        error_code: 'no_push_token',
-      });
-      continue;
-    }
-    for (const token of tokens) {
-      attempts.push({
-        event_type: 'chat_message',
-        event_id: message.id,
-        recipient_user_id: recipientId,
-        push_token_id: token.id,
-        status: 'pending',
-        error_code: null,
-      });
-    }
-  }
+  const attempts = buildDeliveryAttempts({
+    eventType,
+    eventId,
+    recipientIds,
+    disabled,
+    tokensByUser,
+  });
 
   // ON CONFLICT DO NOTHING against the idempotency index: only rows this
   // invocation actually inserted come back, so duplicates send nothing.
@@ -359,10 +515,7 @@ Deno.serve(async (req) => {
       ignoreDuplicates: true,
     })
     .select('id, recipient_user_id, push_token_id, status');
-  if (claimError) {
-    console.error('[send-chat-message-push] delivery claim failed', claimError.code);
-    return jsonResponse(500, { error: 'Could not process this request' });
-  }
+  if (claimError) return serverError('delivery claim', claimError);
   const claimed = claimedRows ?? [];
   const skipped = claimed.filter((row) => row.status === 'skipped').length;
 
@@ -383,37 +536,26 @@ Deno.serve(async (req) => {
   }
 
   // --- Send via Expo and record outcomes ---------------------------------
-  const { data: team } = await admin
-    .from('teams')
-    .select('name')
-    .eq('id', message.team_id)
-    .maybeSingle();
-  const teamName = (team?.name as string | undefined) ?? 'your team';
+  const notification = await content();
 
   let sent = 0;
   let failed = 0;
-  for (let i = 0; i < pendingClaims.length; i += EXPO_PUSH_CHUNK_SIZE) {
-    const chunk = pendingClaims.slice(i, i + EXPO_PUSH_CHUNK_SIZE);
+  for (const part of chunk(pendingClaims, EXPO_PUSH_CHUNK_SIZE)) {
     const result = await sendExpoChunk(
-      chunk.map((claim) => ({
-        to: claim.token,
-        title: 'New team message',
-        body: `You have a new message in ${teamName}.`,
-        data: { type: 'chat_message', teamId: message.team_id, messageId: message.id },
-        sound: 'default',
-        // Matches the Android channel the app creates; ignored on iOS.
-        channelId: 'default',
-      })),
+      buildExpoMessages(
+        part.map((claim) => claim.token),
+        notification,
+      ),
     );
 
     if ('requestError' in result) {
-      failed += chunk.length;
-      console.warn('[send-chat-message-push] Expo request failed', {
+      failed += part.length;
+      console.warn(`${LOG_PREFIX} Expo request failed`, {
         code: result.requestError,
-        messages: chunk.length,
+        messages: part.length,
       });
       await Promise.all(
-        chunk.map((claim) =>
+        part.map((claim) =>
           markDelivery(admin, claim.deliveryId, {
             status: 'failed',
             error_code: 'expo_request_failed',
@@ -426,7 +568,7 @@ Deno.serve(async (req) => {
 
     // Tickets come back in the same order as the messages in the request.
     await Promise.all(
-      chunk.map((claim, index) => {
+      part.map((claim, index) => {
         const ticket = result.tickets[index];
         if (ticket && ticket.status === 'ok') {
           sent += 1;
