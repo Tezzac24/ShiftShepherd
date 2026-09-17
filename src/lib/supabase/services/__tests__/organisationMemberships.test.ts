@@ -82,7 +82,7 @@ describe('listOrganisationMembers', () => {
     );
     client({ error: { message: 'secret postgres detail' } });
     await expect(listOrganisationMembers()).rejects.toThrow(
-      'We couldnâ€™t load organisation members right now. Please try again.',
+      'We couldn’t load organisation members right now. Please try again.',
     );
   });
 });
@@ -164,7 +164,7 @@ describe('leaveOrganisation', () => {
     );
     client({ error: { message: 'internal table name and sql detail' } });
     await expect(leaveOrganisation()).rejects.toThrow(
-      'We couldnâ€™t leave this organisation right now. Please try again.',
+      'We couldn’t leave this organisation right now. Please try again.',
     );
   });
 });

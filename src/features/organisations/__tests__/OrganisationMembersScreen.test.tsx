@@ -151,9 +151,9 @@ it('shows empty and no-match states', async () => {
 });
 
 it('shows a retryable load error without raw details', async () => {
-  mockList.mockRejectedValue(new Error('We couldnâ€™t load organisation members right now.'));
+  mockList.mockRejectedValue(new Error('We couldn’t load organisation members right now.'));
   const screen = render(<OrganisationMembersScreen />);
-  await waitFor(() => expect(screen.getByText('We couldnâ€™t load members')).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('We couldn’t load members')).toBeTruthy());
   expect(screen.getByText('Try again')).toBeTruthy();
 });
 

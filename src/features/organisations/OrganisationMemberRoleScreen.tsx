@@ -54,7 +54,7 @@ export default function OrganisationMemberRoleScreen() {
       setMember(result ?? null);
       setSelectedRole(result?.role ?? null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'We couldnâ€™t load that role.');
+      setError(cause instanceof Error ? cause.message : 'We couldn’t load that role.');
     } finally {
       setLoading(false);
     }
@@ -90,7 +90,7 @@ export default function OrganisationMemberRoleScreen() {
       toast(`${member.full_name} is now ${organisationRoleLabel(selectedRole)}.`);
       router.back();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'We couldnâ€™t update that role.');
+      setError(cause instanceof Error ? cause.message : 'We couldn’t update that role.');
     } finally {
       setSaving(false);
     }
@@ -110,11 +110,11 @@ export default function OrganisationMemberRoleScreen() {
       ) : loading ? (
         <View style={styles.loading} testID="organisation-role-loading">
           <ActivityIndicator color={colors.primary} />
-          <AppText tone="secondary">Loading roleâ€¦</AppText>
+          <AppText tone="secondary">Loading role…</AppText>
         </View>
       ) : error && !member ? (
         <View style={styles.error}>
-          <EmptyState icon="cloud-offline-outline" title="We couldnâ€™t load this member" message={error} />
+          <EmptyState icon="cloud-offline-outline" title="We couldn’t load this member" message={error} />
           <Button title="Try again" onPress={() => void load()} />
         </View>
       ) : !member ? (
