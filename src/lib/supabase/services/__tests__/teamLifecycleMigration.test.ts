@@ -25,13 +25,14 @@ describe('team creation, editing, and archive migration contract', () => {
 
   it('precedes the team role, team creation idempotency, and announcement push delivery migrations and preserves all 31 earlier migrations byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(36);
-    expect(files.at(-1)).toBe('20260917124856_add_rota_push_delivery.sql');
-    expect(files.at(-2)).toBe('20260917110331_add_announcement_push_delivery.sql');
-    expect(files.at(-3)).toBe('20260917093926_add_team_creation_idempotency.sql');
-    expect(files.at(-4)).toBe('20260719110500_add_team_role_management.sql');
-    expect(files.at(-5)).toBe(NAME);
-    expect(files.at(-6)).toBe('20260714200205_add_push_token_revocation.sql');
+    expect(files).toHaveLength(37);
+    expect(files.at(-1)).toBe('20260917180127_fix_invitation_acceptance_role_conflict_target.sql');
+    expect(files.at(-2)).toBe('20260917124856_add_rota_push_delivery.sql');
+    expect(files.at(-3)).toBe('20260917110331_add_announcement_push_delivery.sql');
+    expect(files.at(-4)).toBe('20260917093926_add_team_creation_idempotency.sql');
+    expect(files.at(-5)).toBe('20260719110500_add_team_role_management.sql');
+    expect(files.at(-6)).toBe(NAME);
+    expect(files.at(-7)).toBe('20260714200205_add_push_token_revocation.sql');
     const historical = files.filter((file) => file < NAME);
     const hash = createHash('sha256');
     for (const file of historical) {

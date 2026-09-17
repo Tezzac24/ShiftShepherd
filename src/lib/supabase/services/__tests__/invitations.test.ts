@@ -136,6 +136,21 @@ describe('organisation invitation service', () => {
     ).rejects.toThrow('An invitation is already pending for that email address.');
   });
 
+  it('explains acceptance by an account that already belongs to the organisation', async () => {
+    const { invoke } = client();
+    invoke.mockResolvedValue({
+      data: null,
+      error: {
+        context: {
+          json: jest.fn().mockResolvedValue({ error: 'ORGANISATION_ALREADY_JOINED' }),
+        },
+      },
+    });
+    await expect(acceptOrganisationInvitation(TOKEN)).rejects.toThrow(
+      'You’re already a member of this organisation.',
+    );
+  });
+
   it('keeps token generation, hashing, provider secrets, and raw-token returns server-side', () => {
     const source = functionSource('index.ts');
     expect(source).toContain('crypto.getRandomValues(new Uint8Array(32))');

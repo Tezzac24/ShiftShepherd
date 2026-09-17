@@ -127,6 +127,9 @@ function friendly(error: unknown, fallback = ACTION_ERROR): Error {
   if (/INVITATION_ALREADY_ACCEPTED/i.test(message)) {
     return new Error('This invitation has already been accepted.');
   }
+  if (/ORGANISATION_ALREADY_JOINED/i.test(message)) {
+    return new Error('You’re already a member of this organisation.');
+  }
   return new Error(fallback);
 }
 

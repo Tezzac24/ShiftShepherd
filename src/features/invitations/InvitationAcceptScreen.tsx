@@ -1,5 +1,6 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import type { NavigationProp } from '@react-navigation/native';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { colors, spacing } from '../../../constants/theme';
@@ -17,8 +18,11 @@ import {
   previewOrganisationInvitation,
 } from '../../lib/supabase/services/invitations';
 
+type InvitationRouteParams = { 'invite/accept': { token?: string } };
+
 export default function InvitationAcceptScreen() {
   const router = useRouter();
+  const navigation = useNavigation<NavigationProp<InvitationRouteParams, 'invite/accept'>>();
   const params = useLocalSearchParams<{ token?: string | string[] }>();
   const {
     isAuthenticated,
@@ -32,10 +36,18 @@ export default function InvitationAcceptScreen() {
     signOut,
   } = useAuth();
   const routeToken = Array.isArray(params.token) ? params.token[0] : params.token;
-  const token = useMemo(
-    () => (isInvitationToken(routeToken) ? routeToken : pendingInvitationToken),
-    [routeToken, pendingInvitationToken],
-  );
+  const linkToken = isInvitationToken(routeToken) ? routeToken : null;
+
+  // The invitation this screen is about: an opened link first, otherwise the
+  // pending invitation restored after sign-in or a cold start. The screen keeps
+  // it after that pending token is cleared, so settling an invitation (accepting
+  // it, finding it expired, or setting it aside) never turns the screen into
+  // "Invitation not found" while it finishes.
+  const currentToken = linkToken ?? pendingInvitationToken;
+  const [shownToken, setShownToken] = useState(currentToken);
+  if (currentToken && currentToken !== shownToken) setShownToken(currentToken);
+  const token = currentToken ?? shownToken;
+
   const [preview, setPreview] = useState<InvitationPreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(false);
@@ -44,13 +56,37 @@ export default function InvitationAcceptScreen() {
     accountContext?.account.global_display_name ?? authIdentity?.suggestedName ?? '',
   );
 
+  // An opened link is kept waiting through sign-in and restarts, and is adopted
+  // exactly once: after it is saved the token leaves the route, so neither a
+  // re-render nor the remount that follows an account change can save an
+  // invitation again after it was accepted or set aside.
   useEffect(() => {
-    if (isInvitationToken(routeToken) && routeToken !== pendingInvitationToken) {
-      void savePendingInvitation(routeToken).catch(() =>
-        setError('We couldn’t keep this invitation ready on this device.'),
-      );
-    }
-  }, [routeToken, pendingInvitationToken, savePendingInvitation]);
+    if (!linkToken) return;
+    let active = true;
+    savePendingInvitation(linkToken).then(
+      () => {
+        if (active) navigation.setParams({ token: undefined });
+      },
+      () => {
+        if (active) setError('We couldn’t keep this invitation ready on this device.');
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [linkToken, navigation, savePendingInvitation]);
+
+  /**
+   * Sets this invitation aside and lets the routing hub choose the destination:
+   * sign in, Home, or the organisation screens. `/login` is only a registered
+   * route while signed out, so navigating there directly would do nothing for
+   * a signed-in account. The invitation itself stays valid on the server, so
+   * the emailed link still opens it later.
+   */
+  const leaveInvitation = async () => {
+    await clearPendingInvitation();
+    router.replace('/');
+  };
 
   /**
    * Wrong-account / demo-account escape hatch. The pending token is deliberately
@@ -137,6 +173,21 @@ export default function InvitationAcceptScreen() {
     }
   };
 
+  // Signed-in accounts can always set an invitation aside. Without this, an
+  // invitation the account cannot accept (a different account, a phone-only
+  // account, a demo account, or an acceptance the server refuses) would bring
+  // it back here on every launch, because a pending invitation outranks every
+  // other destination.
+  const notNow = isAuthenticated ? (
+    <Button
+      title="Not now"
+      variant="ghost"
+      onPress={() => void leaveInvitation()}
+      disabled={accepting}
+    />
+  ) : null;
+  const exitTitle = isAuthenticated ? 'Continue' : 'Back to sign in';
+
   if (loading) {
     return (
       <Screen safeTop>
@@ -156,10 +207,7 @@ export default function InvitationAcceptScreen() {
           title="Invitation not found"
           message="This link is incomplete or no longer valid. Ask a church administrator to send a new invitation."
         />
-        <Button
-          title="Back to sign in"
-          onPress={() => void clearPendingInvitation().then(() => router.replace('/login'))}
-        />
+        <Button title={exitTitle} onPress={() => void leaveInvitation()} />
       </Screen>
     );
   }
@@ -177,10 +225,7 @@ export default function InvitationAcceptScreen() {
           title="Invitation unavailable"
           message={messages[preview.status as keyof typeof messages] ?? 'This invitation is no longer available.'}
         />
-        <Button
-          title="Back to sign in"
-          onPress={() => void clearPendingInvitation().then(() => router.replace('/login'))}
-        />
+        <Button title={exitTitle} onPress={() => void leaveInvitation()} />
       </Screen>
     );
   }
@@ -211,6 +256,7 @@ export default function InvitationAcceptScreen() {
             title="Sign out of demo"
             onPress={() => void switchAccount()}
           />
+          {notNow}
         </Card>
       ) : preview?.verifiedEmailPresent === false ? (
         <Card style={{ ...styles.card, ...styles.warning }}>
@@ -222,6 +268,7 @@ export default function InvitationAcceptScreen() {
             title="Switch account"
             onPress={() => void switchAccount()}
           />
+          {notNow}
         </Card>
       ) : preview?.accountMatches === false ? (
         <Card style={{ ...styles.card, ...styles.warning }}>
@@ -234,6 +281,7 @@ export default function InvitationAcceptScreen() {
             icon="swap-horizontal-outline"
             onPress={() => void switchAccount()}
           />
+          {notNow}
         </Card>
       ) : (
         <Card style={styles.card}>
@@ -266,6 +314,7 @@ export default function InvitationAcceptScreen() {
             loading={accepting}
             disabled={!accountContext?.account.global_display_name && name.trim().length < 2}
           />
+          {notNow}
         </Card>
       )}
 

@@ -10,6 +10,7 @@ const TEAM_ROLE = '20260719110500_add_team_role_management.sql';
 const TEAM_CREATION_IDEMPOTENCY = '20260917093926_add_team_creation_idempotency.sql';
 const ANNOUNCEMENT_PUSH = '20260917110331_add_announcement_push_delivery.sql';
 const ROTA_PUSH = '20260917124856_add_rota_push_delivery.sql';
+const ACCEPTANCE_FIX = '20260917180127_fix_invitation_acceptance_role_conflict_target.sql';
 const MIGRATION = join(MIGRATIONS, NAME);
 
 function text(path: string): string {
@@ -31,14 +32,15 @@ describe('organisation membership and role management migration', () => {
 
   it('preserves the membership migration and all 29 migrations before it byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(36);
-    expect(files.at(-7)).toBe(NAME);
-    expect(files.at(-6)).toBe(PUSH_LIFECYCLE);
-    expect(files.at(-5)).toBe(TEAM_LIFECYCLE);
-    expect(files.at(-4)).toBe(TEAM_ROLE);
-    expect(files.at(-3)).toBe(TEAM_CREATION_IDEMPOTENCY);
-    expect(files.at(-2)).toBe(ANNOUNCEMENT_PUSH);
-    expect(files.at(-1)).toBe(ROTA_PUSH);
+    expect(files).toHaveLength(37);
+    expect(files.at(-8)).toBe(NAME);
+    expect(files.at(-7)).toBe(PUSH_LIFECYCLE);
+    expect(files.at(-6)).toBe(TEAM_LIFECYCLE);
+    expect(files.at(-5)).toBe(TEAM_ROLE);
+    expect(files.at(-4)).toBe(TEAM_CREATION_IDEMPOTENCY);
+    expect(files.at(-3)).toBe(ANNOUNCEMENT_PUSH);
+    expect(files.at(-2)).toBe(ROTA_PUSH);
+    expect(files.at(-1)).toBe(ACCEPTANCE_FIX);
     const historical = files.filter(
       (file) =>
         file !== NAME &&
@@ -47,7 +49,8 @@ describe('organisation membership and role management migration', () => {
         file !== TEAM_ROLE &&
         file !== TEAM_CREATION_IDEMPOTENCY &&
         file !== ANNOUNCEMENT_PUSH &&
-        file !== ROTA_PUSH,
+        file !== ROTA_PUSH &&
+        file !== ACCEPTANCE_FIX,
     );
     const hash = createHash('sha256');
     for (const file of historical) {
