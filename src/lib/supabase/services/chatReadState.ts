@@ -114,6 +114,11 @@ export async function fetchTeamChatUnreadSummary(): Promise<
   }));
 }
 
+function backendCode(error: unknown): string | null {
+  const code = (error as { code?: unknown })?.code;
+  return typeof code === 'string' && code.length > 0 ? code : null;
+}
+
 function friendlyMarkError(error: unknown): Error {
   if (error instanceof Error && error.message === CHAT_READ_DEMO_ERROR) return error;
   if (error instanceof Error && error.message === CHAT_READ_OFFLINE_ERROR) return error;
@@ -121,7 +126,16 @@ function friendlyMarkError(error: unknown): Error {
   // found, missing function, network, generic) maps to one calm message. The
   // caller treats mark-read as best-effort bookkeeping and never blocks
   // reading on it, so no case needs distinct copy or leaks message existence.
-  return new Error(CHAT_READ_MARK_ERROR);
+  const friendly = new Error(CHAT_READ_MARK_ERROR) as Error & { code?: string };
+  // Carry the backend code (never the backend message) onto the thrown error
+  // so the caller's existing failure log names a real SQLSTATE instead of
+  // `undefined`. A server-side defect that fails every call - as 42702 did
+  // while the read cursor's conflict target was ambiguous - is then visible
+  // wherever mark-read failures are already recorded. User-facing copy is
+  // unchanged, so no raw backend detail can reach the UI.
+  const code = backendCode(error);
+  if (code) friendly.code = code;
+  return friendly;
 }
 
 /**

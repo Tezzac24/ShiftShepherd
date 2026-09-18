@@ -151,6 +151,56 @@ describe('markTeamChatRead', () => {
     ).rejects.toThrow(CHAT_READ_MARK_ERROR);
   });
 
+  /** The rejection from one mark-read call; fails if the call resolves. */
+  async function markFailure(
+    input: { teamId: string; messageId: string } = {
+      teamId: TEAM_ID,
+      messageId: MESSAGE_ID,
+    },
+  ): Promise<Error & { code?: string }> {
+    try {
+      await markTeamChatRead(input);
+    } catch (error) {
+      return error as Error & { code?: string };
+    }
+    throw new Error('markTeamChatRead resolved when a rejection was expected');
+  }
+
+  it('carries the backend code on the thrown error so the failure is diagnosable', async () => {
+    // The read cursor RPC failed on every call for months with SQLSTATE 42702
+    // and nobody noticed, because the calm error dropped the code and the
+    // caller's own failure log could only ever record `undefined`. The code
+    // now travels with the error; the message people could see is unchanged.
+    mockClient({ error: { code: '42702', message: 'column reference "team_id" is ambiguous' } });
+    const failure = await markFailure();
+    expect(failure.message).toBe(CHAT_READ_MARK_ERROR);
+    expect(failure.code).toBe('42702');
+    // The backend message never rides along, in case this ever reaches the UI.
+    expect(failure.message).not.toContain('ambiguous');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[chatReadState] mark read failed',
+      expect.objectContaining({ code: '42702' }),
+    );
+  });
+
+  it('leaves the error code absent when the backend supplies none', async () => {
+    mockClient({ error: { message: 'no code at all' } });
+    const failure = await markFailure();
+    expect(failure.message).toBe(CHAT_READ_MARK_ERROR);
+    expect(failure.code).toBeUndefined();
+  });
+
+  it('keeps the demo and offline errors exactly as they are', async () => {
+    mockGetSupabase.mockReturnValue(null);
+    const offline = await markFailure();
+    expect(offline.message).toBe(CHAT_READ_OFFLINE_ERROR);
+    expect(offline.code).toBeUndefined();
+
+    const demo = await markFailure({ teamId: 'team-choir', messageId: 'msg-1' });
+    expect(demo.message).toBe(CHAT_READ_DEMO_ERROR);
+    expect(demo.code).toBeUndefined();
+  });
+
   it('surfaces the offline message when there is no client', async () => {
     mockGetSupabase.mockReturnValue(null);
     // Live-shaped ids get past the demo guard, then requireClient throws offline
