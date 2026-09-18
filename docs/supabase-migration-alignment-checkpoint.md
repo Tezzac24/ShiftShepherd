@@ -199,7 +199,7 @@ without changing delivery semantics; v6 (2026-09-17) keeps it and adds announcem
 
 The pre-membership regression suite passed 296 tests across 43 suites, compared with
 the deployed Broadcast baseline of 211/31. The current implementation passes
-806 tests across 73 suites. Commits `420e12f` and `bf6a538` repaired auth sign-out
+856 tests across 76 suites. Commits `420e12f` and `bf6a538` repaired auth sign-out
 persistence and account-bootstrap routing races; `c54da51` implements the membership
 slice, `7628569` hardens invalidation when a non-active organisation is removed, and
 `ad09ae9` serializes team/token creation with removal cleanup.
