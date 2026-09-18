@@ -5,6 +5,7 @@ import { join } from 'node:path';
 const MIGRATIONS = join(process.cwd(), 'supabase/migrations');
 const NAME = '20260917180127_fix_invitation_acceptance_role_conflict_target.sql';
 const ROTA_PUSH = '20260917124856_add_rota_push_delivery.sql';
+const CHAT_READ_FIX = '20260917223118_fix_chat_read_cursor_conflict_target.sql';
 const MEMBERSHIP = '20260712103321_add_organisation_membership_role_management.sql';
 const BASELINE_CONFLICT = '  on conflict (organisation_id, user_id) do nothing;';
 const FIXED_CONFLICT =
@@ -41,11 +42,14 @@ interface FunctionDefinition {
  * each file in version order, each `create`/`drop` in statement order, with a
  * later statement replacing or removing an earlier one of the same name.
  */
-function effectiveFunctions(files: string[]): Map<string, FunctionDefinition> {
+function effectiveFunctions(
+  files: string[],
+  load: (file: string) => string = text,
+): Map<string, FunctionDefinition> {
   const definitions = new Map<string, FunctionDefinition>();
   const statement = /(create(?: or replace)? function|drop function(?: if exists)?) public\.(\w+)\b/gi;
   for (const file of files) {
-    const sql = text(file);
+    const sql = load(file);
     for (const match of sql.matchAll(statement)) {
       const name = match[2].toLowerCase();
       if (match[1].toLowerCase().startsWith('drop')) {
@@ -102,9 +106,12 @@ function resultColumns(header: string): string[] {
  * statement runs, even though the function compiles. Returns
  * `function:column` for every such collision the migrations leave deployed.
  */
-function ambiguousConflictTargets(files: string[]): string[] {
+function ambiguousConflictTargets(
+  files: string[],
+  load: (file: string) => string = text,
+): string[] {
   const collisions: string[] = [];
-  for (const definition of effectiveFunctions(files).values()) {
+  for (const definition of effectiveFunctions(files, load).values()) {
     if (!/\blanguage plpgsql\b/.test(definition.header)) continue;
     if (definition.body.includes('#variable_conflict')) continue;
     const columns = new Set(resultColumns(definition.header));
@@ -125,11 +132,12 @@ describe('invitation acceptance role conflict target fix migration', () => {
   const baseline = functionSql(text(MEMBERSHIP), 'accept_organisation_invitation_internal');
   const replacement = functionSql(migration, 'accept_organisation_invitation_internal');
 
-  it('is the only new migration and preserves all 36 earlier migrations byte-for-byte', () => {
+  it('stays immediately before the chat read cursor fix and preserves all 36 earlier migrations byte-for-byte', () => {
     const files = migrationFiles();
-    expect(files).toHaveLength(37);
-    expect(files.at(-1)).toBe(NAME);
-    expect(files.at(-2)).toBe(ROTA_PUSH);
+    expect(files).toHaveLength(38);
+    expect(files.at(-1)).toBe(CHAT_READ_FIX);
+    expect(files.at(-2)).toBe(NAME);
+    expect(files.at(-3)).toBe(ROTA_PUSH);
     const historical = files.filter((file) => file < NAME);
     const hash = createHash('sha256');
     for (const file of historical) {
@@ -217,7 +225,7 @@ describe('invitation acceptance role conflict target fix migration', () => {
 });
 
 describe('PL/pgSQL conflict targets never shadow result columns', () => {
-  it('detects the acceptance defect in the migrations deployed before this fix', () => {
+  it('detects both historical defects in the migrations deployed before this fix', () => {
     const beforeFix = migrationFiles().filter((file) => file < NAME);
     expect(ambiguousConflictTargets(beforeFix)).toEqual([
       'accept_organisation_invitation_internal:organisation_id',
@@ -225,12 +233,36 @@ describe('PL/pgSQL conflict targets never shadow result columns', () => {
     ]);
   });
 
-  it('leaves only the known chat read cursor collision after this fix', () => {
-    // mark_team_chat_read (20260711173139) has the same defect: its
-    // `on conflict (user_id, team_id)` target shadows the `team_id` result
-    // column, and the deployed function raises 42702 on every call. It is
-    // outside invitation acceptance and is tracked separately; remove it from
-    // this list when it is fixed. Any new collision fails here.
-    expect(ambiguousConflictTargets(migrationFiles())).toEqual(['mark_team_chat_read:team_id']);
+  it('leaves no collision at all once the chat read cursor fix lands too', () => {
+    // A sweep of all 37 migrations found exactly these two collisions. This
+    // migration fixed the acceptance insert and
+    // 20260917223118_fix_chat_read_cursor_conflict_target.sql fixed the read
+    // cursor, so the allowlist is now empty and stays empty.
+    expect(ambiguousConflictTargets(migrationFiles())).toEqual([]);
+  });
+
+  it('still fails loudly when a new collision is introduced', () => {
+    // Proof that the empty expectation above is a real guard and not a
+    // vacuous pass: the same detector, given one synthetic migration with the
+    // defect, reports it. A `create or replace` that fixes it clears the
+    // report, and a qualified target was never a collision.
+    const broken = `create function public.probe_fn(p_a uuid)
+returns table (team_id uuid, total integer)
+language plpgsql
+as $$
+begin
+  insert into public.probe_rows (user_id, team_id) values (p_a, p_a)
+  on conflict (user_id, team_id) do nothing;
+end;
+$$;`;
+    const fixed = broken
+      .replace('create function', 'create or replace function')
+      .replace(
+        'on conflict (user_id, team_id)',
+        'on conflict on constraint probe_rows_user_id_team_id_key',
+      );
+    const load = (file: string) => (file === 'zz_broken.sql' ? broken : fixed);
+    expect(ambiguousConflictTargets(['zz_broken.sql'], load)).toEqual(['probe_fn:team_id']);
+    expect(ambiguousConflictTargets(['zz_broken.sql', 'zz_fixed.sql'], load)).toEqual([]);
   });
 });

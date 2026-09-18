@@ -5,6 +5,7 @@ import { join } from 'node:path';
 const MIGRATIONS = join(process.cwd(), 'supabase/migrations');
 const NAME = '20260917124856_add_rota_push_delivery.sql';
 const ACCEPTANCE_FIX = '20260917180127_fix_invitation_acceptance_role_conflict_target.sql';
+const CHAT_READ_FIX = '20260917223118_fix_chat_read_cursor_conflict_target.sql';
 const ANNOUNCEMENT_PUSH = '20260917110331_add_announcement_push_delivery.sql';
 const FOUNDATION = '20260710234443_add_push_delivery_foundation.sql';
 
@@ -30,10 +31,11 @@ describe('rota push delivery migration contract', () => {
 
   it('stays immediately before the invitation acceptance fix and preserves all 35 earlier migrations byte-for-byte', () => {
     const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql')).sort();
-    expect(files).toHaveLength(37);
-    expect(files.at(-1)).toBe(ACCEPTANCE_FIX);
-    expect(files.at(-2)).toBe(NAME);
-    expect(files.at(-3)).toBe(ANNOUNCEMENT_PUSH);
+    expect(files).toHaveLength(38);
+    expect(files.at(-1)).toBe(CHAT_READ_FIX);
+    expect(files.at(-2)).toBe(ACCEPTANCE_FIX);
+    expect(files.at(-3)).toBe(NAME);
+    expect(files.at(-4)).toBe(ANNOUNCEMENT_PUSH);
     const historical = files.filter((file) => file < NAME);
     const hash = createHash('sha256');
     for (const file of historical) {
