@@ -51,7 +51,7 @@ Local verification passes with 856 tests across 76 suites, typecheck, lint, migr
 
 ## Tech Stack
 
-- React Native + Expo (SDK 54) + TypeScript (strict)
+- React Native + Expo (SDK 57) + TypeScript (strict), on Node 24 (`.nvmrc`)
 - Expo Router (file-based routing, `app/` directory)
 - React context + local state with session-only Supabase live slices
 - Production backend path: Supabase + Expo Notifications
