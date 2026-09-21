@@ -18,6 +18,8 @@ review-ready, green-CI PR. Discovery or the representative slice is not completi
 - Shared foundation committed as `441f5fd`, personally accepted after two refinements.
 - Navigation, Home and Schedule are implemented and personally accepted; Teams
   and Profile are still required before the representative-slice gate is complete.
+- Home/Schedule checkpoint: `771fea0`. Teams representative surfaces are now
+  personally accepted; Profile/Settings are next for the representative gate.
 
 Baseline Git objects for final freeze comparison:
 
@@ -34,9 +36,9 @@ Baseline Git objects for final freeze comparison:
 | --- | --- | --- |
 | Discovery/audit/flow map | Complete | Inventories, contract, visual audit, baseline commands |
 | Shared design foundation | Accepted | Exact tokens; native wrapping controls; accessible modal/date sheets; 881 tests/80 suites; export; parent screenshots/interactions |
-| Representative slice | Pending | Home, Teams, team hub, Profile/Settings, Schedule or Chat rendered and accepted |
+| Representative slice | Profile/Settings remain | Home, Teams, team hub and Schedule accepted; Profile/Settings must still be rendered and accepted |
 | Navigation/Home/Schedule | Accepted | 922 tests/83 suites; export; parent member/admin/empty/direct-link checks |
-| Teams/lifecycle/members | Pending | Every lifecycle/role/member capability; demo/live gates; parent review |
+| Teams/lifecycle/members | Representative surfaces accepted; forms pending | Directory/hub/read and management entries accepted; create/edit/archive/add-member forms follow representative gate |
 | Chat | Pending | Composer/history/draft/image/unread behavior; parent review |
 | Announcements/events | Pending | Forms, recurrence, audience, images, details and state review |
 | Rota/availability/music | Pending | Multi-role response, cancellation, monthly partial saves, section selection |
@@ -96,6 +98,59 @@ explicit ARIA aliases. Eight images are preserved under
 `.cache/ui-audit/home-schedule/` (03 and 08 supersede the early iterations).
 Remaining shared checked/expanded/busy alias review is tracked in the verification
 plan. Live switching/error cases have mocked behavior coverage, not hosted UI QA.
+
+**Teams representative surfaces — accepted 22 September.** My teams is actual
+membership; church admins have a separate All teams view and contextual Manage.
+The hub has immediately visible Chat/Rota/Members/choir Songs, a next date and
+notices. Members is a direct, virtualized full-name view at the retained route;
+live mutation authority remains separately gated. Settings remains a valid deep
+link with useful demo-leader tools. Existing lifecycle/form routes remain working
+but their composition is not yet redesigned. Team access states share a scoped
+boundary; archived and cross-church content stays unavailable.
+
+Typecheck, clean lint, **965 tests/83 suites**, 38-migration check, diff check and
+demo-only Android/iOS/web export (43 routes) passed. Parent inspected at 375×812,
+390×844 and 430×932: no-team member, member directory/hub/read-only roster,
+admin My/All, long zero-member generic team, generic/choir Manage choices and
+Sarah's direct Settings link. Monthly planning navigation works. The normal
+Members route is now two transitions from Teams; the existing live Add member
+destination is one further transition (mocked interaction verification).
+
+Accepted refinements: concise admin header/participation copy; consistent first/
+last member-row corners; short Manage heading with full team-name context;
+photo-only settings shortcut where the existing live capability permits it;
+no redundant settings choice. Shared sheet focus now transfers to selected
+destinations and only returns on cancellation; stale reopen/dismiss callbacks
+are fenced, with 17 modal tests. Native screen-reader QA remains pending.
+
+Parent also activated an explicitly labelled, offline synthetic roster of 39
+people (36 temporary names) at 375/430: long-name wrapping, searches for
+Oluwatobiloba and Zachariah, no matches, clearing and scrolling all passed. The
+fixture changed presentation only, never storage/backend data. Exact original
+source bytes were restored and SHA-256 verified; `active:false` and
+`restoredExactly:true`, followed by a fresh three-person UI check. No fixture
+code is in the source diff. Nineteen captures are preserved in
+`.cache/ui-audit/teams/`; 10–14/19 are accepted normal-state revisions and 15–18
+are explicitly synthetic layout evidence. Temporary module-resolution errors
+from sequential file replacement are historical controller log entries; settled
+reloads rendered correctly without additional page errors.
+
+## Cross-area handoffs
+
+- Teams representative slice will use the honest **All announcements** label
+  while the destination is unfiltered. The announcements worker must add an
+  optional `teamId` filter over existing accessible same-organisation notices,
+  with a clear way to return to all notices, then connect **All team announcements**
+  from the hub. This is client-only work, not a backend blocker.
+- Final documentation must reconcile README and both instruction files with
+  the accepted navigation/presentation authority without rewriting deployed
+  backend history or claiming pending native/hosted QA has passed.
+- Hosted connection restored by the user on 21 September. Repeated read-only
+  verification succeeded: local and remote migration filenames match exactly
+  **38/38**, with no local-only or remote-only entry. Functions remain ACTIVE:
+  `send-chat-message-push` v7 (`verify_jwt` true) and
+  `manage-organisation-invitations` v3 (`verify_jwt` false), matching the baseline.
+  No remote mutation was performed; local protected-file checks remain clear.
 
 ## Current local inspection session
 

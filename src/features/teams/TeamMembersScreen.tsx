@@ -1,419 +1,242 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
-import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
-import { Card } from '../../components/Card';
-import { EmptyState } from '../../components/EmptyState';
-import { Screen } from '../../components/Screen';
-import { SectionHeader } from '../../components/SectionHeader';
 import { useConfirm } from '../../components/ConfirmDialog';
+import { FocusRef } from '../../components/ModalSurface';
+import { PageHeading } from '../../components/PageHeading';
+import { Screen } from '../../components/Screen';
+import { StatePanel } from '../../components/StatePanel';
+import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
-import { teamMembers } from '../../lib/appData/selectors';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
 import {
-  canManageTeamMemberships,
-  canManageTeamRoles,
-  demotionLeavesTeamWithoutAdmin,
-  teamMemberRemovalState,
-  TeamMemberRemovalState,
-  TeamRoleAction,
-  teamRoleActionFor,
+  canManageTeamMemberships, canManageTeamRoles, demotionLeavesTeamWithoutAdmin,
+  teamMemberRemovalState, TeamMemberRemovalState, TeamRoleAction, teamRoleActionFor,
 } from '../../lib/permissions';
 import { Team, TeamMembership, UserProfile } from '../../types';
+import { TeamAccessBoundary } from './TeamAccessBoundary';
+import { currentTeamMembers } from './teamPresentation';
 
-export function TeamMemberRow({
-  profile,
-  membership,
-  avatarUri,
-  isCurrentUser,
-  removalState,
-  removing,
-  disabled,
-  onRemove,
-  roleAction,
-  roleChanging,
-  onChangeRole,
-}: {
+export function TeamMemberRow({ profile, membership, avatarUri, isCurrentUser, removalState, removing, disabled, onRemove, roleAction, roleChanging, onChangeRole, first, last }: {
   profile: UserProfile;
   membership: TeamMembership;
   avatarUri?: string;
   isCurrentUser: boolean;
-  removalState: TeamMemberRemovalState;
+  /** Null is a readable row with no membership-management affordances. */
+  removalState: TeamMemberRemovalState | null;
   removing: boolean;
   disabled: boolean;
-  onRemove: () => void;
-  /** null hides the role control (non-admins, demo mode). */
+  onRemove: (opener: FocusRef) => void;
   roleAction: TeamRoleAction | null;
   roleChanging: boolean;
-  onChangeRole: () => void;
+  onChangeRole: (opener: FocusRef) => void;
+  first?: boolean;
+  last?: boolean;
 }) {
-  const protectedMembership = removalState !== 'removable';
-
-  return (
-    <Card style={styles.memberCard}>
-      <View style={styles.memberRow}>
-        <Avatar name={profile.full_name} uri={avatarUri} size={48} />
-        <View style={styles.memberCopy}>
-          <View style={styles.nameRow}>
-            <AppText variant="bodyBold" style={styles.flexText}>
-              {profile.full_name}
-            </AppText>
-            {isCurrentUser ? <Badge label="You" tone="primary" /> : null}
-          </View>
-          <AppText variant="small" tone="secondary" numberOfLines={1}>
-            {profile.email}
+  const removeRef = useRef<View>(null);
+  const roleRef = useRef<View>(null);
+  return <View style={[styles.memberRow, first && styles.firstMember, last && styles.lastMember]}>
+    <View style={styles.person}>
+      <Avatar name={profile.full_name} uri={avatarUri} size={48} />
+      <View style={styles.memberCopy}>
+        <AppText variant="bodyBold">{profile.full_name}</AppText>
+        <View style={styles.roleLine}>
+          <AppText variant="small" tone={membership.role === 'team_leader' ? 'accent' : 'secondary'}>
+            {membership.role === 'team_leader' ? 'Team admin' : 'Member'}
           </AppText>
-          <View style={styles.roleRow}>
-            <Badge
-              label={membership.role === 'team_leader' ? 'Team admin' : 'Member'}
-              tone={membership.role === 'team_leader' ? 'accent' : 'neutral'}
-            />
-          </View>
-          {removalState === 'self' ? (
-            <AppText variant="small" tone="muted">
-              Use Leave Team from the team page for your own membership.
-            </AppText>
-          ) : removalState === 'peer_team_admin' ? (
-            <AppText variant="small" tone="muted">
-              Team admins cannot remove another team admin in this version.
-            </AppText>
-          ) : removalState === 'final_team_admin' ? (
-            <AppText variant="small" tone="muted">
-              Another team admin must be appointed before this person can be removed.
-            </AppText>
-          ) : null}
-          {roleAction ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={
-                roleAction === 'promote'
-                  ? `Make ${profile.full_name} a team admin`
-                  : `Remove ${profile.full_name}'s team admin role`
-              }
-              accessibilityHint="Opens a confirmation before changing this team role"
-              accessibilityState={{ disabled: disabled || roleChanging, busy: roleChanging }}
-              disabled={disabled || roleChanging}
-              onPress={onChangeRole}
-              style={({ pressed }) => [
-                styles.roleAction,
-                pressed && styles.roleActionPressed,
-                (disabled || roleChanging) && styles.actionDisabled,
-              ]}
-            >
-              {roleChanging ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Ionicons
-                  name={roleAction === 'promote' ? 'ribbon-outline' : 'remove-circle-outline'}
-                  size={19}
-                  color={colors.primary}
-                />
-              )}
-              <AppText variant="label" tone="primary">
-                {roleAction === 'promote' ? 'Make team admin' : 'Remove team admin role'}
-              </AppText>
-            </Pressable>
-          ) : null}
+          {isCurrentUser ? <AppText variant="small" tone="primary">You</AppText> : null}
         </View>
-        {!protectedMembership ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Remove ${profile.full_name} from team`}
-            accessibilityHint="Opens a confirmation before removing this membership"
-            accessibilityState={{ disabled: disabled || removing, busy: removing }}
-            disabled={disabled || removing}
-            onPress={onRemove}
-            style={({ pressed }) => [
-              styles.removeAction,
-              pressed && styles.removeActionPressed,
-              (disabled || removing) && styles.actionDisabled,
-            ]}
-          >
-            {removing ? (
-              <ActivityIndicator size="small" color={colors.danger} />
-            ) : (
-              <Ionicons name="person-remove-outline" size={19} color={colors.danger} />
-            )}
-            <AppText variant="label" tone="danger">
-              Remove
-            </AppText>
-          </Pressable>
-        ) : null}
+        {removalState && profile.email ? <AppText variant="small" tone="secondary">{profile.email}</AppText> : null}
       </View>
-    </Card>
-  );
-}
-
-function LockedState({ team, isDemo }: { team: Team; isDemo: boolean }) {
-  return (
-    <EmptyState
-      icon={isDemo ? 'information-circle-outline' : 'lock-closed-outline'}
-      title={isDemo ? 'Member management is read-only in demo mode' : 'No permission'}
-      message={
-        isDemo
-          ? 'Sign in with your linked church account to add or remove team members.'
-          : `Only ${team.name} leaders and church admins can manage this member list.`
-      }
-    />
-  );
+    </View>
+    {removalState === 'self' ? <AppText variant="small" tone="muted">Use Leave Team from the team page for your own membership.</AppText>
+      : removalState === 'peer_team_admin' ? <AppText variant="small" tone="muted">Team admins cannot remove another team admin in this version.</AppText>
+        : removalState === 'final_team_admin' ? <View style={styles.guidance}>
+          <AppText variant="small" tone="muted">Another team admin must be appointed before this person can be removed.</AppText>
+          {roleAction === 'demote' ? <AppText variant="small" tone="muted">You can remove their team admin role first. They will remain a member.</AppText> : null}
+        </View> : null}
+    {roleAction ? <Pressable ref={roleRef} accessibilityRole="button"
+      accessibilityLabel={roleAction === 'promote' ? `Make ${profile.full_name} a team admin` : `Remove ${profile.full_name}'s team admin role`}
+      accessibilityHint="Opens a confirmation before changing this team role"
+      accessibilityState={{ disabled: disabled || roleChanging, busy: roleChanging }} aria-disabled={disabled || roleChanging} aria-busy={roleChanging}
+      disabled={disabled || roleChanging} onPress={() => onChangeRole(roleRef)}
+      style={({ pressed }) => [styles.action, styles.roleAction, pressed && styles.rolePressed]}>
+      {roleChanging ? <ActivityIndicator size="small" color={colors.primary} />
+        : <Ionicons name={roleAction === 'promote' ? 'ribbon-outline' : 'remove-circle-outline'} size={21} color={colors.primary} accessible={false} />}
+      <AppText variant="label" tone={disabled ? 'muted' : 'primary'} style={styles.actionLabel}>
+        {roleAction === 'promote' ? 'Make team admin' : 'Remove team admin role'}
+      </AppText>
+    </Pressable> : null}
+    {removalState === 'removable' ? <Pressable ref={removeRef} accessibilityRole="button"
+      accessibilityLabel={`Remove ${profile.full_name} from team`} accessibilityHint="Opens a confirmation before removing this membership"
+      accessibilityState={{ disabled: disabled || removing, busy: removing }} aria-disabled={disabled || removing} aria-busy={removing}
+      disabled={disabled || removing} onPress={() => onRemove(removeRef)}
+      style={({ pressed }) => [styles.action, pressed && styles.removePressed]}>
+      {removing ? <ActivityIndicator size="small" color={colors.danger} />
+        : <Ionicons name="person-remove-outline" size={21} color={colors.danger} accessible={false} />}
+      <AppText variant="label" tone={disabled ? 'muted' : 'danger'} style={styles.actionLabel}>Remove member</AppText>
+    </Pressable> : null}
+  </View>;
 }
 
 export default function TeamMembersScreen() {
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
+  const user = useRequiredUser();
+  return <TeamAccessBoundary teamId={teamId} title="Members">
+    {(team) => <TeamMembersContent key={`${user.profile.id}:${team.id}`} team={team} />}
+  </TeamAccessBoundary>;
+}
+
+function TeamMembersContent({ team }: { team: Team }) {
   const router = useRouter();
   const confirm = useConfirm();
   const showToast = useToast();
   const { authMode } = useAuth();
   const user = useRequiredUser();
   const data = useAppData();
+  const insets = useSafeAreaInsets();
+  const [search, setSearch] = useState('');
   const [removingProfileId, setRemovingProfileId] = useState<string | null>(null);
   const [changingRoleProfileId, setChangingRoleProfileId] = useState<string | null>(null);
-  // Synchronous re-entry guard: state updates are async, so a repeated tap
-  // while the confirmation dialog is open must still collapse to one request.
-  const roleRequestInFlightRef = useRef(false);
+  const [confirming, setConfirming] = useState(false);
+  const requestInFlightRef = useRef(false);
+  const activeRef = useRef(true);
   const [actionError, setActionError] = useState<string | null>(null);
-  const team = data.teams.find((candidate) => candidate.id === teamId);
+  const listRef = useRef<FlatList>(null);
+  useEffect(() => { activeRef.current = true; return () => { activeRef.current = false; }; }, []);
 
-  const members = useMemo(
-    () => (team ? teamMembers(team.id, data.memberships, data.users) : []),
-    [team, data.memberships, data.users],
-  );
-
-  if (!team && data.teamsLoading) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ title: 'Manage Members' }} />
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <AppText tone="secondary">Loading the member list…</AppText>
-        </View>
-      </Screen>
-    );
-  }
-
-  if (!team) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ title: 'Manage Members' }} />
-        <EmptyState
-          icon={data.teamsError ? 'cloud-offline-outline' : 'people-outline'}
-          title={data.teamsError ? "Couldn't load this team" : 'Team not found'}
-          message={data.teamsError ?? 'This team may have been removed.'}
-        />
-        {data.teamsError ? (
-          <Button
-            title="Try Again"
-            variant="secondary"
-            icon="refresh-outline"
-            onPress={() => void data.refreshTeams()}
-          />
-        ) : null}
-      </Screen>
-    );
-  }
-
+  const members = useMemo(() => currentTeamMembers(team, data.memberships, data.users), [team, data.memberships, data.users]);
+  const query = search.trim().toLocaleLowerCase();
+  const filtered = members.filter(({ profile }) => [profile.full_name, profile.email].some((value) => value.toLocaleLowerCase().includes(query)));
   const isDemo = authMode !== 'supabase' || !data.teamsLive;
   const canManage = !isDemo && canManageTeamMemberships(user, team.id);
-  // Role changes are church-admin-only and live-only; archived teams never
-  // reach this active-team route, but the guard stays defensive.
-  const canChangeRoles =
-    canManage && canManageTeamRoles(user) && team.archived_at === null;
-  const actionsBusy = removingProfileId !== null || changingRoleProfileId !== null;
+  const canChangeRoles = canManage && canManageTeamRoles(user) && team.archived_at === null;
+  const actionsBusy = confirming || removingProfileId !== null || changingRoleProfileId !== null;
+  const latest = useRef({ canManage, canChangeRoles, user, members, memberships: data.memberships });
+  latest.current = { canManage, canChangeRoles, user, members, memberships: data.memberships };
 
-  const requestRemove = async (profile: UserProfile, membership: TeamMembership) => {
-    if (!canManage || actionsBusy) return;
-    const approved = await confirm({
-      title: `Remove ${profile.full_name}?`,
-      message:
-        membership.role === 'team_leader'
+  const showActionError = (error: unknown, fallback: string) => {
+    if (!activeRef.current) return;
+    setActionError(error instanceof Error ? error.message : fallback);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  };
+
+  const requestRemove = async (profile: UserProfile, membership: TeamMembership, opener: FocusRef) => {
+    if (!canManage || actionsBusy || requestInFlightRef.current || teamMemberRemovalState(user, membership, data.memberships) !== 'removable') return;
+    requestInFlightRef.current = true;
+    setConfirming(true);
+    try {
+      const approved = await confirm({
+        title: `Remove ${profile.full_name}?`,
+        message: membership.role === 'team_leader'
           ? `${profile.full_name}'s team-admin membership will be removed from ${team.name}. Another team admin will remain. Their church profile, account and organisation role will stay in place.`
           : `${profile.full_name} will be removed from ${team.name} and will no longer have member access to this team's chat, rota and updates. Their church profile, account and organisation role will stay in place.`,
-      confirmLabel: 'Remove member',
-    });
-    if (!approved) return;
-    setRemovingProfileId(profile.id);
-    setActionError(null);
-    try {
+        confirmLabel: 'Remove member', returnFocusRef: opener,
+      });
+      const current = latest.current.members.find((member) => member.profile.id === profile.id)?.membership;
+      if (!approved || !activeRef.current || !latest.current.canManage || !current
+        || teamMemberRemovalState(latest.current.user, current, latest.current.memberships) !== 'removable') return;
+      setConfirming(false);
+      setRemovingProfileId(profile.id);
+      setActionError(null);
       await data.removeTeamMember(team.id, profile.id);
-      showToast(`${profile.full_name} was removed from ${team.name}.`);
+      if (activeRef.current) showToast(`${profile.full_name} was removed from ${team.name}.`);
     } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : "We couldn't remove this person right now. Please try again.",
-      );
+      showActionError(error, "We couldn't remove this person right now. Please try again.");
     } finally {
-      setRemovingProfileId(null);
+      requestInFlightRef.current = false;
+      if (activeRef.current) { setConfirming(false); setRemovingProfileId(null); }
     }
   };
 
-  const requestRoleChange = async (profile: UserProfile, membership: TeamMembership) => {
-    if (!canChangeRoles || actionsBusy || roleRequestInFlightRef.current) return;
-    roleRequestInFlightRef.current = true;
-    try {
-      await performRoleChange(profile, membership);
-    } finally {
-      roleRequestInFlightRef.current = false;
-    }
-  };
-
-  const performRoleChange = async (profile: UserProfile, membership: TeamMembership) => {
+  const requestRoleChange = async (profile: UserProfile, membership: TeamMembership, opener: FocusRef) => {
+    if (!canChangeRoles || actionsBusy || requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
+    setConfirming(true);
     const promote = teamRoleActionFor(membership) === 'promote';
-    // Informational only: the server deliberately allows demoting the final
-    // team admin, so this warning must never block the confirmation.
-    const leavesTeamWithoutAdmin =
-      !promote && demotionLeavesTeamWithoutAdmin(membership, data.memberships);
-    const approved = await confirm({
-      title: promote
-        ? `Make ${profile.full_name} a team admin?`
-        : `Remove ${profile.full_name}'s team admin role?`,
-      message: promote
-        ? `They will be able to manage ${team.name} under the existing team-admin permissions. Their church role and account stay the same.`
-        : `${profile.full_name} will remain a member of ${team.name}.${
-            leavesTeamWithoutAdmin
-              ? ' This will leave the team without a team admin. A church admin can appoint one later.'
-              : ''
-          }`,
-      confirmLabel: promote ? 'Make team admin' : 'Remove team admin role',
-    });
-    if (!approved) return;
-    setChangingRoleProfileId(profile.id);
-    setActionError(null);
+    // Final-leader demotion is valid. This warning is informational, never a block.
+    const leavesTeamWithoutAdmin = !promote && demotionLeavesTeamWithoutAdmin(membership, data.memberships);
     try {
-      await data.setTeamMemberRole(
-        team.id,
-        profile.id,
-        promote ? 'team_leader' : 'member',
-      );
-      showToast(
-        promote
-          ? `${profile.full_name} is now a team admin of ${team.name}.`
-          : `${profile.full_name} is no longer a team admin of ${team.name}.`,
-      );
+      const approved = await confirm({
+        title: promote ? `Make ${profile.full_name} a team admin?` : `Remove ${profile.full_name}'s team admin role?`,
+        message: promote
+          ? `They will be able to manage ${team.name} under the existing team-admin permissions. Their church role and account stay the same.`
+          : `${profile.full_name} will remain a member of ${team.name}.${leavesTeamWithoutAdmin ? ' This will leave the team without a team admin. A church admin can appoint one later.' : ''}`,
+        confirmLabel: promote ? 'Make team admin' : 'Remove team admin role',
+        destructive: !promote, returnFocusRef: opener,
+      });
+      if (!approved || !activeRef.current || !latest.current.canChangeRoles
+        || !latest.current.members.some((member) => member.profile.id === profile.id)) return;
+      setConfirming(false);
+      setChangingRoleProfileId(profile.id);
+      setActionError(null);
+      await data.setTeamMemberRole(team.id, profile.id, promote ? 'team_leader' : 'member');
+      if (activeRef.current) showToast(promote ? `${profile.full_name} is now a team admin of ${team.name}.`
+        : `${profile.full_name} is no longer a team admin of ${team.name}.`);
     } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : "We couldn't change this team role right now. Please try again.",
-      );
+      showActionError(error, "We couldn't change this team role right now. Please try again.");
     } finally {
-      setChangingRoleProfileId(null);
+      requestInFlightRef.current = false;
+      if (activeRef.current) { setConfirming(false); setChangingRoleProfileId(null); }
     }
   };
 
-  return (
-    <Screen>
-      <Stack.Screen options={{ title: 'Manage Members' }} />
-      <View style={styles.identityHeader}>
-        <Avatar name={team.name} uri={data.getTeamAvatarUri(team)} size={56} />
-        <View style={styles.memberCopy}>
-          <AppText variant="heading">{team.name}</AppText>
-          <AppText tone="secondary">
-            {members.length} current {members.length === 1 ? 'member' : 'members'}
-          </AppText>
-        </View>
-      </View>
-
-      {!canManage ? (
-        <LockedState team={team} isDemo={isDemo} />
-      ) : (
-        <>
-          <SectionHeader
-            title="Current Members"
-            actionLabel="Add member"
-            onAction={() =>
-              router.push({
-                pathname: '/teams/[teamId]/settings/members/add',
-                params: { teamId: team.id },
-              })
-            }
-          />
-          <AppText tone="secondary">
-            Add people who already have a linked account for your church. Removing someone does
-            not delete their church profile.
-          </AppText>
-
-          {actionError ? (
-            <Card style={styles.errorCard}>
-              <View style={styles.errorRow}>
-                <Ionicons name="alert-circle-outline" size={21} color={colors.danger} />
-                <AppText tone="danger" style={styles.flexText} accessibilityLiveRegion="polite">
-                  {actionError}
-                </AppText>
-              </View>
-            </Card>
-          ) : null}
-
-          {members.length > 0 ? (
-            members.map(({ profile, membership }) => (
-              <TeamMemberRow
-                key={profile.id}
-                profile={profile}
-                membership={membership}
-                avatarUri={data.getAvatarUri(profile)}
-                isCurrentUser={profile.id === user.profile.id}
-                removalState={teamMemberRemovalState(user, membership, data.memberships)}
-                removing={removingProfileId === profile.id}
-                disabled={actionsBusy}
-                onRemove={() => void requestRemove(profile, membership)}
-                roleAction={canChangeRoles ? teamRoleActionFor(membership) : null}
-                roleChanging={changingRoleProfileId === profile.id}
-                onChangeRole={() => void requestRoleChange(profile, membership)}
-              />
-            ))
-          ) : (
-            <EmptyState
-              icon="people-outline"
-              title="No members yet"
-              message="Add the first linked church profile to this team."
-            />
-          )}
-        </>
-      )}
-    </Screen>
-  );
+  return <Screen scroll={false}>
+    <Stack.Screen options={{ title: 'Members' }} />
+    <FlatList ref={listRef} data={filtered} keyExtractor={({ profile }) => profile.id}
+      keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
+      contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl * 2 + insets.bottom }]}
+      ListHeaderComponent={<View style={styles.header}>
+        <PageHeading title="Members" eyebrow={team.name} action={canManage ? <Button title="Add member" icon="person-add-outline"
+          onPress={() => router.push({ pathname: '/teams/[teamId]/settings/members/add', params: { teamId: team.id } })} /> : undefined} />
+        {members.length > 0 || (!data.teamsLoading && !data.teamsError)
+          ? <AppText tone="secondary">{members.length} current {members.length === 1 ? 'member' : 'members'}</AppText> : null}
+        {isDemo && canManageTeamMemberships(user, team.id) ? <StatePanel compact kind="info"
+          title="Member management is read-only in demo mode" message="You can browse names here. Adding, removing and changing team roles requires a linked church account." /> : null}
+        {members.length > 5 || search.length > 0 ? <TextField label="Search members" placeholder="Name or email" value={search}
+          onChangeText={setSearch} autoCapitalize="none" returnKeyType="search" /> : null}
+        {query ? <AppText variant="small" tone="secondary" accessibilityLiveRegion="polite">{filtered.length} of {members.length} members</AppText> : null}
+        {data.teamsError ? <StatePanel compact kind="error" title="Couldn't refresh the member list" message={data.teamsError}
+          action={{ label: 'Retry members', onPress: () => void data.refreshTeams() }} /> : null}
+        {actionError ? <StatePanel compact kind="error" title="Change not saved" message={actionError} /> : null}
+      </View>}
+      renderItem={({ item: { profile, membership }, index }) => <TeamMemberRow
+        profile={profile} membership={membership} avatarUri={data.getAvatarUri(profile)} isCurrentUser={profile.id === user.profile.id}
+        first={index === 0} last={index === filtered.length - 1}
+        removalState={canManage ? teamMemberRemovalState(user, membership, data.memberships) : null}
+        removing={removingProfileId === profile.id} disabled={actionsBusy}
+        onRemove={(opener) => void requestRemove(profile, membership, opener)}
+        roleAction={canChangeRoles ? teamRoleActionFor(membership) : null} roleChanging={changingRoleProfileId === profile.id}
+        onChangeRole={(opener) => void requestRoleChange(profile, membership, opener)} />}
+      ListEmptyComponent={data.teamsLoading ? <StatePanel kind="loading" title="Loading the member list…" />
+        : data.teamsError ? null : query ? <StatePanel title="No matching members" message="Try a different name or email." />
+          : <StatePanel title="No members yet" icon="people-outline" message={canManage ? 'Add the first linked church profile to this team.' : 'People will appear here when a team admin adds them.'} />}
+    />
+  </Screen>;
 }
 
 const styles = StyleSheet.create({
-  loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
-  identityHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  memberCard: { padding: spacing.md },
-  memberRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  memberCopy: { flex: 1, gap: 2, minWidth: 0 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  roleRow: { flexDirection: 'row', marginTop: 2 },
-  flexText: { flex: 1 },
-  removeAction: {
-    minHeight: touchTarget,
-    minWidth: 76,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-  },
-  removeActionPressed: { backgroundColor: colors.dangerSoft },
-  roleAction: {
-    minHeight: touchTarget,
-    marginTop: spacing.xs,
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  roleActionPressed: { backgroundColor: colors.primarySoft },
-  actionDisabled: { opacity: 0.45 },
-  errorCard: { backgroundColor: colors.dangerSoft, borderColor: colors.dangerSoft },
-  errorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  content: { padding: spacing.gutter },
+  header: { gap: spacing.md, marginBottom: spacing.lg },
+  memberRow: { gap: spacing.sm, padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.border,
+    borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  firstMember: { borderTopWidth: 1, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  lastMember: { borderBottomWidth: 1, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
+  person: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  memberCopy: { flex: 1, minWidth: 0, gap: spacing.xs },
+  roleLine: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  guidance: { gap: spacing.xs },
+  action: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md },
+  actionLabel: { flexShrink: 1 },
+  roleAction: { backgroundColor: colors.primarySoft },
+  rolePressed: { backgroundColor: colors.surfaceRaised },
+  removePressed: { backgroundColor: colors.dangerSoft },
 });

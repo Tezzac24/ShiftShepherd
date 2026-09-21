@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { colors, radius, spacing, touchTarget } from '../../constants/theme';
@@ -30,8 +30,14 @@ interface ActionSheetProps {
 export function ActionSheet({
   visible, title, description, actions, onClose, returnFocusRef,
 }: ActionSheetProps) {
+  const transferredFocus = useRef(false);
+  const wasVisible = useRef(false);
+  if (visible && !wasVisible.current) transferredFocus.current = false;
+  wasVisible.current = visible;
+
   return (
-    <ModalSurface visible={visible} title={title} onClose={onClose} returnFocusRef={returnFocusRef}>
+    <ModalSurface visible={visible} title={title} onClose={onClose} returnFocusRef={returnFocusRef}
+      shouldRestoreFocus={() => !transferredFocus.current}>
       {description ? <AppText tone="secondary">{description}</AppText> : null}
       {actions.map((action) => (
         <Pressable
@@ -40,7 +46,13 @@ export function ActionSheet({
           accessibilityLabel={[action.label, action.description].filter(Boolean).join('. ')}
           accessibilityState={{ disabled: !!action.disabled, selected: action.selected }}
           disabled={action.disabled}
-          onPress={action.disabled ? undefined : () => { onClose(); action.onPress(); }}
+          onPress={action.disabled ? undefined : () => {
+            // Set this before either callback: either may synchronously unmount
+            // the sheet or open another screen/dialog that now owns focus.
+            transferredFocus.current = true;
+            onClose();
+            action.onPress();
+          }}
           style={({ pressed }) => [
             styles.action,
             action.selected && styles.selected,

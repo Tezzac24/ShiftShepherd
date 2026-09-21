@@ -206,6 +206,9 @@ Use borders/dividers and whitespace for structure. Avoid shadows on every row.
   horizontal scrolling is not required to find a main view.
 - Sheets: clear title, labelled Close, scrollable content, safe-area padding,
   selected/disabled semantics, return focus and reduced-motion behavior.
+  Cancellation returns focus to the opener; choosing a navigation/dialog action
+  transfers focus to its destination. Stale dismissal callbacks after reopening
+  must not pull focus behind the current surface.
 - Confirmations: name the action/context and real consequence; clear Cancel;
   use destructive colour only when warranted. Long content scrolls. Dismissal
   resolves as cancellation, including back and unmount.

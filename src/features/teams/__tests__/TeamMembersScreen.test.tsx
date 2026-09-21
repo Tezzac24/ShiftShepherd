@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { useAppData } from '../../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../../lib/auth/AuthContext';
@@ -8,10 +8,12 @@ import { useConfirm } from '../../../components/ConfirmDialog';
 import { useToast } from '../../../components/Toast';
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+const mockPush = jest.fn();
+const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
   useLocalSearchParams: () => ({ teamId: '30000000-0000-4000-a000-000000000001' }),
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
 }));
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
 jest.mock('../../../lib/auth/AuthContext', () => ({
@@ -166,6 +168,8 @@ describe('TeamMembersScreen', () => {
     expect(screen.getByText('No permission')).toBeTruthy();
     expect(screen.queryByText('Add member')).toBeNull();
     expect(screen.queryByLabelText('Remove Hannah Adeyemi from team')).toBeNull();
+    expect(screen.queryByText('Hannah Adeyemi')).toBeNull();
+    expect(screen.queryByText('Sarah Williams')).toBeNull();
   });
 
   it('shows a friendly not-found state for an unknown team', () => {
@@ -221,8 +225,106 @@ describe('TeamMembersScreen', () => {
     );
     const screen = render(<TeamMembersScreen />);
     expect(screen.getByText('Member management is read-only in demo mode')).toBeTruthy();
+    expect(screen.getByText('Sarah Williams')).toBeTruthy();
+    expect(screen.getByText('Hannah Adeyemi')).toBeTruthy();
     expect(screen.queryByLabelText('Remove Hannah Adeyemi from team')).toBeNull();
     expect(removeTeamMember).not.toHaveBeenCalled();
+  });
+});
+
+describe('Members read access and navigation', () => {
+  it('lets ordinary team members read full names and roles without any mutation controls', () => {
+    const data = makeData();
+    mockUseAppData.mockReturnValue(data);
+    mockUseRequiredUser.mockReturnValue({ ...LEADER_SESSION, profile: MEMBER, memberships: [MEMBERSHIPS[1]] });
+    const screen = render(<TeamMembersScreen />);
+    expect(screen.getByText('Sarah Williams')).toBeTruthy();
+    expect(screen.getByText('Hannah Adeyemi')).toBeTruthy();
+    expect(screen.getByText('Team admin')).toBeTruthy();
+    expect(screen.queryByText('Add member')).toBeNull();
+    expect(screen.queryByLabelText('Remove Sarah Williams from team')).toBeNull();
+    expect(screen.queryByLabelText('Make Hannah Adeyemi a team admin')).toBeNull();
+    expect(data.removeTeamMember).not.toHaveBeenCalled();
+    expect(data.setTeamMemberRole).not.toHaveBeenCalled();
+  });
+
+  it('retains the existing Add member destination directly from Members', () => {
+    const screen = render(<TeamMembersScreen />);
+    fireEvent.press(screen.getByLabelText('Add member'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/teams/[teamId]/settings/members/add', params: { teamId: TEAM.id } });
+  });
+
+  it('does not expose names from outside this team, another church, or removed identities', () => {
+    const outside = { ...MEMBER, id: 'outside', full_name: 'Not in this team' };
+    const other = { ...MEMBER, id: 'other', full_name: 'Other church person', organisation_id: 'other-church' };
+    const removed = { ...MEMBER, id: 'removed', full_name: 'Removed person', access_status: 'removed' as const };
+    mockUseAppData.mockReturnValue(makeData({ users: [LEADER, MEMBER, outside, other, removed], memberships: [
+      ...MEMBERSHIPS, { ...MEMBERSHIPS[1], id: 'other', user_id: other.id }, { ...MEMBERSHIPS[1], id: 'removed', user_id: removed.id },
+    ] }));
+    const screen = render(<TeamMembersScreen />);
+    expect(screen.getByText('2 current members')).toBeTruthy();
+    expect(screen.queryByText('Not in this team')).toBeNull();
+    expect(screen.queryByText('Other church person')).toBeNull();
+    expect(screen.queryByText('Removed person')).toBeNull();
+  });
+
+  it.each(['active-list', 'archive-list'])('rejects archived team content from %s', (location) => {
+    const archived = { ...TEAM, archived_at: '2026-09-01' };
+    const data = makeData({ teams: location === 'active-list' ? [archived] : [], archivedTeams: [archived] });
+    mockUseAppData.mockReturnValue(data);
+    const screen = render(<TeamMembersScreen />);
+    expect(screen.getByText('Team is archived')).toBeTruthy();
+    expect(screen.queryByText('Hannah Adeyemi')).toBeNull();
+    expect(screen.queryByText('Add member')).toBeNull();
+    expect(data.removeTeamMember).not.toHaveBeenCalled();
+    expect(data.setTeamMemberRole).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByLabelText('Back to teams'));
+    expect(mockReplace).toHaveBeenCalledWith('/(tabs)/teams');
+  });
+
+  it('does not let church-admin authority cross the current organisation boundary', () => {
+    mockUseRequiredUser.mockReturnValue({ ...LEADER_SESSION, orgRole: 'church_admin' });
+    mockUseAppData.mockReturnValue(makeData({ teams: [{ ...TEAM, organisation_id: 'other-church' }] }));
+    const screen = render(<TeamMembersScreen />);
+    expect(screen.getByText('Team not found')).toBeTruthy();
+    expect(screen.queryByText('Hannah Adeyemi')).toBeNull();
+  });
+
+  it('searches names beyond the initially rendered rows and shows full matching names', () => {
+    const users = Array.from({ length: 60 }, (_, i) => ({ ...MEMBER, id: `person-${i}`, full_name: `Member ${String(i).padStart(2, '0')} Full Family Name` }));
+    const memberships = users.map((profile, i) => ({ ...MEMBERSHIPS[1], id: `member-${i}`, user_id: profile.id }));
+    mockUseAppData.mockReturnValue(makeData({ users, memberships }));
+    const screen = render(<TeamMembersScreen />);
+    fireEvent.changeText(screen.getByLabelText('Search members'), 'Member 59');
+    expect(screen.getByText('Member 59 Full Family Name')).toBeTruthy();
+    expect(screen.getByText('1 of 60 members')).toBeTruthy();
+    fireEvent.changeText(screen.getByLabelText('Search members'), 'Nobody matching');
+    expect(screen.getByText('No matching members')).toBeTruthy();
+  });
+
+  it('does not change roles if authority is lost while confirmation is open', async () => {
+    let resolveConfirm!: (approved: boolean) => void;
+    mockUseConfirm.mockReturnValue(jest.fn().mockReturnValue(new Promise<boolean>((resolve) => { resolveConfirm = resolve; })));
+    mockUseRequiredUser.mockReturnValue({ ...LEADER_SESSION, orgRole: 'church_admin' });
+    const data = makeData();
+    mockUseAppData.mockReturnValue(data);
+    const screen = render(<TeamMembersScreen />);
+    fireEvent.press(screen.getByLabelText('Make Hannah Adeyemi a team admin'));
+    mockUseRequiredUser.mockReturnValue(LEADER_SESSION);
+    screen.rerender(<TeamMembersScreen />);
+    await act(async () => resolveConfirm(true));
+    expect(data.setTeamMemberRole).not.toHaveBeenCalled();
+    expect(screen.getByText('Hannah Adeyemi')).toBeTruthy();
+  });
+
+  it('does not show an empty member list when a refresh failed', () => {
+    const data = makeData({ memberships: [], teamsError: 'Connection interrupted.' });
+    mockUseAppData.mockReturnValue(data);
+    const screen = render(<TeamMembersScreen />);
+    expect(screen.getByText("Couldn't refresh the member list")).toBeTruthy();
+    expect(screen.queryByText('No members yet')).toBeNull();
+    fireEvent.press(screen.getByLabelText('Retry members'));
+    expect(data.refreshTeams).toHaveBeenCalledTimes(1);
   });
 });
 

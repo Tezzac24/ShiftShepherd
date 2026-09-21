@@ -32,6 +32,8 @@ interface ModalSurfaceProps {
   /** False when the child owns scrolling, e.g. a FlatList. */
   scroll?: boolean;
   returnFocusRef?: FocusRef;
+  /** Read at dismissal so a synchronous navigation/unmount can transfer focus. */
+  shouldRestoreFocus?: () => boolean;
 }
 
 /**
@@ -41,23 +43,40 @@ interface ModalSurfaceProps {
  */
 export function ModalSurface({
   visible, title, onClose, children, presentation = 'sheet',
-  closeLabel = 'Close', footer, scroll = true, returnFocusRef,
+  closeLabel = 'Close', footer, scroll = true, returnFocusRef, shouldRestoreFocus,
 }: ModalSurfaceProps) {
   const insets = useSafeAreaInsets();
   const titleRef = useRef<Text>(null);
-  const opener = useRef(returnFocusRef);
-  opener.current = returnFocusRef;
-  const restoreFocus = useCallback(() => {
-    focusTarget(opener.current?.current ?? null);
+  const opener = useRef({ ref: returnFocusRef, shouldRestoreFocus });
+  opener.current = { ref: returnFocusRef, shouldRestoreFocus };
+  const lifecycle = useRef({ visible: false, cycle: 0, mounted: true });
+  if (visible && !lifecycle.current.visible) lifecycle.current.cycle += 1;
+  lifecycle.current.visible = visible;
+  const cycle = lifecycle.current.cycle;
+  const restoredCycle = useRef(0);
+  const restoreFocus = useCallback((dismissedCycle: number) => {
+    // A dismissal/animation frame from an older opening cannot steal focus
+    // from a reopened modal, even if that newer opening has since closed.
+    const current = lifecycle.current;
+    if (dismissedCycle !== current.cycle || restoredCycle.current === dismissedCycle
+      || (current.mounted && current.visible) || opener.current.shouldRestoreFocus?.() === false) return;
+    restoredCycle.current = dismissedCycle;
+    focusTarget(opener.current.ref?.current ?? null);
+  }, []);
+
+  useEffect(() => {
+    const current = lifecycle.current;
+    current.mounted = true;
+    return () => { current.mounted = false; };
   }, []);
 
   useEffect(() => {
     if (!visible || Platform.OS === 'ios') return;
     return () => {
       // Android has no onDismiss callback. Wait until the modal window is gone.
-      requestAnimationFrame(restoreFocus);
+      requestAnimationFrame(() => restoreFocus(cycle));
     };
-  }, [visible, restoreFocus]);
+  }, [visible, cycle, restoreFocus]);
 
   const content = scroll ? (
     <ScrollView
@@ -77,7 +96,7 @@ export function ModalSurface({
       transparent
       animationType="none"
       onRequestClose={onClose}
-      onDismiss={restoreFocus}
+      onDismiss={() => restoreFocus(cycle)}
       accessibilityLabel={title}
       onShow={() => {
         if (Platform.OS !== 'web') focusTarget(titleRef.current);
