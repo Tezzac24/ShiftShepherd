@@ -15,8 +15,9 @@ review-ready, green-CI PR. Discovery or the representative slice is not completi
   375×812, 390×844, 393×852 and 430×932; see `baseline-visual-audit.md`.
 - One central design authority: `design-brief.md`.
 - Audit and design direction committed as `b77be62` before UI implementation.
-- Shared foundation implemented and personally accepted after two refinements;
-  no other implementation worker has started yet.
+- Shared foundation committed as `441f5fd`, personally accepted after two refinements.
+- Navigation, Home and Schedule are implemented and personally accepted; Teams
+  and Profile are still required before the representative-slice gate is complete.
 
 Baseline Git objects for final freeze comparison:
 
@@ -34,7 +35,7 @@ Baseline Git objects for final freeze comparison:
 | Discovery/audit/flow map | Complete | Inventories, contract, visual audit, baseline commands |
 | Shared design foundation | Accepted | Exact tokens; native wrapping controls; accessible modal/date sheets; 881 tests/80 suites; export; parent screenshots/interactions |
 | Representative slice | Pending | Home, Teams, team hub, Profile/Settings, Schedule or Chat rendered and accepted |
-| Navigation/Home/Schedule | Pending | Personal-serving and scope-safe paths; deep-link/back tests |
+| Navigation/Home/Schedule | Accepted | 922 tests/83 suites; export; parent member/admin/empty/direct-link checks |
 | Teams/lifecycle/members | Pending | Every lifecycle/role/member capability; demo/live gates; parent review |
 | Chat | Pending | Composer/history/draft/image/unread behavior; parent review |
 | Announcements/events | Pending | Forms, recurrence, audience, images, details and state review |
@@ -69,6 +70,32 @@ ignored `.cache/ui-audit/foundation/`; capture 06 is the accepted date-sheet
 revision. New opt-in composition primitives have behavior coverage and still
 need adoption/visual evaluation in the representative slice. No screen family
 is counted complete merely because it inherits the new tokens.
+
+**Navigation, Home and Schedule — accepted 21 September.** Existing five routes
+remain; Calendar is labelled Schedule with Church events/My serving segments.
+Home now has one personal focus, an existing-unread cue, an editorial notice and
+non-duplicated events. New `OrganisationHeader` resolves live church identity
+from account context; new pure `presentation.ts` groups existing accessible
+serving data and retains all roles. Native Back is retained; directly opened
+stack screens have an explicit fallback through `/`. No backend/auth/permission,
+type, package or app configuration change.
+
+Typecheck, lint, **922 tests/83 suites**, migration validation, diff check and
+demo-only Android/iOS/web export (43 routes) passed. Parent reviewed at 375×812
+and 390×844: admin serving Home, events list, My serving, no-duty member Home,
+empty serving and a restricted direct link. Verified repeated Home→My serving
+after switching segments; date→Back preserves serving; recurring event links
+retain occurrenceStart; Back restores events; direct denied-team Back reaches
+Ruth's Home; empty View church events switches to the existing events segment.
+
+Three refinements were accepted: normal-size Messages no longer wraps mid-word;
+Home is compact enough for actual notice content in the first 375px viewport;
+empty serving gives an appropriate next action rather than instructions for
+nonexistent dates. Segment selected state and Past events expansion now have
+explicit ARIA aliases. Eight images are preserved under
+`.cache/ui-audit/home-schedule/` (03 and 08 supersede the early iterations).
+Remaining shared checked/expanded/busy alias review is tracked in the verification
+plan. Live switching/error cases have mocked behavior coverage, not hosted UI QA.
 
 ## Current local inspection session
 

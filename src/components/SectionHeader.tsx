@@ -8,16 +8,17 @@ import { Button } from './Button';
 interface SectionHeaderProps {
   title: string;
   actionLabel?: string;
+  actionAccessibilityLabel?: string;
   onAction?: () => void;
   headingLevel?: HeadingLevel;
 }
 
-export function SectionHeader({ title, actionLabel, onAction, headingLevel = 2 }: SectionHeaderProps) {
+export function SectionHeader({ title, actionLabel, actionAccessibilityLabel, onAction, headingLevel = 2 }: SectionHeaderProps) {
   return (
     <View style={styles.row}>
       <AppText variant="subheading" headingLevel={headingLevel} style={styles.title}>{title}</AppText>
       {actionLabel && onAction ? (
-        <Button title={actionLabel} variant="ghost" onPress={onAction} style={styles.action} />
+        <Button title={actionLabel} accessibilityLabel={actionAccessibilityLabel} variant="ghost" onPress={onAction} style={styles.action} />
       ) : null}
     </View>
   );

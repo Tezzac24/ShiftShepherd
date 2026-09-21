@@ -114,6 +114,12 @@ test('segments announce selection and ignore disabled and current choices', () =
     ]} />,
   );
   expect(screen.getByRole('tab', { name: 'Church events' })).toHaveProp('accessibilityState', expect.objectContaining({ selected: true }));
+  // Native Pressable folds these aliases into accessibilityState. Check its
+  // inputs too: RN Web needs the explicit ARIA values to expose selection.
+  const segments: { props: Record<string, unknown> }[] = screen.UNSAFE_root.findAll((node: { props: Record<string, unknown> }) => node.props.accessibilityRole === 'tab'
+    && node.props['aria-selected'] !== undefined);
+  expect(segments.map((segment) => segment.props['aria-selected'])).toEqual([true, false, false]);
+  expect(segments.map((segment) => segment.props['aria-disabled'])).toEqual([false, false, true]);
   fireEvent.press(screen.getByRole('tab', { name: 'Church events' }));
   fireEvent.press(screen.getByRole('tab', { name: 'Past dates' }));
   expect(change).not.toHaveBeenCalled();

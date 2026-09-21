@@ -53,6 +53,15 @@ restyling does not pass. The director must verify:
 | Notifications | Six preference keys and optimistic rollback unchanged; explicit device opt-in and existing lifecycle; correct current-church ownership; supported delivery versus undelivered reminders stated truthfully; no new response handler or push kind. |
 | Shared controls | Label/role/selected/disabled/busy states; meaningful empty/error/loading states; visible form errors and first-error recovery; long modal content; cancellation on dismissal; reduced motion; safe-area/footer behavior. |
 
+During representative integration, the installed React Native Web adapter was
+found to use direct ARIA state props rather than the native `accessibilityState`
+object. Check rendered selected/checked/expanded/busy states as well as RNTL
+props. Prefer React Native's supported ARIA aliases alongside equivalent native
+state; use the state appropriate to the control's role. Schedule segments are
+being corrected in their owning slice. Radio/switch/expanded/busy primitives
+remain part of the cross-app accessibility verification, not a claim of native
+screen-reader certification.
+
 Use deterministic offline Jest/RNTL tests for changed interaction behavior.
 Retain the strong existing service, lifecycle, permission and routing suites.
 Do not replace meaningful assertions with snapshots of implementation details.

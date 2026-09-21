@@ -51,6 +51,13 @@ serving a permanent home. Existing calendar, team, invitation and other deep
 links continue to resolve. New thin routes may expose existing capabilities;
 retain old paths as aliases or redirects where practical.
 
+Established implementation: primary screens adopt `OrganisationHeader` inside
+their own safe-top `Screen`, then `PageHeading`. Reuse its resolved-account logic;
+do not create another church-name/switch implementation. Home/Schedule share
+client-only destinations and serving summaries in `src/lib/appData/presentation.ts`.
+`SectionHeader.actionAccessibilityLabel` supports concise visible actions with
+specific accessible names (for example Announcements / View all).
+
 Every primary screen shows the resolved active church name. A labelled switch
 control is available when multiple linked organisations exist. Use the existing
 Auth switch action and account context; never flash mock church metadata during
