@@ -1,11 +1,38 @@
+import { Platform } from 'react-native';
 import { MD3LightTheme, type MD3Theme } from 'react-native-paper';
 
-import { colors, radius } from '@/constants/theme';
+import { colors, radius, type } from '@/constants/theme';
+
+const fontFamily = Platform.select({ ios: 'System', android: 'sans-serif', default: 'system-ui' });
+const paperType = (variant: keyof typeof type) => ({
+  ...MD3LightTheme.fonts.bodyLarge,
+  ...type[variant],
+  fontFamily,
+  letterSpacing: 0,
+});
 
 export const paperTheme: MD3Theme = {
   ...MD3LightTheme,
   dark: false,
   roundness: radius.md,
+  fonts: {
+    displayLarge: paperType('display'),
+    displayMedium: paperType('display'),
+    displaySmall: paperType('title'),
+    headlineLarge: paperType('title'),
+    headlineMedium: paperType('heading'),
+    headlineSmall: paperType('subheading'),
+    titleLarge: paperType('heading'),
+    titleMedium: paperType('subheading'),
+    titleSmall: paperType('label'),
+    bodyLarge: paperType('body'),
+    bodyMedium: paperType('body'),
+    bodySmall: paperType('small'),
+    labelLarge: paperType('label'),
+    labelMedium: paperType('label'),
+    labelSmall: paperType('navigation'),
+    default: { fontFamily, fontWeight: '400', letterSpacing: 0 },
+  },
   colors: {
     ...MD3LightTheme.colors,
     primary: colors.primary,
@@ -14,9 +41,9 @@ export const paperTheme: MD3Theme = {
     secondaryContainer: colors.accentSoft,
     tertiary: colors.success,
     tertiaryContainer: colors.successSoft,
-    surface: colors.card,
-    surfaceVariant: colors.background,
-    surfaceDisabled: colors.border,
+    surface: colors.surface,
+    surfaceVariant: colors.surfaceRaised,
+    surfaceDisabled: colors.surfaceRaised,
     background: colors.background,
     error: colors.danger,
     errorContainer: colors.dangerSoft,
@@ -43,11 +70,11 @@ export const paperTheme: MD3Theme = {
     elevation: {
       ...MD3LightTheme.colors.elevation,
       level0: 'transparent',
-      level1: colors.card,
-      level2: colors.card,
-      level3: colors.card,
-      level4: colors.card,
-      level5: colors.card,
+      level1: colors.surface,
+      level2: colors.surface,
+      level3: colors.surface,
+      level4: colors.surface,
+      level5: colors.surface,
     },
   },
 };

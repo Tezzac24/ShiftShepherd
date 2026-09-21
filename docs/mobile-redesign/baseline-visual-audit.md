@@ -22,6 +22,12 @@ not substitute for the rendered observations below.
   `%TEMP%/shift-shepherd-ui-audit/before/`. Each accepted file was opened and
   visually inspected. Screenshot 14 was initially captured during an unsettled
   navigation transition; it was rejected and replaced with the correct screen.
+- Retention check on 21 September: temporary files 01–32 were no longer present
+  (the exact cleanup cause is unverified). Their captures and first-hand image
+  inspections remain in the audit conversation. Files 33–39 were copied into
+  the ignored `.cache/ui-audit/before/` directory. Subsequent images must be
+  copied there immediately so temporary-folder cleanup does not remove them.
+  This retention limitation does not turn missing files into new visual evidence.
 - Demo users: Hannah (member), Daniel (church admin), Ruth (no teams), Michael
   (assigned praise leader). Dates advanced during the audit; relative dates in
   the images reflect the capture time, not a fixed visual-test clock.

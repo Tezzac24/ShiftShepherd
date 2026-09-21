@@ -1,31 +1,21 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 
-import { colors, spacing } from '../../constants/theme';
 import { AppText } from './AppText';
+import { Screen } from './Screen';
+import { StatePanel } from './StatePanel';
 
-/**
- * Calm full-screen loader for the two moments the app has nothing truthful to
- * show yet: restoring a saved session, and resolving the signed-in account's
- * organisation context. It is deliberately a *state*, never a destination —
- * routing waits for it rather than guessing.
- */
+/** Truthful loading while session/account scope resolves; never a destination. */
 export function StartupScreen({ message = 'Getting things ready...' }: { message?: string }) {
   return (
-    <View style={styles.startup}>
-      <AppText variant="title">Shift Shepherd</AppText>
-      <ActivityIndicator size="large" color={colors.primary} />
-      <AppText tone="secondary">{message}</AppText>
-    </View>
+    <Screen safeTop contentStyle={styles.startup}>
+      <AppText variant="display" headingLevel={1} style={styles.center}>Shift Shepherd</AppText>
+      <StatePanel kind="loading" title={message} />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  startup: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.background,
-  },
+  startup: { flexGrow: 1, justifyContent: 'center' },
+  center: { textAlign: 'center' },
 });

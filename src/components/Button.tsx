@@ -1,105 +1,97 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
-import { StyleSheet, StyleProp, ViewStyle } from 'react-native';
-import { Button as PaperButton } from 'react-native-paper';
+import React, { forwardRef } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, StyleProp, View, ViewStyle } from 'react-native';
 
-import { colors, radius, touchTarget, type } from '../../constants/theme';
+import { colors, radius, spacing, touchTarget } from '../../constants/theme';
+import { AppText } from './AppText';
 
-type Variant = 'primary' | 'secondary' | 'destructive' | 'ghost';
-type PaperButtonMode = React.ComponentProps<typeof PaperButton>['mode'];
+export type ButtonVariant = 'primary' | 'secondary' | 'destructive' | 'ghost';
 
-interface ButtonProps {
+export interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: Variant;
+  variant?: ButtonVariant;
   icon?: keyof typeof Ionicons.glyphMap;
   disabled?: boolean;
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
+  accessibilityLabel?: string;
   accessibilityHint?: string;
+  testID?: string;
 }
 
-const buttonMode: Record<Variant, PaperButtonMode> = {
-  primary: 'contained',
-  secondary: 'contained-tonal',
-  destructive: 'contained-tonal',
-  ghost: 'outlined',
-};
-
-const buttonColor: Record<Variant, string> = {
+const backgrounds: Record<ButtonVariant, string> = {
   primary: colors.primary,
-  secondary: colors.accentSoft,
+  secondary: colors.primarySoft,
   destructive: colors.dangerSoft,
   ghost: 'transparent',
 };
-
-const textColor: Record<Variant, string> = {
+const foregrounds: Record<ButtonVariant, string> = {
   primary: colors.white,
-  secondary: colors.accent,
+  secondary: colors.primary,
   destructive: colors.danger,
   ghost: colors.primary,
 };
 
-export function Button({
-  title,
-  onPress,
-  variant = 'primary',
-  icon,
-  disabled,
-  loading,
-  style,
-  accessibilityHint,
-}: ButtonProps) {
-  const labelColor = textColor[variant];
+/** A full-sized target whose label can wrap and grow with system text size. */
+export const Button = forwardRef<View, ButtonProps>(function Button({
+  title, onPress, variant = 'primary', icon, disabled = false, loading = false,
+  style, accessibilityLabel, accessibilityHint, testID,
+}, ref) {
+  const blocked = disabled || loading;
+  const labelColor = disabled ? colors.textMuted : foregrounds[variant];
 
   return (
-    <PaperButton
+    <Pressable
+      ref={ref}
       accessibilityRole="button"
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel ?? title}
       accessibilityHint={accessibilityHint}
-      onPress={loading ? undefined : onPress}
-      disabled={disabled}
-      loading={loading}
-      mode={buttonMode[variant]}
-      buttonColor={buttonColor[variant]}
-      textColor={labelColor}
-      uppercase={false}
-      icon={
-        icon
-          ? ({ size, color }) => (
-              <Ionicons name={icon} size={size} color={color} />
-            )
-          : undefined
-      }
-      contentStyle={styles.content}
-      labelStyle={styles.label}
-      style={[
+      accessibilityState={{ disabled: blocked, busy: loading }}
+      testID={testID}
+      onPress={blocked ? undefined : onPress}
+      disabled={blocked}
+      style={({ pressed }) => [
         styles.base,
-        variant === 'ghost' && styles.ghost,
+        { backgroundColor: backgrounds[variant] },
         disabled && styles.disabled,
         style,
+        pressed && !blocked && pressedStyles[variant],
       ]}
     >
-      {title}
-    </PaperButton>
+      {loading ? (
+        <ActivityIndicator color={labelColor} accessible={false} />
+      ) : icon ? (
+        <Ionicons name={icon} size={22} color={labelColor} accessible={false} />
+      ) : null}
+      <AppText variant="bodyBold" style={[styles.label, { color: labelColor }]}>
+        {title}
+      </AppText>
+    </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   base: {
     minHeight: touchTarget,
+    minWidth: touchTarget,
     borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
   },
-  content: { minHeight: touchTarget },
-  label: {
-    fontSize: type.bodyBold.fontSize,
-    lineHeight: type.bodyBold.lineHeight,
-    fontWeight: type.bodyBold.fontWeight,
-    letterSpacing: 0,
-  },
-  ghost: {
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-  },
-  disabled: { opacity: 0.45 },
+  label: { flexShrink: 1, textAlign: 'center' },
+  disabled: { backgroundColor: colors.surfaceRaised },
+});
+
+const pressedStyles = StyleSheet.create({
+  primary: { backgroundColor: colors.primaryDark },
+  secondary: { backgroundColor: colors.surfaceRaised, borderColor: colors.primary },
+  destructive: { borderColor: colors.danger },
+  ghost: { backgroundColor: colors.primarySoft },
 });

@@ -1,14 +1,18 @@
-import React from 'react';
+import React, { forwardRef } from 'react';
 import { StyleSheet, Text, TextProps } from 'react-native';
 
 import { colors, type } from '../../constants/theme';
 
-type Variant = 'title' | 'heading' | 'subheading' | 'body' | 'bodyBold' | 'label' | 'small';
-type Tone = 'default' | 'secondary' | 'muted' | 'primary' | 'danger' | 'inverse';
+type Variant = keyof typeof type;
+type Tone = 'default' | 'secondary' | 'muted' | 'primary' | 'accent' | 'danger' | 'success' | 'warning' | 'inverse';
+export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
-interface AppTextProps extends TextProps {
+export interface AppTextProps extends TextProps {
   variant?: Variant;
   tone?: Tone;
+  /** Visual variants do not imply document structure. Native readers get a
+   * header; React Native Web also exposes the chosen heading level. */
+  headingLevel?: HeadingLevel;
 }
 
 const toneColor: Record<Tone, string> = {
@@ -16,12 +20,27 @@ const toneColor: Record<Tone, string> = {
   secondary: colors.textSecondary,
   muted: colors.textMuted,
   primary: colors.primary,
+  accent: colors.accent,
   danger: colors.danger,
+  success: colors.success,
+  warning: colors.warning,
   inverse: colors.white,
 };
 
-export function AppText({ variant = 'body', tone = 'default', style, ...rest }: AppTextProps) {
-  return <Text style={[type[variant], { color: toneColor[tone] }, style]} {...rest} />;
-}
+export const AppText = forwardRef<Text, AppTextProps>(function AppText(
+  { variant = 'body', tone = 'default', headingLevel, accessibilityRole, style, ...rest }, ref,
+) {
+  const heading = headingLevel !== undefined && (!accessibilityRole || accessibilityRole === 'header');
+  return (
+    <Text
+      ref={ref}
+      allowFontScaling
+      accessibilityRole={accessibilityRole ?? (heading ? 'header' : undefined)}
+      aria-level={heading ? headingLevel : undefined}
+      style={[type[variant], { color: toneColor[tone] }, style]}
+      {...rest}
+    />
+  );
+});
 
 export const textStyles = StyleSheet.create({});

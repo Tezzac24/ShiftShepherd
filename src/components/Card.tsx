@@ -1,31 +1,41 @@
 import React from 'react';
-import { Pressable, StyleSheet, View, ViewStyle } from 'react-native';
+import { Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 
-import { colors, radius, shadow, spacing } from '../../constants/theme';
+import { colors, radius, spacing, touchTarget } from '../../constants/theme';
 
 interface CardProps {
   children: React.ReactNode;
   onPress?: () => void;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
+  tone?: 'surface' | 'quiet';
+  disabled?: boolean;
+  testID?: string;
   accessibilityLabel?: string;
   accessibilityHint?: string;
 }
 
-export function Card({ children, onPress, style, accessibilityLabel, accessibilityHint }: CardProps) {
+export function Card({
+  children, onPress, style, tone = 'surface', disabled = false, testID,
+  accessibilityLabel, accessibilityHint,
+}: CardProps) {
+  const cardStyle = [styles.card, tone === 'quiet' && styles.quiet, style];
   if (onPress) {
     return (
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={accessibilityHint}
-        onPress={onPress}
-        style={({ pressed }) => [styles.card, pressed && styles.pressed, style]}
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        testID={testID}
+        onPress={disabled ? undefined : onPress}
+        style={({ pressed }) => [cardStyle, styles.interactive, pressed && styles.pressed]}
       >
         {children}
       </Pressable>
     );
   }
-  return <View style={[styles.card, style]}>{children}</View>;
+  return <View testID={testID} style={cardStyle}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -36,7 +46,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadow.card,
   },
-  pressed: { opacity: 0.85 },
+  quiet: { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaised },
+  interactive: { minHeight: touchTarget },
+  pressed: { backgroundColor: colors.primarySoft },
 });

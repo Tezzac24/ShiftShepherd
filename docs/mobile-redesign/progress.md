@@ -14,7 +14,9 @@ review-ready, green-CI PR. Discovery or the representative slice is not completi
 - Design director's first-hand baseline audit complete: 39 accepted captures at
   375×812, 390×844, 393×852 and 430×932; see `baseline-visual-audit.md`.
 - One central design authority: `design-brief.md`.
-- No UI implementation has begun at this checkpoint.
+- Audit and design direction committed as `b77be62` before UI implementation.
+- Shared foundation implemented and personally accepted after two refinements;
+  no other implementation worker has started yet.
 
 Baseline Git objects for final freeze comparison:
 
@@ -30,7 +32,7 @@ Baseline Git objects for final freeze comparison:
 | Area/gate | State | Required evidence |
 | --- | --- | --- |
 | Discovery/audit/flow map | Complete | Inventories, contract, visual audit, baseline commands |
-| Shared design foundation | Next | Tokens/primitives, behavioral checks, parent visual acceptance |
+| Shared design foundation | Accepted | Exact tokens; native wrapping controls; accessible modal/date sheets; 881 tests/80 suites; export; parent screenshots/interactions |
 | Representative slice | Pending | Home, Teams, team hub, Profile/Settings, Schedule or Chat rendered and accepted |
 | Navigation/Home/Schedule | Pending | Personal-serving and scope-safe paths; deep-link/back tests |
 | Teams/lifecycle/members | Pending | Every lifecycle/role/member capability; demo/live gates; parent review |
@@ -48,12 +50,47 @@ Baseline Git objects for final freeze comparison:
 Native hardware/simulator QA has not passed. Web is only a visual/interaction
 proxy. No live membership, invitation, push or private-image QA is claimed.
 
+## Compact phase record
+
+**Foundation — accepted 21 September.** Generic components and tokens only;
+feature composition remains to be redesigned. Typecheck, lint, 881 tests/80
+suites (25 focused control tests), 38-migration filename check, diff checks and
+Android/iOS/web export (43 routes) passed. Hermes export needed sandbox
+escalation; an approval-timeout retry succeeded. Protected paths are unchanged.
+
+Parent inspected Home primitives, profile confirmation, sign-in inputs/buttons,
+event date/time sheets and an empty archive at 375×812 and 393×852. Exercised
+demo email sign-in, confirmation cancel/confirm, date selection, time selection
+and form cancellation. The transient React Refresh function/ref overlay cleared
+on full reload. Two requested fixes were implemented and reinspected: disabled
+dates no longer look like filled actions; headings are explicit (`headingLevel`)
+rather than inferred from font style. Seven review captures are preserved in
+ignored `.cache/ui-audit/foundation/`; capture 06 is the accepted date-sheet
+revision. New opt-in composition primitives have behavior coverage and still
+need adoption/visual evaluation in the representative slice. No screen family
+is counted complete merely because it inherits the new tokens.
+
 ## Current local inspection session
 
-Temporary browser controller: `%TEMP%/shift-shepherd-ui-audit/browser.cjs`, with
-Playwright in its `tools/` directory; API on loopback port 8090. Preview on port
-8089. Probe the existing handles/endpoints before assuming they stopped. Current
-demo browser data includes the explicitly documented audit-only changes.
+The existing browser controller is live on loopback port 8090; preview is on
+port 8089. Its original temporary script was removed along with older captures.
+A recovery runner is saved at ignored `.cache/ui-audit/browser.cjs`; its
+Playwright tooling belongs in `.cache/ui-audit/tools/` (the older temporary
+package files were also removed). Do not
+launch the recovery runner while the existing controller is live. Probe the
+existing handles/endpoints before assuming they stopped. Current demo browser
+data includes the explicitly documented audit-only changes.
+
+Recovery-tool reinstall on 21 September failed with a network ECONNRESET; the
+existing in-memory controller remains usable. Recheck/install recovery tooling
+only if the existing controller actually stops. Do not restart a live handle
+because an observation or package install timed out.
+
+On 21 September, a retention check found only captures 33–39 still in the
+temporary folder; 01–32 had already been inspected/displayed but their files
+were gone. The exact cleanup cause is unknown. Remaining images are preserved
+under ignored `.cache/ui-audit/before/`. Copy every subsequent accepted capture
+into `.cache/ui-audit/` immediately. Do not restart or substitute the audit.
 
 The controller accepts POST JSON actions `snapshot`, `goto` (`url`), `click`
 (`role`, `name`, `exact`, or `text`), `fill` (`name`, `value`, `exact`), `back`,

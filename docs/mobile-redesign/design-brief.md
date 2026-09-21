@@ -211,6 +211,21 @@ Use borders/dividers and whitespace for structure. Avoid shadows on every row.
 - Motion: subtle press feedback only by default. Any modal/state animation must
   respect reduced motion. No decorative or slow transitions.
 
+Foundation decisions approved by the director on 21 September:
+
+- Button and TextField may use native Pressable/TextInput internals, preserving
+  their existing APIs, IDs and behavior. This enables wrapping/scaling and a
+  standard input ref for visible error recovery without adding a dependency.
+- Shared sheets may use no animation, which inherently respects reduced motion.
+  Optional swipe dismissal is not required when Close, back and choice work.
+- DateField opens its existing calendar in the shared full-width sheet. Nested
+  form cards cannot fit seven comfortable targets at 375 points; this resolves
+  that measured constraint while retaining all date/range/month semantics.
+- Typography alone does not create a semantic heading. Use `AppText`'s explicit
+  `headingLevel` (1 for the screen title, 2 for sections, 3 only for meaningful
+  subsections). `PageHeading` and `SectionHeader` provide those defaults. Card
+  text should not become a top-level heading merely because it is bold/large.
+
 ## Three-screen plan
 
 Counts are route transitions after the named primary context. Sheets, inline

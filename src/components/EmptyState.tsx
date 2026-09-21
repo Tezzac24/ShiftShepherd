@@ -1,46 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../constants/theme';
-import { AppText } from './AppText';
+import { StateAction, StatePanel } from './StatePanel';
 
 interface EmptyStateProps {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   message: string;
+  compact?: boolean;
+  action?: StateAction;
 }
 
-export function EmptyState({ icon, title, message }: EmptyStateProps) {
-  return (
-    <View style={styles.wrap}>
-      <View style={styles.iconCircle}>
-        <Ionicons name={icon} size={32} color={colors.primary} />
-      </View>
-      <AppText variant="subheading" style={styles.center}>
-        {title}
-      </AppText>
-      <AppText tone="secondary" style={styles.center}>
-        {message}
-      </AppText>
-    </View>
-  );
+/** Existing API, with a compact summary and an optional practical next step. */
+export function EmptyState(props: EmptyStateProps) {
+  return <StatePanel kind="empty" {...props} />;
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    alignItems: 'center',
-    padding: spacing.xl,
-    gap: spacing.sm,
-  },
-  iconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.xs,
-  },
-  center: { textAlign: 'center' },
-});

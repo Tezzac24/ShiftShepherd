@@ -1,17 +1,18 @@
 /**
  * Zero-dependency date & time pickers.
  *
- * DateField expands into a simple calendar so month/year context is visible.
+ * DateField opens a full-width calendar sheet so seven touch targets fit.
  * TimeField stays as a full-screen list of readable 15-minute choices, which
  * is reliable on iOS, Android, and web without native picker differences.
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../constants/theme';
+import { calendarTouchTarget, colors, radius, spacing, touchTarget } from '../../constants/theme';
 import { formatUpcoming, parseDateKey, toDateKey } from '../utils/dates';
 import { AppText } from './AppText';
+import { ModalSurface } from './ModalSurface';
 import { SelectField, SelectOption } from './SelectField';
 
 interface DateFieldProps {
@@ -57,6 +58,7 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
   }, []);
   const selectedDate = value ? parseDateKey(value) : null;
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<View>(null);
   const [visibleMonth, setVisibleMonth] = useState<Date>(() => selectedDate ?? today);
 
   const maxDate = useMemo(() => {
@@ -90,29 +92,36 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
     <View style={styles.wrap}>
       <AppText variant="label">{label}</AppText>
       <Pressable
+        ref={triggerRef}
         accessibilityRole="button"
-        accessibilityLabel={`${label}: ${selectedLabel}`}
+        accessibilityLabel={`${label}: ${selectedDate ? selectedDate.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : selectedLabel}`}
         accessibilityHint="Opens a calendar date picker"
+        accessibilityState={{ expanded: open }}
         onPress={() => setOpen((current) => !current)}
         style={({ pressed }) => [styles.field, pressed && styles.pressed]}
       >
         <View style={styles.fieldValue}>
-          <Ionicons name="calendar-outline" size={22} color={colors.primary} />
-          <AppText tone={selectedDate ? 'default' : 'muted'}>{selectedLabel}</AppText>
+          <Ionicons name="calendar-outline" size={22} color={colors.primary} accessible={false} />
+          <AppText tone={selectedDate ? 'default' : 'muted'} style={styles.valueText}>{selectedLabel}</AppText>
         </View>
         <Ionicons
           name={open ? 'chevron-up' : 'chevron-down'}
           size={22}
           color={colors.textMuted}
+          accessible={false}
         />
       </Pressable>
 
-      {open ? (
+      <ModalSurface visible={open} title={label} onClose={() => setOpen(false)} returnFocusRef={triggerRef}>
         <View style={styles.calendarPanel}>
+          <AppText variant="subheading" headingLevel={2} style={styles.monthTitle} accessibilityLiveRegion="polite">
+            {monthLabel}
+          </AppText>
           <View style={styles.monthHeader}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Previous month"
+              accessibilityState={{ disabled: !canGoPrev }}
               disabled={!canGoPrev}
               onPress={() => moveMonth(-1)}
               style={({ pressed }) => [
@@ -125,19 +134,17 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
                 name="chevron-back"
                 size={20}
                 color={canGoPrev ? colors.primary : colors.textMuted}
+                accessible={false}
               />
-              <AppText variant="label" tone={canGoPrev ? 'primary' : 'muted'}>
+              <AppText variant="label" tone={canGoPrev ? 'primary' : 'muted'} style={styles.monthButtonLabel}>
                 Previous
               </AppText>
             </Pressable>
 
-            <AppText variant="subheading" style={styles.monthTitle}>
-              {monthLabel}
-            </AppText>
-
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Next month"
+              accessibilityState={{ disabled: !canGoNext }}
               disabled={!canGoNext}
               onPress={() => moveMonth(1)}
               style={({ pressed }) => [
@@ -146,20 +153,21 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
                 pressed && styles.pressed,
               ]}
             >
-              <AppText variant="label" tone={canGoNext ? 'primary' : 'muted'}>
+              <AppText variant="label" tone={canGoNext ? 'primary' : 'muted'} style={styles.monthButtonLabel}>
                 Next
               </AppText>
               <Ionicons
                 name="chevron-forward"
                 size={20}
                 color={canGoNext ? colors.primary : colors.textMuted}
+                accessible={false}
               />
             </Pressable>
           </View>
 
           <View style={styles.weekdayRow}>
             {weekdayLabels.map((day) => (
-              <AppText key={day} variant="label" tone="muted" style={styles.weekdayLabel}>
+              <AppText key={day} variant="small" tone="secondary" style={styles.weekdayLabel}>
                 {day}
               </AppText>
             ))}
@@ -194,8 +202,7 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
                     styles.dayCell,
                     todayCell && styles.todayCell,
                     selected && styles.selectedDay,
-                    !selectable && styles.disabledDay,
-                    pressed && styles.pressed,
+                    pressed && (selected ? styles.selectedDayPressed : styles.pressed),
                   ]}
                 >
                   <AppText
@@ -209,7 +216,7 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
             })}
           </View>
         </View>
-      ) : null}
+      </ModalSurface>
     </View>
   );
 }
@@ -283,7 +290,7 @@ export function TimeField({ label, value, onChange, optional }: TimeFieldProps) 
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: spacing.xs },
+  wrap: { gap: spacing.sm },
   field: {
     minHeight: touchTarget,
     borderWidth: 1.5,
@@ -291,32 +298,33 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.card,
     paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
   },
   fieldValue: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
+  valueText: { flex: 1 },
   calendarPanel: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
+    marginHorizontal: -spacing.gutter,
     gap: spacing.md,
   },
   monthHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    paddingHorizontal: spacing.gutter,
   },
-  monthTitle: { flex: 1, textAlign: 'center' },
+  monthTitle: { textAlign: 'center', paddingHorizontal: spacing.gutter },
+  monthButtonLabel: { flexShrink: 1, textAlign: 'center' },
   monthButton: {
     minHeight: touchTarget,
-    minWidth: 92,
+    flex: 1,
     borderRadius: radius.md,
     backgroundColor: colors.primarySoft,
     paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -327,10 +335,11 @@ const styles = StyleSheet.create({
   daysGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   dayCell: {
     width: '14.285%',
-    minHeight: 48,
+    minHeight: calendarTouchTarget,
+    paddingVertical: spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
   },
   todayCell: {
     borderWidth: 1.5,
@@ -340,7 +349,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  disabledDay: { opacity: 0.35 },
-  disabled: { opacity: 0.45 },
-  pressed: { opacity: 0.75 },
+  disabled: { backgroundColor: colors.surfaceRaised },
+  selectedDayPressed: { backgroundColor: colors.primaryDark },
+  pressed: { backgroundColor: colors.surfaceRaised },
 });
