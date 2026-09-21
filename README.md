@@ -23,11 +23,27 @@ Rota Push Delivery V1 is **deployed** to `shift-shepherd-dev` behind `2026091712
 
 Local verification passes with 856 tests across 76 suites, typecheck, lint, migration filename validation, Android/iOS/web Expo export, and diff checks. Hosted migration history is aligned through `20260917223118_fix_chat_read_cursor_conflict_target.sql` across 38 remote migrations, with no local-only, remote-only, or repair entry. Invitation Acceptance Fix V1 is deployed to `shift-shepherd-dev` behind `20260917180127_fix_invitation_acceptance_role_conflict_target.sql` (applied 2026-09-17) and hosted-contract verified: before it, every first-time invitation acceptance failed with SQLSTATE 42702 because the baseline role insert's unqualified conflict target was ambiguous with the function's `organisation_id` result column, so nobody could join an organisation from an invitation; no stored row was ever affected, because the whole call rolled back. Chat Read Cursor Fix V1 is deployed to `shift-shepherd-dev` behind `20260917223118_fix_chat_read_cursor_conflict_target.sql` (applied 2026-09-18) and hosted-contract verified: the same PL/pgSQL name-resolution bug made every `mark_team_chat_read` call fail with SQLSTATE 42702 from 11 July 2026, so the server-authoritative read cursor never advanced on `shift-shepherd-dev` and team chat unread counts never cleared; the conflict target now names the `chat_read_states_user_id_team_id_key` unique constraint and the cursor advances. A rollback-scoped probe on QA data confirmed the call succeeds with no 42702, creates the row and then updates that same row, refuses an older message id, stays idempotent, is reflected in `get_team_chat_unread_summary()` for that caller only, and refuses a non-member and a cross-organisation caller. The 16 pre-existing read-state rows are the untouched 11 July rollout baseline, are internally consistent, and needed no repair. Physical-device chat QA remains deferred. Native invitation QA on an iOS development build remains deferred.
 
-## Current Scaffold Highlights
+## Mobile experience
+
+The primary tabs are **Home, Schedule, Teams, Messages and Profile**. Schedule
+keeps the existing `calendar` route and separates church events from **My serving**.
+Home prioritises the next personal duty, unread team messages and recent notices.
+Teams separates membership from church-admin access, with Chat, Rota, Members
+and choir Songs directly available in each team. The resolved church identity
+and existing organisation-switch action are shared across the primary screens.
+
+The [mobile design brief](docs/mobile-redesign/design-brief.md) is the current
+authority for navigation, typography, colours, controls and accessibility.
+The [product contract](docs/mobile-redesign/product-contract.md) records the
+unchanged identity, permission and backend boundaries. The
+[verification plan](docs/mobile-redesign/verification-plan.md) distinguishes
+phone-size web inspection from the native QA still required.
+
+## Current capabilities
 
 - Home prioritises latest announcement, next upcoming event, then the user's next team responsibility.
 - Event create/edit uses an inline calendar date picker, a simple readable time list, and recurrence choices including monthly weekday patterns.
-- Recurring events are stored as base mock rows and expanded locally for upcoming Home and Calendar lists.
+- Recurring events are stored as base rows and expanded locally for upcoming Home and Schedule lists.
 - Choir rota entries assign a **Praise Leader** and a **Worship Leader** (one person may hold both roles); the set list splits into Praise Songs and Worship Songs, each managed only by its leader (choir team leader/admin can manage both).
 - **Plan the Month** lets choir leaders create a whole month of Sunday services and weekly rehearsals at once, with default leaders and per-date overrides.
 - Choir rehearsals include every choir member so each can confirm availability; rota detail shows an Available / Maybe / Unavailable / Not responded tracker.
@@ -46,7 +62,7 @@ Local verification passes with 856 tests across 76 suites, typecheck, lint, migr
 - Church admins can invite an existing unlinked directory person or use Add & invite with email only. Seven-day app-owned invitations store only a SHA-256 hash, rotate on resend, support revoke, and require the matching server-verified email at acceptance. Acceptance adds only baseline `general_member` membership, no team/admin authority.
 - Church admins reach **Organisation members** from Profile to search the bounded directory, review active/unlinked/removed access, see role/team/invitation status, replace one supported organisation role, or remove another person's access after confirmation. Removed profiles remain visible for history and can be invited again from Organisation invitations.
 - Live members can **Leave organisation** from Profile. The server protects the final effective church admin, removes current roles/team memberships/profile push tokens, preserves all historical attribution/global identity/other organisations, and routes through refreshed account state to the remaining Home, organisation selector, or **No organisations yet**.
-- Global display name is account-owned; an optional organisation override wins for the active profile. A minimal Profile selector safely switches linked organisations and remounts all organisation-scoped app data/channels.
+- Global display name is account-owned; an optional organisation override wins for the active profile. The shared church control opens the existing organisation selector and remounts all organisation-scoped app data/channels after switching.
 - Demo changes (announcements, rotas, songs, messages, notification settings...) persist locally via AsyncStorage and can be reset from **Profile -> Reset Demo Data**.
 
 ## Tech Stack
@@ -206,6 +222,9 @@ docs/                 # Product & build specs
 
 ## Docs
 
+- `docs/mobile-redesign/design-brief.md` — current mobile presentation and navigation authority
+- `docs/mobile-redesign/product-contract.md` — frozen product behavior and existing API boundaries
+- `docs/mobile-redesign/verification-plan.md` — behavioral/visual checks and native QA handoff
 - `docs/shift_shepherd_design_doc.md` — full product spec
 - `docs/one-shot-build-prompt.md` — technical build spec
 - `docs/supabase-integration-plan.md` — how and in what order to wire Supabase

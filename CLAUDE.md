@@ -14,6 +14,8 @@ The app replaces WhatsApp for church operations: scheduling, rotas, team communi
 
 - `docs/shift_shepherd_design_doc.md` — Full product spec: screens, data model, roles/permissions, UX principles, all user flows
 - `docs/one-shot-build-prompt.md` — Technical build spec: architecture, component list, data types, acceptance criteria
+- `docs/mobile-redesign/design-brief.md` — Current mobile presentation and navigation authority
+- `docs/mobile-redesign/product-contract.md` — Existing behavior and API boundaries
 - `docs/production-email-readiness.md` — Production email and invitation delivery runbook: owner actions (verified Resend domain, invitation secrets, Auth custom SMTP, Site URL/redirects, https link host), function error codes, and deferred items
 
 Always read these before making architectural decisions.
@@ -57,7 +59,7 @@ The app uses Expo Router: `app/` contains file-based routes (thin re-exports), `
 │  ├── _layout.tsx          # Providers + auth-protected root stack
 │  ├── index.tsx            # Redirect (login vs tabs)
 │  ├── login.tsx
-│  ├── (tabs)/              # Home, Calendar, Teams, Messages, Profile
+│  ├── (tabs)/              # Home, Schedule, Teams, Messages, Profile
 │  ├── announcements/       # list / [id] / edit
 │  ├── events/              # [id] / edit
 │  ├── teams/[teamId]/      # team space, chat, rota/, songs/
@@ -141,23 +143,34 @@ All TypeScript types live in `src/types/`. Key interfaces (from the build spec):
 ```
 Root Stack (app/_layout.tsx, auth-gated with Stack.Protected)
 ├── login
-└── (tabs): Home · Calendar · Teams · Messages · Profile
+└── (tabs): Home · Schedule · Teams · Messages · Profile
     ├── teams/new · teams/archived · teams/[teamId]/edit
-    ├── teams/[teamId] → rota/ · chat · songs/ (choir)
+    ├── teams/[teamId] → rota/ · chat · settings/members · songs/ (choir)
     ├── announcements/ · events/ · settings/
 ```
 
 Expo Router is the routing approach — do not add a parallel `src/navigation/` React Navigation setup.
 
-## Design Principles
+## Mobile Presentation
 
-The app targets older, less technically confident users. Prioritise:
-- Large touch targets, clear labels, no hidden menus
-- Calm, simple, welcoming visual style
-- Empty states on every list
-- Confirmation dialogs before destructive actions (e.g. deleting a song)
+Use `docs/mobile-redesign/design-brief.md` as the shared presentation authority.
+The primary tabs are Home, Schedule, Teams, Messages and Profile. Schedule keeps
+the `calendar` route and exposes Church events and My serving; old detail and
+invitation paths remain compatible. Reuse `OrganisationHeader` for resolved
+church identity and switching, and the existing permission helpers for actions.
 
-Colour tokens, typography, and spacing are in `constants/theme.ts`.
+Use `constants/theme.ts` and the shared components for type, spacing, semantic
+colour, fields, rows, sheets, confirmations and states. Default controls are
+52 points, body text is 17 points, and text can grow and wrap. Headings require
+explicit semantic levels. Native accessibility state and supported ARIA aliases
+must agree. Administration belongs in contextual, labelled actions; common
+member tasks should normally take no more than three meaningful screens.
+
+Render and inspect changed areas at phone dimensions; typecheck and tests alone
+do not establish visual quality. Web is an inspection proxy, not native QA.
+The redesign changes presentation and existing client-derived views; backend,
+Auth, permission and notification contracts remain frozen unless explicitly
+approved. Follow `docs/mobile-redesign/verification-plan.md` for acceptance.
 
 ## Scope Notes
 

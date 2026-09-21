@@ -31,6 +31,8 @@ Always read:
 - `CLAUDE.md`
 - `docs/shift_shepherd_design_doc.md`
 - `docs/one-shot-build-prompt.md`
+- `docs/mobile-redesign/design-brief.md` (current mobile presentation and navigation authority)
+- `docs/mobile-redesign/product-contract.md` (existing behavior and API boundaries)
 
 For Supabase/backend work, also read:
 
@@ -129,7 +131,7 @@ Current architecture:
 │  ├── _layout.tsx          # Providers + auth-protected root stack
 │  ├── index.tsx            # Redirect: login vs authenticated tabs
 │  ├── login.tsx
-│  ├── (tabs)/              # Home, Calendar, Teams, Messages, Profile
+│  ├── (tabs)/              # Home, Schedule, Teams, Messages, Profile
 │  ├── announcements/       # list / [id] / edit
 │  ├── events/              # [id] / edit
 │  ├── teams/[teamId]/      # team space, chat, rota/, songs/
@@ -169,6 +171,27 @@ Current architecture:
 ```
 
 ---
+
+## Mobile Presentation
+
+Use `docs/mobile-redesign/design-brief.md` as the shared presentation authority.
+The primary tabs are Home, Schedule, Teams, Messages and Profile. Schedule keeps
+the `calendar` route and exposes Church events and My serving; old detail and
+invitation paths remain compatible. Reuse `OrganisationHeader` for resolved
+church identity and switching, and the existing permission helpers for actions.
+
+Use `constants/theme.ts` and the shared components for type, spacing, semantic
+colour, fields, rows, sheets, confirmations and states. Default controls are
+52 points, body text is 17 points, and text can grow and wrap. Headings require
+explicit semantic levels. Native accessibility state and supported ARIA aliases
+must agree. Administration belongs in contextual, labelled actions; common
+member tasks should normally take no more than three meaningful screens.
+
+Render and inspect changed areas at phone dimensions; typecheck and tests alone
+do not establish visual quality. Web is an inspection proxy, not native QA.
+The redesign changes presentation and existing client-derived views; backend,
+Auth, permission and notification contracts remain frozen unless explicitly
+approved. Follow `docs/mobile-redesign/verification-plan.md` for acceptance.
 
 ## Tech Stack
 
