@@ -16,10 +16,11 @@ review-ready, green-CI PR. Discovery or the representative slice is not completi
 - One central design authority: `design-brief.md`.
 - Audit and design direction committed as `b77be62` before UI implementation.
 - Shared foundation committed as `441f5fd`, personally accepted after two refinements.
-- Navigation, Home and Schedule are implemented and personally accepted; Teams
-  and Profile are still required before the representative-slice gate is complete.
-- Home/Schedule checkpoint: `771fea0`. Teams representative surfaces are now
-  personally accepted; Profile/Settings are next for the representative gate.
+- Representative-slice gate is complete: Home, Schedule, Teams, team hub and
+  Profile/notification settings are implemented and personally accepted.
+- Home/Schedule checkpoint: `771fea0`; Teams checkpoint: `73b2b2e`.
+- Shared navigation/design guidance is recorded in `5e040eb` (README, AGENTS
+  and CLAUDE; instruction guidance is synchronized).
 
 Baseline Git objects for final freeze comparison:
 
@@ -36,13 +37,13 @@ Baseline Git objects for final freeze comparison:
 | --- | --- | --- |
 | Discovery/audit/flow map | Complete | Inventories, contract, visual audit, baseline commands |
 | Shared design foundation | Accepted | Exact tokens; native wrapping controls; accessible modal/date sheets; 881 tests/80 suites; export; parent screenshots/interactions |
-| Representative slice | Profile/Settings remain | Home, Teams, team hub and Schedule accepted; Profile/Settings must still be rendered and accepted |
+| Representative slice | Accepted | Home, Teams, team hub, Schedule and Profile/preferences rendered and accepted; 1,017 tests/84 suites |
 | Navigation/Home/Schedule | Accepted | 922 tests/83 suites; export; parent member/admin/empty/direct-link checks |
 | Teams/lifecycle/members | Representative surfaces accepted; forms pending | Directory/hub/read and management entries accepted; create/edit/archive/add-member forms follow representative gate |
 | Chat | Pending | Composer/history/draft/image/unread behavior; parent review |
 | Announcements/events | Pending | Forms, recurrence, audience, images, details and state review |
 | Rota/availability/music | Pending | Multi-role response, cancellation, monthly partial saves, section selection |
-| Organisation/invitation/profile/auth/settings | Pending | Full existing state matrix and permission contracts; parent review |
+| Organisation/invitation/profile/auth/settings | Profile/preferences accepted; other identity screens pending | Full existing state matrix and permission contracts; remaining identity screens follow the representative gate |
 | Cross-app accessibility/forms/states | Pending | Long text/lists, large-text proxy, targets, contrast, focus/recovery |
 | Independent UX + technical reviews | Pending | No outstanding blocker/high/medium findings |
 | Final local checks/backend freeze | Pending | typecheck, lint, test:ci, check:migrations, diff check, Expo export; protected diff |
@@ -135,6 +136,31 @@ are explicitly synthetic layout evidence. Temporary module-resolution errors
 from sequential file replacement are historical controller log entries; settled
 reloads rendered correctly without additional page errors.
 
+**Profile and notification preferences — accepted 22 September.** Compact
+identity, early preferences, one Teams destination, contextual church management
+and separate account/demo/help replace the old expanded profile. Existing atomic
+name saves, optional church override, read-only contacts, photo actions, leave
+protections and Auth-owned transitions remain. All six notification keys,
+profile ownership, optimistic rollback and explicit device registration remain;
+saved-but-undelivered reminders are explained truthfully.
+
+Parent reviewed 375×812, 393×852 and 430×932: normal Profile/settings, toggles and
+persisted return state, Back/Teams, sign-out/reset cancellation; explicit offline
+fixtures covered long identity/contact wrapping, name validation, retained failed
+drafts/Cancel reset, admin/leave consequences, read/loading/retry and device
+opt-in/registered/denied presentation. Two measured defects were corrected and
+reinspected: named failure feedback now remains beside its switch and reveals
+fully without animation; loading has one named accessible progressbar. The web
+renderer required the row layout listener to be registered from mount.
+
+Final typecheck, lint, **1,017 tests/84 suites**, migration check, diff check and
+demo-only all-platform export (43 routes) passed. Protected paths are unchanged.
+Twenty-three captures are preserved in `.cache/ui-audit/profile-settings/`;
+20, 21, 22 and 23 are accepted final refinements/restored views. Every fixture
+was restored byte-for-byte; final `active:false`/`restoredExactly:true`, no
+synthetic marker in `src`, six normal preference switches and no new page errors.
+No native/live account, image or notification-delivery QA is claimed.
+
 ## Cross-area handoffs
 
 - Teams representative slice will use the honest **All announcements** label
@@ -145,8 +171,9 @@ reloads rendered correctly without additional page errors.
 - Final documentation must reconcile README and both instruction files with
   the accepted navigation/presentation authority without rewriting deployed
   backend history or claiming pending native/hosted QA has passed.
-- Hosted connection restored by the user on 21 September. Repeated read-only
-  verification succeeded: local and remote migration filenames match exactly
+- Hosted connection restored by the user on 21 September. Read-only verification
+  repeated successfully on 22 September: local and remote migration filenames
+  match exactly
   **38/38**, with no local-only or remote-only entry. Functions remain ACTIVE:
   `send-chat-message-push` v7 (`verify_jwt` true) and
   `manage-organisation-invitations` v3 (`verify_jwt` false), matching the baseline.

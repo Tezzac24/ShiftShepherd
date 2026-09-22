@@ -56,6 +56,11 @@ export function ListRow({
       accessibilityLabel={accessibilityLabel ?? [title, subtitle].filter(Boolean).join('. ')}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ ...accessibilityState, disabled: disabled || accessibilityState?.disabled }}
+      aria-checked={['switch', 'checkbox', 'radio'].includes(accessibilityRole) ? accessibilityState?.checked : undefined}
+      aria-selected={accessibilityRole === 'tab' ? accessibilityState?.selected : undefined}
+      aria-expanded={accessibilityState?.expanded}
+      aria-busy={accessibilityState?.busy}
+      aria-disabled={disabled || accessibilityState?.disabled}
       testID={testID}
       onPress={disabled ? undefined : onPress}
       disabled={disabled}

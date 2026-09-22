@@ -57,10 +57,11 @@ During representative integration, the installed React Native Web adapter was
 found to use direct ARIA state props rather than the native `accessibilityState`
 object. Check rendered selected/checked/expanded/busy states as well as RNTL
 props. Prefer React Native's supported ARIA aliases alongside equivalent native
-state; use the state appropriate to the control's role. Schedule segments are
-being corrected in their owning slice. Radio/switch/expanded/busy primitives
-remain part of the cross-app accessibility verification, not a claim of native
-screen-reader certification.
+state; use the state appropriate to the control's role. Schedule segments,
+preference switches, shared buttons and loading panels have been corrected and
+rendered. Remaining selectors, date controls, sheets and feature-owned radios
+still need the cross-app alias review. These checks are not native screen-reader
+certification.
 
 Use deterministic offline Jest/RNTL tests for changed interaction behavior.
 Retain the strong existing service, lifecycle, permission and routing suites.

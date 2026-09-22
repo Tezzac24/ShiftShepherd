@@ -200,6 +200,9 @@ Use borders/dividers and whitespace for structure. Avoid shadows on every row.
   explanation and one adjacent/following action that can wrap.
 - List groups: white surface with comfortable full-width rows and dividers.
   Chevrons mean navigation; switches mean a saved preference; do not mix meanings.
+  A failed automatic save restores the previous choice and explains the failure
+  beside the affected preference. Keep both the feedback and retry control in
+  view, including for choices near the bottom of a long screen.
 - Date presentation: a clear day/month marker plus full date/time in the
   accessible label. Do not put long dates and status into competing rigid rows.
 - Segments: at most two or three labelled choices with explicit selected state;
@@ -218,6 +221,8 @@ Use borders/dividers and whitespace for structure. Avoid shadows on every row.
 - Shared states: loading with a clear label; compact empties within summaries;
   full empty states explain next steps; errors say whether anything was saved
   and offer Retry; inaccessible/missing direct routes offer a safe exit.
+  A loading indicator has one meaningful accessible status; decorative children
+  do not add duplicate unnamed progress indicators.
 - Motion: subtle press feedback only by default. Any modal/state animation must
   respect reduced motion. No decorative or slow transitions.
 

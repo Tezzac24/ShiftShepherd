@@ -1,6 +1,6 @@
 import React, { createRef } from 'react';
-import { TextInput, View } from 'react-native';
-import { fireEvent, render } from '@testing-library/react-native';
+import { ActivityIndicator, TextInput, View } from 'react-native';
+import { fireEvent, isHiddenFromAccessibility, render } from '@testing-library/react-native';
 
 import { Button } from '../Button';
 import { AppText } from '../AppText';
@@ -8,12 +8,14 @@ import { FormErrorSummary } from '../FormErrorSummary';
 import { ListGroup } from '../ListGroup';
 import { PageHeading } from '../PageHeading';
 import { SectionHeader } from '../SectionHeader';
-import { SwitchRow } from '../ListRow';
+import { ListRow, SwitchRow } from '../ListRow';
 import { SegmentedControl } from '../SegmentedControl';
 import { StatePanel } from '../StatePanel';
 import { TextField } from '../TextField';
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+
+type AccessibilityNode = { props: Record<string, unknown> };
 
 test('visual text variants do not turn card titles into document headings', () => {
   const screen = render(<View>
@@ -46,6 +48,9 @@ test('buttons expose busy state and suppress duplicate/disabled submissions', ()
 
   screen.rerender(<Button title="Save all selected dates" testID="save" onPress={onPress} loading />);
   expect(screen.getByTestId('save')).toHaveProp('accessibilityState', expect.objectContaining({ disabled: true, busy: true }));
+  const busyButton = screen.UNSAFE_root.findAll((node: AccessibilityNode) => node.props.accessibilityRole === 'button' && node.props['aria-busy'] === true);
+  expect(busyButton.length).toBeGreaterThan(0);
+  expect(busyButton[0].props['aria-disabled']).toBe(true);
   fireEvent.press(screen.getByTestId('save'));
   expect(onPress).toHaveBeenCalledTimes(1);
 
@@ -94,14 +99,31 @@ test('a full preference row is one accessible switch and changes once per tap', 
   expect(screen.getAllByRole('switch')).toHaveLength(1);
   const toggle = screen.getByRole('switch');
   expect(toggle).toHaveProp('accessibilityState', expect.objectContaining({ checked: true }));
+  const switchInputs: AccessibilityNode[] = screen.UNSAFE_root.findAll((node: AccessibilityNode) => node.props.accessibilityRole === 'switch' && node.props['aria-checked'] !== undefined);
+  expect(switchInputs.map((node) => node.props['aria-checked'])).toEqual([true]);
   fireEvent.press(toggle);
   expect(change).toHaveBeenCalledTimes(1);
   expect(change).toHaveBeenCalledWith(false);
 
   screen.rerender(<ListGroup><SwitchRow title="Team messages" value onValueChange={change} busy /></ListGroup>);
   expect(screen.getByRole('switch')).toHaveProp('accessibilityState', expect.objectContaining({ disabled: true, busy: true }));
+  const busySwitch = screen.UNSAFE_root.findAll((node: AccessibilityNode) => node.props.accessibilityRole === 'switch' && node.props['aria-busy'] === true);
+  expect(busySwitch).toHaveLength(1);
+  expect(busySwitch[0].props['aria-disabled']).toBe(true);
   fireEvent.press(screen.getByRole('switch'));
   expect(change).toHaveBeenCalledTimes(1);
+});
+
+test('list rows expose only the ARIA selection state appropriate to their role', () => {
+  const screen = render(<View>
+    <ListRow title="More details" onPress={jest.fn()} accessibilityState={{ expanded: true, checked: true, selected: true }} />
+    <ListRow title="Events" onPress={jest.fn()} accessibilityRole="tab" accessibilityState={{ selected: true }} />
+  </View>);
+  const button = screen.UNSAFE_root.findAll((node: AccessibilityNode) => node.props.accessibilityRole === 'button' && node.props['aria-expanded'] === true)[0];
+  expect(button.props['aria-selected']).toBeUndefined();
+  expect(button.props['aria-checked']).toBeUndefined();
+  const tab = screen.UNSAFE_root.findAll((node: AccessibilityNode) => node.props.accessibilityRole === 'tab' && node.props['aria-selected'] === true);
+  expect(tab).toHaveLength(1);
 });
 
 test('segments announce selection and ignore disabled and current choices', () => {
@@ -145,10 +167,21 @@ test('loading and error panels expose truthful state and an actionable retry', (
   const retry = jest.fn();
   const screen = render(<StatePanel kind="loading" title="Loading your schedule" compact />);
   expect(screen.getByRole('progressbar', { name: 'Loading your schedule' })).toHaveProp('accessibilityState', expect.objectContaining({ busy: true }));
+  expect(screen.getByRole('progressbar', { name: 'Loading your schedule' })).toHaveProp('aria-busy', true);
   screen.rerender(
     <StatePanel kind="error" title="Your changes were not saved" message="Try again when you are connected." action={{ label: 'Try again', onPress: retry }} />,
   );
   expect(screen.getByRole('alert')).toHaveTextContent('Your changes were not saved');
   fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
   expect(retry).toHaveBeenCalledTimes(1);
+});
+
+test.each([true, false])('a loading panel exposes one named progressbar and hides its decorative spinner (compact: %s)', (compact) => {
+  const screen = render(<StatePanel kind="loading" title="Loading your notification settings" compact={compact} />);
+  expect(screen.getAllByRole('progressbar')).toHaveLength(1);
+  const progress = screen.getByRole('progressbar', { name: 'Loading your notification settings' });
+  expect(isHiddenFromAccessibility(progress)).toBe(false);
+  // ActivityIndicator supplies its own progressbar on web even with
+  // accessible=false. Its subtree must be hidden on every platform.
+  expect(isHiddenFromAccessibility(screen.UNSAFE_getByType(ActivityIndicator))).toBe(true);
 });

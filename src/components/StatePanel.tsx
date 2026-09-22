@@ -24,7 +24,8 @@ export function StatePanel({
   const color = kind === 'error' ? colors.danger : colors.primary;
   const statusIcon = icon ?? (kind === 'error' ? 'alert-circle-outline' : 'information-circle-outline');
   const status = kind === 'loading' ? (
-    <ActivityIndicator color={color} size={compact ? 'small' : 'large'} accessible={false} />
+    <ActivityIndicator color={color} size={compact ? 'small' : 'large'} accessible={false}
+      accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
   ) : (
     <Ionicons name={statusIcon} size={compact ? 24 : 28} color={color} accessible={false} />
   );
@@ -37,6 +38,7 @@ export function StatePanel({
         accessibilityRole={kind === 'loading' ? 'progressbar' : undefined}
         accessibilityLabel={kind === 'loading' ? title : undefined}
         accessibilityState={kind === 'loading' ? { busy: true } : undefined}
+        aria-busy={kind === 'loading' ? true : undefined}
       >
         {status}
       </View>
