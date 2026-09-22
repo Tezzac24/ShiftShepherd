@@ -104,6 +104,28 @@ default; choosing an initial admin opens a searchable chooser instead of an
 always-expanded directory. Preserve request-key retries and the separate
 already-created/photo-failed recovery. Archive and restore keep the same team.
 
+### Messages and team chat
+
+Messages uses the shared church header and readable conversation rows. Sort
+accessible active-team conversations by latest message, with a stable name
+order for empty conversations. Keep actual unread badges and full team names;
+offer search when a long list needs it. Distinguish a failed message read from
+an empty conversation. Opening this list never clears unread state.
+
+Chat has a concise native header and full team context, readable chronological
+messages and day separators derived from existing timestamps. Use primary-soft
+with dark text for one's own messages and a white bordered surface for others;
+alignment, sender labels and readable timestamps carry meaning as well as colour.
+Use a visible **Send** label and a labelled photo action where already supported.
+Keep the existing single-image preview/removal, caption, retained failed draft
+and adjacent send-error recovery. The composer remains reachable above the
+keyboard; native keyboard behavior still needs native QA.
+
+Preserve the existing focused-chat/read-cursor lifecycle, reconnect refresh and
+near-bottom scrolling rules. Day grouping is presentation only. Never infer an
+unread boundary from a count that cannot identify a message, and do not add
+reactions, presence, typing, receipts, editing, galleries or an image viewer.
+
 ### Schedule, rota and music
 
 Use date-leading lists instead of repetitive large event cards. My serving

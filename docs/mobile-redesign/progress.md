@@ -19,6 +19,9 @@ review-ready, green-CI PR. Discovery or the representative slice is not completi
 - Representative-slice gate is complete: Home, Schedule, Teams, team hub and
   Profile/notification settings are implemented and personally accepted.
 - Home/Schedule checkpoint: `771fea0`; Teams checkpoint: `73b2b2e`.
+- Profile/preferences checkpoint: `3f04df9`; representative gate is accepted.
+  Team create/edit/archive/restore and Add member forms are now personally
+  accepted. All inspection fixtures remain inactive.
 - Shared navigation/design guidance is recorded in `5e040eb` (README, AGENTS
   and CLAUDE; instruction guidance is synchronized).
 
@@ -39,7 +42,7 @@ Baseline Git objects for final freeze comparison:
 | Shared design foundation | Accepted | Exact tokens; native wrapping controls; accessible modal/date sheets; 881 tests/80 suites; export; parent screenshots/interactions |
 | Representative slice | Accepted | Home, Teams, team hub, Schedule and Profile/preferences rendered and accepted; 1,017 tests/84 suites |
 | Navigation/Home/Schedule | Accepted | 922 tests/83 suites; export; parent member/admin/empty/direct-link checks |
-| Teams/lifecycle/members | Representative surfaces accepted; forms pending | Directory/hub/read and management entries accepted; create/edit/archive/add-member forms follow representative gate |
+| Teams/lifecycle/members | Core screens and forms accepted | 1,062 tests/84 suites; lifecycle/Add visual review accepted; live member role/removal dialog visual pass remains for shared-state review |
 | Chat | Pending | Composer/history/draft/image/unread behavior; parent review |
 | Announcements/events | Pending | Forms, recurrence, audience, images, details and state review |
 | Rota/availability/music | Pending | Multi-role response, cancellation, monthly partial saves, section selection |
@@ -161,6 +164,39 @@ was restored byte-for-byte; final `active:false`/`restoredExactly:true`, no
 synthetic marker in `src`, six normal preference switches and no new page errors.
 No native/live account, image or notification-delivery QA is claimed.
 
+**Team setup/lifecycle and Add member — accepted 22 September.** New team has
+resolved church context, a searchable optional-admin sheet, visible validation
+and fixed Create/Cancel actions. Selected-person eligibility uses the full
+existing directory independently of the displayed first 50. Edit retains drafts
+through data refresh, with separately saved photo controls and archive. Archive
+is a virtualized metadata list with a contextual Open team result and a fixed
+Back to teams action. Add member is searchable/virtualized, with named error and
+adjacent guarded Retry add. No global component or backend changes were needed.
+
+Parent tested at 375×812, 390×844 and 430×932: validation, chooser search/select/
+reset, actual demo zero-admin create/edit/archive/restore, cancellation and
+archived deep links; a second create explicitly added Sarah only. The creator's
+My teams remained one. `team-muby6sin-1` is restored with edited description and
+zero members; `team-mubyu0nc-1` has Sarah as its one team admin. Seven explicit
+offline fixture scenarios exercised 132 chooser candidates, 129 Add candidates,
+long names/emails, retained selection, no-match, created-but-photo-failed retry,
+Add success/failure/loading/read retry and separate photo controls. These do not
+establish live membership or storage QA.
+
+Important refinements: same-profile readiness changes preserve drafts, request
+keys and successful-create/photo state; actual scope/role loss tears down and
+stale completion cannot navigate. Follow-on photo work and navigation resume
+only after authority resolves. Success toasts are concise, chooser accessible names include email,
+and persisted photo removal/copy matches Profile. Final **1,062 tests/84 suites**
+(72 focused), typecheck, lint, migration/diff checks and demo-only all-platform
+export (43 routes) passed. Parent inspected the request/result/scope boundaries.
+
+Twenty-eight captures are in `.cache/ui-audit/team-forms/`; 10–14, 27 and 28
+supersede early revisions. All fixtures were restored exactly, the temporary
+shim was removed, no inspection markers remain in source, and normal New team
+rendered with no new page errors. Protected paths remain unchanged. Native
+keyboard, picker, screen-reader and live lifecycle QA remain pending.
+
 ## Cross-area handoffs
 
 - Teams representative slice will use the honest **All announcements** label
@@ -171,6 +207,12 @@ No native/live account, image or notification-delivery QA is claimed.
 - Final documentation must reconcile README and both instruction files with
   the accepted navigation/presentation authority without rewriting deployed
   backend history or claiming pending native/hosted QA has passed.
+- Chat's bounded design handoff is now in the shared brief. Two interim captures
+  under `.cache/ui-audit/chat/` show the existing composition after foundation
+  tokens, before chat-specific implementation; they do not replace the original
+  baseline audit. The browser is now signed into Daniel's demo account, on Teams
+  at 375×812, ready for the lifecycle review. Actual sign-out/sign-in passed;
+  example data was retained and Daniel's own team/unread state resolved correctly.
 - Hosted connection restored by the user on 21 September. Read-only verification
   repeated successfully on 22 September: local and remote migration filenames
   match exactly

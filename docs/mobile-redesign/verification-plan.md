@@ -63,11 +63,21 @@ rendered. Remaining selectors, date controls, sheets and feature-owned radios
 still need the cross-app alias review. These checks are not native screen-reader
 certification.
 
+Check decorative icons and spinners too: native `accessible={false}` alone may
+leave unnamed children in the web accessibility tree. StatePanel now hides its
+decorative spinner explicitly; review the remaining controls for the same issue.
+
 Use deterministic offline Jest/RNTL tests for changed interaction behavior.
 Retain the strong existing service, lifecycle, permission and routing suites.
 Do not replace meaningful assertions with snapshots of implementation details.
 Live-only visual states may require safe mocked component fixtures; never enable
 real backend access merely to obtain a screenshot.
+
+Still outstanding from the Teams representative review: synthetic visual
+inspection of live member role/removal dialogs (including final-team-admin
+demotion versus protected removal). Normal/read-only rosters and their large-
+list states are accepted; their behavioral permission coverage does not replace
+this remaining presentation check.
 
 ## Final acceptance gates
 
