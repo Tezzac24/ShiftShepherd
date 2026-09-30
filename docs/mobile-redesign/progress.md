@@ -22,6 +22,14 @@ review-ready, green-CI PR. Discovery or the representative slice is not completi
 - Profile/preferences checkpoint: `3f04df9`; representative gate is accepted.
   Team create/edit/archive/restore and Add member forms are now personally
   accepted. All inspection fixtures remain inactive.
+- Team forms checkpoint: `7a53707`. Messages and team chat are personally accepted;
+  announcements/events is the next sequential implementation area.
+- Resumed 30 September: worktree checkpoints intact, origin/main re-fetched and
+  still `ecde433`. Existing preview (8089/session 57290) and browser controller
+  (8090) were confirmed live after retry; neither was restarted. Chat's first
+  worker stopped at a service usage limit; a fresh completion worker continued
+  its existing edits. Final Chat validation reached 1,118 tests/87 suites and all
+  standard checks/export; cached-history notice and scroll refinements are accepted.
 - Shared navigation/design guidance is recorded in `5e040eb` (README, AGENTS
   and CLAUDE; instruction guidance is synchronized).
 
@@ -43,7 +51,7 @@ Baseline Git objects for final freeze comparison:
 | Representative slice | Accepted | Home, Teams, team hub, Schedule and Profile/preferences rendered and accepted; 1,017 tests/84 suites |
 | Navigation/Home/Schedule | Accepted | 922 tests/83 suites; export; parent member/admin/empty/direct-link checks |
 | Teams/lifecycle/members | Core screens and forms accepted | 1,062 tests/84 suites; lifecycle/Add visual review accepted; live member role/removal dialog visual pass remains for shared-state review |
-| Chat | Pending | Composer/history/draft/image/unread behavior; parent review |
+| Chat | Accepted | 1,118 tests/87 suites; 56 focused; parent list/composer/history/draft/image/unread and recovery review |
 | Announcements/events | Pending | Forms, recurrence, audience, images, details and state review |
 | Rota/availability/music | Pending | Multi-role response, cancellation, monthly partial saves, section selection |
 | Organisation/invitation/profile/auth/settings | Profile/preferences accepted; other identity screens pending | Full existing state matrix and permission contracts; remaining identity screens follow the representative gate |
@@ -197,6 +205,35 @@ shim was removed, no inspection markers remain in source, and normal New team
 rendered with no new page errors. Protected paths remain unchanged. Native
 keyboard, picker, screen-reader and live lifecycle QA remain pending.
 
+**Messages and chat — accepted 30 September.** Messages has full-name,
+latest-first conversations, existing unread badges, useful search and distinct
+empty/read-failure states. Chat has clear team context with View team, readable
+day/sender/time structure, a growing bounded composer, labelled photo/Send and
+retained draft/image recovery. Services, unread authority and notification
+behavior are unchanged. The list does not mark messages read.
+
+Parent reviewed 375×812, 390×844 and 430×932, plus a 375×650 viewport as a limited
+keyboard-space proxy. Actual demo checks covered unread preservation/clearing,
+Back/View team, successful sends, composer growth/shrink and member conversation
+lists. Explicit offline fixtures covered image history, photo-send failure/retry,
+read/history/list errors, loading, connection states and church-admin empties.
+Ruth's real no-team state now explains how to be added; the admin state links to
+Teams and mentions archive only when archived metadata exists.
+
+Accepted refinements keep cached-history errors and Retry visible outside the
+message scroller, retain bottom anchoring only for near-bottom readers and keep
+older history in place during resizing/composer growth. Own-send scrolling is
+nonanimated. Parent inspected scope/read/draft guards and verified that viewing
+other conversations never cleared Media's unread count.
+
+Final **1,118 tests/87 suites** (56 focused), typecheck, lint, migration/diff
+checks and demo-only all-platform export (43 routes) passed. Thirty-one captures
+are preserved in `.cache/ui-audit/chat/`; 22–26 and 28–31 record accepted final
+states. Capture 07 was a stale bundle; 17 and 27 were superseded. All fixtures
+are inactive and restored exactly, with no temporary shim or protected-path
+change. Web inspection does not establish native keyboard/picker, screen-reader,
+live attachment or push delivery QA.
+
 ## Cross-area handoffs
 
 - Teams representative slice will use the honest **All announcements** label
@@ -207,12 +244,9 @@ keyboard, picker, screen-reader and live lifecycle QA remain pending.
 - Final documentation must reconcile README and both instruction files with
   the accepted navigation/presentation authority without rewriting deployed
   backend history or claiming pending native/hosted QA has passed.
-- Chat's bounded design handoff is now in the shared brief. Two interim captures
-  under `.cache/ui-audit/chat/` show the existing composition after foundation
-  tokens, before chat-specific implementation; they do not replace the original
-  baseline audit. The browser is now signed into Daniel's demo account, on Teams
-  at 375×812, ready for the lifecycle review. Actual sign-out/sign-in passed;
-  example data was retained and Daniel's own team/unread state resolved correctly.
+- Chat's accepted interaction and composition language is in the shared brief.
+  The browser is signed into Daniel's demo account, on Messages at 390×844.
+  Audit demo data is retained; no live user data has been used.
 - Hosted connection restored by the user on 21 September. Read-only verification
   repeated successfully on 22 September: local and remote migration filenames
   match exactly
@@ -220,6 +254,10 @@ keyboard, picker, screen-reader and live lifecycle QA remain pending.
   `send-chat-message-push` v7 (`verify_jwt` true) and
   `manage-organisation-invitations` v3 (`verify_jwt` false), matching the baseline.
   No remote mutation was performed; local protected-file checks remain clear.
+- On 30 September both read-only MCP checks again returned authentication
+  required, including after the user reported reauthentication. The last hosted
+  success remains 22 September; final remote verification is pending. This does
+  not block frontend implementation or the local backend-freeze comparison.
 
 ## Current local inspection session
 

@@ -28,20 +28,25 @@ export function ChatAttachmentImage({
       <View
         style={[
           styles.fallback,
-          { width, height },
+          { width, maxWidth: '100%', aspectRatio: width / height },
           isMine ? styles.fallbackMine : styles.fallbackTheirs,
         ]}
         accessibilityLabel="Photo unavailable"
+        accessibilityRole="image"
+        accessible
       >
         <Ionicons
           name="image-outline"
           size={30}
-          color={isMine ? colors.white : colors.textMuted}
+          color={colors.textMuted}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          aria-hidden
         />
         <AppText
           variant="small"
-          style={isMine ? styles.fallbackTextMine : undefined}
-          tone={isMine ? undefined : 'muted'}
+          tone="muted"
         >
           Photo unavailable
         </AppText>
@@ -52,9 +57,9 @@ export function ChatAttachmentImage({
   return (
     <Image
       source={{ uri }}
-      style={{ width, height, borderRadius: radius.md }}
+      style={{ width, maxWidth: '100%', aspectRatio: width / height, borderRadius: radius.md }}
       contentFit="cover"
-      transition={150}
+      transition={0}
       onError={() => setFailed(true)}
       accessibilityLabel={accessibilityLabel}
     />
@@ -68,7 +73,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.xs,
   },
-  fallbackMine: { backgroundColor: 'rgba(255,255,255,0.16)' },
-  fallbackTheirs: { backgroundColor: colors.background },
-  fallbackTextMine: { color: colors.white },
+  fallbackMine: { backgroundColor: colors.surface },
+  fallbackTheirs: { backgroundColor: colors.surfaceRaised },
 });

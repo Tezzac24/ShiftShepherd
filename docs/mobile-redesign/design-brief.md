@@ -113,7 +113,11 @@ offer search when a long list needs it. Distinguish a failed message read from
 an empty conversation. Opening this list never clears unread state.
 
 Chat has a concise native header and full team context, readable chronological
-messages and day separators derived from existing timestamps. Use primary-soft
+messages and day separators derived from existing timestamps. A labelled
+**View team** action in that context opens the existing hub, so members and team
+tools stay nearby regardless of how the conversation was opened. Preserve Back
+to the conversation's original entry point.
+Use primary-soft
 with dark text for one's own messages and a white bordered surface for others;
 alignment, sender labels and readable timestamps carry meaning as well as colour.
 Use a visible **Send** label and a labelled photo action where already supported.
@@ -144,6 +148,29 @@ readable lyrics and labelled external links without displaying a raw URL as the
 main content. All choir members retain song editing. Date-specific praise and
 worship choices remain separately authorised. Selection/reorder controls have
 comfortable targets and save remains reachable after scrolling.
+
+### Announcements and events
+
+Announcements are readable notices: clear audience, full title, author/date and
+body, with restrained pinned treatment. Reuse Home's editorial notice language.
+Pinning means top placement, never urgency or unread status. An optional,
+validated `teamId` filters existing accessible notices; show the selected team
+and a clear return to all notices. Connect **All team announcements** from the
+team hub. Filtering must never widen the existing audience.
+
+Events retain Schedule's date-leading language. Detail prioritises when, where
+and description. A related team is context, not an audience restriction. Keep
+management contextual and permission-aware; explain whole-series consequences
+to the person editing. Do not add RSVP, reminders, maps or unsupported actions.
+
+Forms put essential fields first; disclose optional linking, pinning, recurrence
+and image controls where useful. Preserve existing limits, date/time/recurrence
+and end-date semantics, including saved links absent from a filtered chooser.
+A cold edit distinguishes loading, failure and missing content from creation.
+Hydrate for the actual account/organisation/item scope; preserve drafts and known
+saved outcomes during same-profile refresh. In particular, an announcement whose
+text saved but image failed must offer recovery without creating a duplicate.
+Existing image hooks and notification calls remain unchanged.
 
 ### Profile, identity and notifications
 

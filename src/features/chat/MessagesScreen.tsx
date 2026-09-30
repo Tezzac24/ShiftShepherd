@@ -1,36 +1,31 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useRef } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, spacing } from '../../../constants/theme';
+import { colors, spacing, touchTarget } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { CountBadge } from '../../components/Badge';
-import { Button } from '../../components/Button';
-import { Card } from '../../components/Card';
-import { EmptyState } from '../../components/EmptyState';
+import { OrganisationHeader } from '../../components/OrganisationHeader';
+import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
+import { StatePanel } from '../../components/StatePanel';
+import { TextField } from '../../components/TextField';
 import { useAppData } from '../../lib/appData/AppDataContext';
-import {
-  chatMessagePreview,
-  lastMessageForTeam,
-  userName,
-  visibleTeams,
-} from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
-import { formatRelative } from '../../utils/dates';
+import { canManageTeamLifecycle } from '../../lib/permissions';
 import { useOnAppForeground } from '../../utils/useAppForeground';
+import { chatConversations, conversationPreview, conversationTimestamp } from './chatPresentation';
 
 export default function MessagesScreen() {
   const router = useRouter();
   const user = useRequiredUser();
   const data = useAppData();
+  const insets = useSafeAreaInsets();
+  const [search, setSearch] = useState('');
 
-  // The session chat channel already keeps previews and unread badges fresh
-  // from anywhere in the app; on focus/foreground we additionally refetch
-  // messages (to pick up attachment previews) and quietly reconcile the
-  // authoritative unread summary. Looking at this list never marks anything
-  // read — only opening a chat does. Demo previews are local (both no-op).
+  // List visits refresh previews and authoritative counts but never mark read.
   const focusedRef = useRef(false);
   const { chatLive, refreshChat, refreshUnreadSummary } = data;
   useFocusEffect(
@@ -40,9 +35,7 @@ export default function MessagesScreen() {
         void refreshChat();
         refreshUnreadSummary();
       }
-      return () => {
-        focusedRef.current = false;
-      };
+      return () => { focusedRef.current = false; };
     }, [chatLive, refreshChat, refreshUnreadSummary]),
   );
   useOnAppForeground(
@@ -54,97 +47,74 @@ export default function MessagesScreen() {
     }, [chatLive, refreshChat, refreshUnreadSummary]),
   );
 
-  const teams = visibleTeams(user, data.teams);
-  // Live mode: the directory loads after sign-in — show calm loading/error
-  // states instead of flashing the "no team chats" message.
-  const showLoading = data.teamsLoading && teams.length === 0;
-  const showError = !!data.teamsError && teams.length === 0 && !data.teamsLoading;
+  const conversations = chatConversations(user, data.teams, data.chatMessages);
+  const query = search.trim().toLocaleLowerCase();
+  const filtered = conversations.filter(({ team }) => team.name.toLocaleLowerCase().includes(query));
+  const showSearch = conversations.length > 5 || search.length > 0;
+  const showLoading = data.teamsLoading && conversations.length === 0;
+  const canManageTeams = canManageTeamLifecycle(user);
 
   return (
-    <Screen safeTop>
-      <AppText variant="title">Messages</AppText>
-      <AppText tone="secondary">Your team conversations.</AppText>
-
-      {showLoading ? (
-        <Card>
-          <View style={styles.loadingRow}>
-            <ActivityIndicator color={colors.primary} />
-            <AppText tone="secondary">Loading your teams…</AppText>
-          </View>
-        </Card>
-      ) : showError ? (
-        <>
-          <EmptyState
-            icon="cloud-offline-outline"
-            title="Couldn’t load your teams"
-            message={data.teamsError ?? ''}
-          />
-          <Button
-            title="Try Again"
-            variant="secondary"
-            icon="refresh-outline"
-            onPress={() => void data.refreshTeams()}
-          />
-        </>
-      ) : teams.length > 0 ? (
-        teams.map((team) => {
-          const last = lastMessageForTeam(team.id, data.chatMessages);
+    <Screen safeTop scroll={false}>
+      <FlatList
+        data={filtered}
+        keyExtractor={({ team }) => team.id}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl * 2 + insets.bottom }]}
+        ListHeaderComponent={<View style={styles.header}>
+          <OrganisationHeader />
+          <PageHeading title="Messages" description="Keep in touch with your teams." />
+          {showSearch ? <TextField label="Search conversations" value={search} onChangeText={setSearch}
+            placeholder="Team name" autoCapitalize="none" returnKeyType="search" /> : null}
+          {data.teamsError ? <StatePanel compact kind="error" title="Couldn't load your teams"
+            message={data.teamsError} action={{ label: 'Retry teams', onPress: () => void data.refreshTeams() }} /> : null}
+          {chatLive && data.chatError && conversations.length > 0 ? <StatePanel compact kind="error"
+            title="Couldn't refresh messages" message="Message previews may be out of date. Your conversations are still here."
+            action={{ label: 'Retry messages', onPress: () => void refreshChat() }} /> : null}
+          {query ? <AppText variant="small" tone="secondary" accessibilityLiveRegion="polite">
+            {filtered.length} of {conversations.length} conversations
+          </AppText> : null}
+        </View>}
+        renderItem={({ item: { team, lastMessage } }) => {
           const unread = data.unreadByTeam[team.id] ?? 0;
-          return (
-            <Card
-              key={team.id}
-              onPress={() =>
-                router.push({ pathname: '/teams/[teamId]/chat', params: { teamId: team.id } })
-              }
-              accessibilityLabel={`Open ${team.name} chat${unread ? `, ${unread} unread` : ''}`}
-              style={styles.chatCard}
-            >
-              <View style={styles.row}>
-                <Avatar name={team.name} size={48} />
-                <View style={{ flex: 1 }}>
-                  <View style={styles.titleRow}>
-                    <AppText variant="bodyBold">{team.name}</AppText>
-                    {last ? (
-                      <AppText variant="small" tone="muted">
-                        {formatRelative(last.created_at)}
-                      </AppText>
-                    ) : null}
-                  </View>
-                  {last ? (
-                    <AppText variant="small" tone="secondary" numberOfLines={1}>
-                      {userName(data.users, last.sender_id).split(' ')[0]}:{' '}
-                      {chatMessagePreview(last)}
-                    </AppText>
-                  ) : (
-                    <AppText variant="small" tone="muted">
-                      {data.chatLoading ? 'Loading messages…' : 'No messages yet'}
-                    </AppText>
-                  )}
-                </View>
-                <CountBadge count={unread} />
-              </View>
-            </Card>
-          );
-        })
-      ) : (
-        <EmptyState
-          icon="chatbubbles-outline"
-          title="No team chats"
-          message="When you join a team, its chat will appear here."
-        />
-      )}
+          const preview = lastMessage ? conversationPreview(lastMessage, data.users, user.profile.id)
+            : data.chatLoading ? 'Loading messages…' : data.chatError ? 'Messages unavailable' : 'No messages yet';
+          const timestamp = lastMessage ? conversationTimestamp(lastMessage.created_at) : null;
+          return <Pressable accessibilityRole="button"
+            accessibilityLabel={`${team.name}${unread ? `, ${unread} unread ${unread === 1 ? 'message' : 'messages'}` : ''}. ${preview}${timestamp ? `. ${timestamp}` : ''}`}
+            accessibilityHint="Opens the team conversation"
+            onPress={() => router.push({ pathname: '/teams/[teamId]/chat', params: { teamId: team.id } })}
+            style={({ pressed }) => [styles.conversation, pressed && styles.pressed]}>
+            <Avatar name={team.name} uri={data.getTeamAvatarUri(team)} size={48} decorative />
+            <View style={styles.copy}>
+              <AppText variant="subheading">{team.name}</AppText>
+              <AppText tone="secondary" numberOfLines={2}>{preview}</AppText>
+              {timestamp ? <AppText variant="small" tone="muted">{timestamp}</AppText> : null}
+            </View>
+            {unread > 0 ? <View style={styles.unread} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden>
+              <CountBadge count={unread} />
+            </View> : null}
+          </Pressable>;
+        }}
+        ListEmptyComponent={showLoading ? <StatePanel kind="loading" title="Loading your teams…"/>
+          : data.teamsError ? null : query ? <StatePanel title="No matching conversations" message="Try a different team name." />
+            : <StatePanel icon="chatbubbles-outline" title="No team chats yet"
+              message={canManageTeams
+                ? data.archivedTeams.length > 0 ? 'Create a team or restore an archived team in Teams.'
+                  : 'Create a team in Teams to start a conversation.'
+                : 'Ask a team admin or church admin to add you to a team.'}
+              action={canManageTeams ? { label: 'Open Teams', onPress: () => router.push('/(tabs)/teams') } : undefined} />}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  chatCard: { paddingVertical: spacing.md },
-  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
+  content: { paddingHorizontal: spacing.gutter },
+  header: { gap: spacing.md, marginBottom: spacing.sm },
+  conversation: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md,
+    paddingVertical: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  copy: { flex: 1, minWidth: 0, gap: spacing.xs },
+  unread: { alignSelf: 'center' },
+  pressed: { backgroundColor: colors.primarySoft },
 });
