@@ -22,8 +22,10 @@ review-ready, green-CI PR. Discovery or the representative slice is not completi
 - Profile/preferences checkpoint: `3f04df9`; representative gate is accepted.
   Team create/edit/archive/restore and Add member forms are now personally
   accepted. All inspection fixtures remain inactive.
-- Team forms checkpoint: `7a53707`. Messages and team chat are personally accepted;
-  announcements/events is the next sequential implementation area.
+- Team forms checkpoint: `7a53707`; Chat checkpoint: `d724d40`.
+  Announcements/events is personally accepted. Rota/availability/monthly
+  planning is next, followed by a fresh choir/music worker. The parent owns
+  the central brief, rationale/flow ledgers and visual acceptance.
 - Resumed 30 September: worktree checkpoints intact, origin/main re-fetched and
   still `ecde433`. Existing preview (8089/session 57290) and browser controller
   (8090) were confirmed live after retry; neither was restarted. Chat's first
@@ -52,8 +54,9 @@ Baseline Git objects for final freeze comparison:
 | Navigation/Home/Schedule | Accepted | 922 tests/83 suites; export; parent member/admin/empty/direct-link checks |
 | Teams/lifecycle/members | Core screens and forms accepted | 1,062 tests/84 suites; lifecycle/Add visual review accepted; live member role/removal dialog visual pass remains for shared-state review |
 | Chat | Accepted | 1,118 tests/87 suites; 56 focused; parent list/composer/history/draft/image/unread and recovery review |
-| Announcements/events | Pending | Forms, recurrence, audience, images, details and state review |
-| Rota/availability/music | Pending | Multi-role response, cancellation, monthly partial saves, section selection |
+| Announcements/events | Accepted | 1,206 tests/91 suites, 113 focused, export; 56 parent captures and ordinary/offline state checks |
+| Rota/availability/monthly planning | Pending | Multi-role response, cancellation, monthly partial saves; next bounded worker after announcement/event acceptance |
+| Choir/music | Pending | Library/detail/form and section selection; fresh sequential worker after rota acceptance |
 | Organisation/invitation/profile/auth/settings | Profile/preferences accepted; other identity screens pending | Full existing state matrix and permission contracts; remaining identity screens follow the representative gate |
 | Cross-app accessibility/forms/states | Pending | Long text/lists, large-text proxy, targets, contrast, focus/recovery |
 | Independent UX + technical reviews | Pending | No outstanding blocker/high/medium findings |
@@ -234,19 +237,49 @@ are inactive and restored exactly, with no temporary shim or protected-path
 change. Web inspection does not establish native keyboard/picker, screen-reader,
 live attachment or push delivery QA.
 
+**Announcements/events — accepted 1 October.** The director personally
+reviewed list/detail, team-filter/clear/Back, linked event and a 7 October
+recurring occurrence at 375×812/430×932. Real local demo creation, edit,
+required/time validation, audience/pin/link, recurrence, Cancel and deletion
+passed. Two clearly labelled demo items (`ann-muo2axkc-1`,
+`event-muo2ib6r-1`) were removed through their own UI afterward; seeds and earlier
+audit data remain. Hannah's member views omit management and reject edit links.
+Long titles now remain full-width, with Manage beside audience/category above.
+
+Ten explicit offline fixture scenarios covered image upload/removal partial
+success, retained failures/links/times/end date, cold edit hydration, read/retry,
+cached notices and long image/body/author/location content. A successful event
+save waited through same-profile authority refresh and navigated once with its
+occurrence parameter. All fixtures are restored exactly; no shim remains.
+Captures 01–56 are in `.cache/ui-audit/announcements-events/`; 21–25 supersede
+early title/management layout. Final 44–54 verify whole-image display, actual
+load-failure fallback and URI recovery, known saved outcomes during authority
+refresh, chronological retained time and full-year end-date copy. Captures
+55–56 verify a real empty team-notice list and a selected past date's visible
+and accessible state at 390×844. The additional image-failure scenario brings
+fixture coverage to eleven; every fixture is restored exactly.
+
+A fresh completion worker preserved the first worker's code after its service
+usage limit. Full **1,206 tests/91 suites**, **113 focused tests/6 suites**,
+typecheck/lint, migration/diff checks and offline demo all-platform export
+(43 routes) passed. The final copy-only correction had 55 affected tests/2 suites
+rerun. Export needed approved escalation for Hermes spawning; the parent also
+inspected its native metadata and 43 generated HTML routes. No protected files
+changed. Source review confirmed scope/permission/result guards and the existing
+archived-related-team event write rule. A low-priority extra unnamed image node
+seen only in the synthetic post state is tracked for the shared accessibility
+review; native, live image and delivery QA remain separate.
+
 ## Cross-area handoffs
 
-- Teams representative slice will use the honest **All announcements** label
-  while the destination is unfiltered. The announcements worker must add an
-  optional `teamId` filter over existing accessible same-organisation notices,
-  with a clear way to return to all notices, then connect **All team announcements**
-  from the hub. This is client-only work, not a backend blocker.
+- The team hub now links **All team announcements** to its validated `teamId`
+  filter. A labelled All announcements action clears the filter and preserves
+  Back to the team. This uses existing accessible data and needs no backend API.
 - Final documentation must reconcile README and both instruction files with
   the accepted navigation/presentation authority without rewriting deployed
   backend history or claiming pending native/hosted QA has passed.
 - Chat's accepted interaction and composition language is in the shared brief.
-  The browser is signed into Daniel's demo account, on Messages at 390×844.
-  Audit demo data is retained; no live user data has been used.
+  No live user data has been used in visual inspection.
 - Hosted connection restored by the user on 21 September. Read-only verification
   repeated successfully on 22 September: local and remote migration filenames
   match exactly
@@ -254,24 +287,36 @@ live attachment or push delivery QA.
   `send-chat-message-push` v7 (`verify_jwt` true) and
   `manage-organisation-invitations` v3 (`verify_jwt` false), matching the baseline.
   No remote mutation was performed; local protected-file checks remain clear.
-- On 30 September both read-only MCP checks again returned authentication
-  required, including after the user reported reauthentication. The last hosted
-  success remains 22 September; final remote verification is pending. This does
-  not block frontend implementation or the local backend-freeze comparison.
+- On 30 September the user restored MCP authentication after a repeated failure.
+  The project URL matches `kqhhslsowhnaktygrcjc`; Edge Functions are ACTIVE at the
+  same v7/v3 versions and JWT settings. Immediately after project resumption,
+  migration history was temporarily empty and metadata reads reported the
+  migration schema, teams and profiles absent. The owner confirmed a recent
+  pause/resume. After allowing a few minutes, the read-only recheck resolved:
+  **38/38 exact migration filenames**, no local-only/remote-only entry, expected
+  schema/tables present, both functions still ACTIVE at v7/v3 with unchanged JWT
+  settings. No remote mutation or repair was performed. Hosted alignment is
+  verified as of 30 September; repeat at the final PR gate if needed.
 
 ## Current local inspection session
 
-The existing browser controller is live on loopback port 8090; preview is on
-port 8089. Its original temporary script was removed along with older captures.
+Through 30 September, the browser controller was live on loopback port 8090 and
+the preview on port 8089. Its original temporary script was removed along with older captures.
 A recovery runner is saved at ignored `.cache/ui-audit/browser.cjs`; its
 Playwright tooling belongs in `.cache/ui-audit/tools/` (the older temporary
 package files were also removed). Do not
 launch the recovery runner while the existing controller is live. Probe the
 existing handles/endpoints before assuming they stopped. Current demo browser
-data includes the explicitly documented audit-only changes.
+data included the explicitly documented audit-only changes.
+
+On 1 October, both original process handles were missing and both endpoints
+refused connections, with no listener reported. Recovery is underway only after
+those checks; the source, screenshots and completed audit are retained. The
+remaining in-memory demo session may need a dedicated persistent inspection
+profile if its previous temporary profile is unavailable.
 
 Recovery-tool reinstall on 21 September failed with a network ECONNRESET; the
-existing in-memory controller remains usable. Recheck/install recovery tooling
+then-existing in-memory controller remained usable. Recheck/install recovery tooling
 only if the existing controller actually stops. Do not restart a live handle
 because an observation or package install timed out.
 

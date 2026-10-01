@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
 import { colors, spacing, radius, touchTarget } from '../../constants/theme';
@@ -34,6 +34,7 @@ export function SelectField<T extends string>({
 }: SelectFieldProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   const triggerRef = useRef<View>(null);
   const selected = options.find((option) => option.value === value);
   const search = query.trim().toLocaleLowerCase();
@@ -50,7 +51,9 @@ export function SelectField<T extends string>({
         accessibilityRole="button"
         accessibilityLabel={label + ': ' + (selected?.label ?? placeholder)}
         accessibilityHint={error ?? helper}
-        accessibilityState={{ expanded: open, disabled }}
+        accessibilityState={{ expanded: open && !disabled, disabled }}
+        aria-expanded={open && !disabled}
+        aria-disabled={disabled}
         disabled={disabled}
         onPress={disabled ? undefined : () => { setQuery(''); setOpen(true); }}
         style={({ pressed }) => [
@@ -69,7 +72,7 @@ export function SelectField<T extends string>({
         <AppText variant="small" tone="secondary">{helper}</AppText>
       ) : null}
 
-      <ModalSurface visible={open} title={label} onClose={close} scroll={false} returnFocusRef={triggerRef}>
+      <ModalSurface visible={open && !disabled} title={label} onClose={close} scroll={false} returnFocusRef={triggerRef}>
         {searchable ? (
           <View style={styles.search}>
             <TextField
@@ -94,9 +97,11 @@ export function SelectField<T extends string>({
               <Pressable
                 accessibilityRole="radio"
                 accessibilityLabel={[item.label, item.description].filter(Boolean).join('. ')}
-                accessibilityState={{ selected: checked, checked, disabled: !!item.disabled }}
-                disabled={item.disabled}
-                onPress={item.disabled ? undefined : () => { onChange(item.value); close(); }}
+                accessibilityState={{ selected: checked, checked, disabled: disabled || !!item.disabled }}
+                aria-checked={checked}
+                aria-disabled={disabled || !!item.disabled}
+                disabled={disabled || item.disabled}
+                onPress={disabled || item.disabled ? undefined : () => { onChange(item.value); close(); }}
                 style={({ pressed }) => [styles.option, checked && styles.selected, pressed && styles.pressed]}
               >
                 <View style={styles.value}>

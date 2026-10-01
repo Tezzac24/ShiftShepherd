@@ -67,6 +67,16 @@ Check decorative icons and spinners too: native `accessible={false}` alone may
 leave unnamed children in the web accessibility tree. StatePanel now hides its
 decorative spinner explicitly; review the remaining controls for the same issue.
 
+The announcement image-post fixture exposed one extra unnamed `img` in the web
+accessibility snapshot alongside the correctly labelled selected image. The
+visible full-image/fallback/recovery states pass; the cause of the extra node is
+unconfirmed. Recheck during the shared accessibility review, distinguishing
+retained or inspection-only web DOM from native output before changing controls.
+If the running controller cannot inspect DOM metadata directly, use an ignored,
+demo-guarded inspection fixture to report only image alt/role/hidden state and
+parent tags (never source URLs/base64). Restore it exactly afterward; do not
+restart the working controller to obtain another inspection API.
+
 Use deterministic offline Jest/RNTL tests for changed interaction behavior.
 Retain the strong existing service, lifecycle, permission and routing suites.
 Do not replace meaningful assertions with snapshots of implementation details.
@@ -125,6 +135,29 @@ These items remain unchecked until actually exercised on a native build:
 
 Physical delivery, invitation email, disposable membership/role/remove/leave,
 and other documented backend release QA remain separate gates.
+
+## Post-redesign release hardening
+
+This is a handoff sequence, not authorization to merge, deploy or mutate hosted
+data during the redesign.
+
+1. Complete final user review of the single redesign PR and its final hosted
+   verification. Keep the unrelated Expo upgrade PR separate;
+   use the SDK matching the branch actually selected for the native build.
+2. Run the native checklist above on small and large iPhones, including maximum
+   text, VoiceOver, keyboard and image-picker paths. Fix and recheck any findings.
+3. Exercise existing account/bootstrap, multi-organisation, invitation and
+   membership/role/lifecycle contracts with explicitly authorised disposable
+   accounts. Include no-organisation, removed access, zero team admins, last-admin
+   protections, archive/restore and create retry.
+4. Verify physical-device push registration, account/profile token ownership,
+   supported delivery types, unread behavior and current push-tap limitations.
+5. Finish owner-controlled production email/domain/SMTP/redirect/link-host work
+   under its separate approval process, then verify real invitation delivery
+   and native acceptance. Preserve the documented production-readiness gates.
+6. Re-run automated checks on the release candidate and use a limited volunteer
+   trial that includes older and less technical people before broader rollout.
+   Record observed task completion, confusion and accessibility problems.
 
 ## Completion report requirements
 

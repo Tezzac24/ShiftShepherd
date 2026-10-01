@@ -106,6 +106,12 @@ Sources: [selectors](../../src/lib/appData/selectors.ts), [permissions](../../sr
 - An announcement has a church or team audience, optional pinned state, optional linked event and at most one image. “Recently posted” is supportable; “Unread” is not. There is no backend announcement draft, acknowledgement or per-person read record.
 - Events are visible to the active organisation. A team link is descriptive context, not an RSVP or restricted audience. The linked team name may be unavailable to non-members because RLS hides that team; omitting unavailable context is the current safe fallback.
 - Recurring events remain one base record expanded client-side. Editing a displayed occurrence must preserve the existing series behavior.
+- A related team does not restrict event readership. However, the existing
+  team-lifecycle migration's event write policies require that related team to
+  remain active, including UPDATE's existing-row check and DELETE. A known
+  archived related team therefore prevents editing/deletion until restoration;
+  this is an existing server rule, not a new redesign restriction. When metadata
+  is unavailable, the server still decides and the existing service maps failures.
 - Chat messages are immutable, sorted by `(created_at, id)`, with one optional image and an optional caption. Image-only message previews use “Photo”. Failed sends retain the draft and pending photo.
 - Live unread truth comes from the existing server summary/cursor path. Opening Messages or showing a Home preview does not mark a team read. Opening a chat clears only that chat through its established active-chat lifecycle. Push is not unread truth.
 - Profile/team avatars, announcement images and chat images remain private storage paths displayed through AppData's signed-URI resolvers. Do not render stored paths directly, make a bucket public, or persist signed URLs in demo state. Preserve fallback initials and unavailable-image behavior.

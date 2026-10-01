@@ -193,9 +193,9 @@ function TeamSpaceContent({ team, isCurrentScope }: { team: Team; isCurrentScope
         onPress={() => router.push({ pathname: '/announcements/[id]', params: { id: notice.id } })} />)}
       {announcements.length === 0 ? data.announcementsLoading ? <StatePanel compact kind="loading" title="Loading announcements…" />
         : !data.announcementsError ? <AppText tone="secondary">No team announcements yet.</AppText> : null : null}
-      <Button title="All announcements" variant="ghost" icon="megaphone-outline"
-        accessibilityHint="Opens announcements from your church and your accessible teams"
-        onPress={() => router.push('/announcements')} />
+      <Button title="All team announcements" variant="ghost" icon="megaphone-outline"
+        accessibilityHint={`Opens announcements for ${team.name}`}
+        onPress={() => router.push({ pathname: '/announcements', params: { teamId: team.id } })} />
     </View>
 
     {team.description ? <View style={styles.section}>

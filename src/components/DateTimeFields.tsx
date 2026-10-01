@@ -6,7 +6,7 @@
  * is reliable on iOS, Android, and web without native picker differences.
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { calendarTouchTarget, colors, radius, spacing, touchTarget } from '../../constants/theme';
@@ -21,6 +21,8 @@ interface DateFieldProps {
   value: string | null;
   onChange: (dateKey: string) => void;
   daysAhead?: number;
+  disabled?: boolean;
+  error?: string;
 }
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -50,7 +52,7 @@ function buildMonthDays(month: Date): (Date | null)[] {
   return days;
 }
 
-export function DateField({ label, value, onChange, daysAhead = 365 }: DateFieldProps) {
+export function DateField({ label, value, onChange, daysAhead = 365, disabled = false, error }: DateFieldProps) {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -58,6 +60,7 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
   }, []);
   const selectedDate = value ? parseDateKey(value) : null;
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   const triggerRef = useRef<View>(null);
   const [visibleMonth, setVisibleMonth] = useState<Date>(() => selectedDate ?? today);
 
@@ -79,10 +82,12 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
   const canGoNext = startOfMonth(visibleMonth) < maxMonth;
 
   const moveMonth = (offset: number) => {
+    if (disabled) return;
     setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
   };
 
   const isSelectable = (date: Date): boolean => {
+    if (disabled) return false;
     const key = toDateKey(date);
     if (key === value) return true;
     return date >= today && date <= maxDate;
@@ -95,10 +100,13 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
         ref={triggerRef}
         accessibilityRole="button"
         accessibilityLabel={`${label}: ${selectedDate ? selectedDate.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : selectedLabel}`}
-        accessibilityHint="Opens a calendar date picker"
-        accessibilityState={{ expanded: open }}
-        onPress={() => setOpen((current) => !current)}
-        style={({ pressed }) => [styles.field, pressed && styles.pressed]}
+        accessibilityHint={error ?? 'Opens a calendar date picker'}
+        accessibilityState={{ expanded: open && !disabled, disabled }}
+        aria-expanded={open && !disabled}
+        aria-disabled={disabled}
+        disabled={disabled}
+        onPress={disabled ? undefined : () => setOpen((current) => !current)}
+        style={({ pressed }) => [styles.field, disabled && styles.disabled, error ? { borderColor: colors.danger } : null, pressed && styles.pressed]}
       >
         <View style={styles.fieldValue}>
           <Ionicons name="calendar-outline" size={22} color={colors.primary} accessible={false} />
@@ -111,8 +119,9 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
           accessible={false}
         />
       </Pressable>
+      {error ? <AppText variant="small" tone="danger" accessibilityRole="alert" accessibilityLiveRegion="polite">{error}</AppText> : null}
 
-      <ModalSurface visible={open} title={label} onClose={() => setOpen(false)} returnFocusRef={triggerRef}>
+      <ModalSurface visible={open && !disabled} title={label} onClose={() => setOpen(false)} returnFocusRef={triggerRef}>
         <View style={styles.calendarPanel}>
           <AppText variant="subheading" headingLevel={2} style={styles.monthTitle} accessibilityLiveRegion="polite">
             {monthLabel}
@@ -122,6 +131,7 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
               accessibilityRole="button"
               accessibilityLabel="Previous month"
               accessibilityState={{ disabled: !canGoPrev }}
+              aria-disabled={!canGoPrev}
               disabled={!canGoPrev}
               onPress={() => moveMonth(-1)}
               style={({ pressed }) => [
@@ -145,6 +155,7 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
               accessibilityRole="button"
               accessibilityLabel="Next month"
               accessibilityState={{ disabled: !canGoNext }}
+              aria-disabled={!canGoNext}
               disabled={!canGoNext}
               onPress={() => moveMonth(1)}
               style={({ pressed }) => [
@@ -193,8 +204,11 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
                     year: 'numeric',
                   })}
                   accessibilityState={{ selected, disabled: !selectable }}
+                  aria-pressed={selected}
+                  aria-disabled={!selectable}
                   disabled={!selectable}
                   onPress={() => {
+                    if (disabled) return;
                     onChange(key);
                     setOpen(false);
                   }}
@@ -221,7 +235,7 @@ export function DateField({ label, value, onChange, daysAhead = 365 }: DateField
   );
 }
 
-export function DateListField({ label, value, onChange, daysAhead = 90 }: DateFieldProps) {
+export function DateListField({ label, value, onChange, daysAhead = 90, disabled, error }: DateFieldProps) {
   const options: SelectOption[] = [];
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -247,6 +261,8 @@ export function DateListField({ label, value, onChange, daysAhead = 90 }: DateFi
       value={value}
       options={options}
       onChange={onChange}
+      disabled={disabled}
+      error={error}
     />
   );
 }
@@ -258,11 +274,13 @@ interface TimeFieldProps {
   onChange: (time: string | null) => void;
   /** Adds a "No set time" choice. */
   optional?: boolean;
+  disabled?: boolean;
+  error?: string;
 }
 
 const NO_TIME = '__none__';
 
-export function TimeField({ label, value, onChange, optional }: TimeFieldProps) {
+export function TimeField({ label, value, onChange, optional, disabled, error }: TimeFieldProps) {
   const options: SelectOption[] = [];
   if (optional) options.push({ value: NO_TIME, label: 'No set time' });
   for (let h = 6; h <= 22; h++) {
@@ -278,13 +296,27 @@ export function TimeField({ label, value, onChange, optional }: TimeFieldProps) 
     }
   }
 
+  // A saved value may predate the chooser's quarter-hour range. Keep that
+  // exact valid time visible and selectable; do not silently round it.
+  if (value && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) && !options.some((option) => option.value === value)) {
+    const [hour, minute] = value.split(':').map(Number);
+    const retained = new Date();
+    retained.setHours(hour, minute, 0, 0);
+    const laterTimeIndex = options.findIndex((option) => option.value !== NO_TIME && option.value > value);
+    options.splice(laterTimeIndex < 0 ? options.length : laterTimeIndex, 0, {
+      value, label: retained.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+    });
+  }
+
   return (
     <SelectField
       label={label}
       placeholder="Choose a time…"
-      value={value ?? (optional ? null : value)}
+      value={value ?? (optional ? NO_TIME : null)}
       options={options}
       onChange={(v) => onChange(v === NO_TIME ? null : v)}
+      disabled={disabled}
+      error={error}
     />
   );
 }

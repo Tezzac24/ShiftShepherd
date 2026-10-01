@@ -305,11 +305,10 @@ describe('Team hub tools and states', () => {
     expect(data.refreshAnnouncements).toHaveBeenCalledTimes(1);
   });
 
-  it('labels the existing unfiltered announcement destination honestly', () => {
+  it('opens the validated announcement filter for this team', () => {
     const screen = render(<TeamSpaceScreen />);
-    fireEvent.press(screen.getByLabelText('All announcements'));
-    expect(mockPush).toHaveBeenCalledWith('/announcements');
-    expect(screen.queryByText('All team announcements')).toBeNull();
+    fireEvent.press(screen.getByLabelText('All team announcements'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/announcements', params: { teamId: TEAM.id } });
   });
 
   it('retains every role on the next date and the existing response destination', () => {

@@ -1,6 +1,6 @@
 # Navigation flow review
 
-Status: in progress after the accepted Chat review on 30 September.
+Status: in progress after announcement/event acceptance on 1 October.
 The complete redesign, final visual review and PR gates are still outstanding.
 
 ## Counting and evidence
@@ -40,6 +40,12 @@ fixtures. None establishes native or live-service QA.
 | Open chat / Messages | 1 | 1 | Conversation row opens chat; only that focused chat advances its existing read cursor. |
 | Open chat / Teams | 2 | 2 | Team, Chat. Back retains the original entry point. |
 | See members / Chat | Back through original entry point | 2 | View team, Members. The labelled shortcut works regardless of the conversation entry point. |
+| Read announcement / Home | 1–2 | 1–2 | Recent notice, or All announcements then detail. Editorial content and audience remain clear. |
+| All notices for a team / Teams | No dedicated filtered view | 2 | Team, All team announcements. A notice is one further transition; clearing the filter retains Back to the team. |
+| Read event / Schedule | 1 | 1 | Event row opens detail with the selected recurring day preserved. |
+| Create announcement / Home | 2 | 2 | All announcements, New announcement. Audience/event choices are sheets; optional image/pin/link controls expand in place. |
+| Create event / Home | 2 | 2 | Schedule, New event. Date/time/repeat choices are in-place sheets; save retains the existing completion route. |
+| Edit event / Schedule | 2 | 2 | Event, Manage sheet, Edit event/series. Whole-series consequences are explicit; management stays near the heading on long content. |
 
 The new zero-admin team stayed at zero members after edit/archive/restore.
 Another create added only the explicitly selected Sarah as team admin; the
@@ -54,10 +60,6 @@ acceptance. Update their evidence after their owning worker and director review.
 
 | Task and starting context | Before | Expected final path/count | Outstanding review |
 | --- | ---: | --- | --- |
-| Read announcement / Home | 1–2 | Recent notice or all notices then detail: 1–2 | List/detail/form and team filter. |
-| Read event / Schedule | 1 | Event detail: 1 | Detail, occurrence context and form. |
-| Create announcement / Home | 2 | All announcements, create: 2 | Audience authority and image recovery. |
-| Create event / Home | 2 | Schedule, create: 2 | Recurrence, validation and hydration. |
 | View/update availability / Schedule | Not exposed | My serving, date: 1 | Inline response composition and multi-role behavior. |
 | Read a library song / Teams | 3 | Team, Songs, song: 3 | Library/detail and scoped deep links. |
 | Add a song / Teams | 3 | Team, Songs, Add: 3 | Ordinary choir-member authority and form. |

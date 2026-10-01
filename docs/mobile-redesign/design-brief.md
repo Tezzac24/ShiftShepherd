@@ -143,11 +143,34 @@ Keep cancellation/history, restoration, partial monthly-save results and the
 separate announcement offer. Monthly planning groups pattern, default people
 and per-date overrides. No scheduling or notification rules change.
 
+Use a concise Rota header and the full date title in the content, rather than
+repeating long titles in both places. The person's response is the primary
+participation action; named availability choices and an optional note belong in
+a comfortable shared sheet. Show the current saved response before asking for a
+change. Other people and their roles form a readable list, with response words
+as well as colour. Keep edit/cancel/restore/delete in a labelled Manage surface,
+with the existing separate confirmations and notice-draft offer. Cancelled dates
+explain their status and keep permitted recovery available.
+
+Team rota lists use readable date rows and can disclose past dates from existing
+loaded data. Creation starts with the date details, then clearly paired person
+and role choices. Monthly planning stays one understandable form: pattern and
+times, default people, then dates and optional individual changes. Keep the
+existing batch result authoritative, including partial success; never hide or
+silently retry the already-created part.
+
 “Songs” replaces “Song Database” in presentation. A scannable library leads to
 readable lyrics and labelled external links without displaying a raw URL as the
 main content. All choir members retain song editing. Date-specific praise and
 worship choices remain separately authorised. Selection/reorder controls have
 comfortable targets and save remains reachable after scrolling.
+
+Song detail prioritises title, artist and readable lyrics, with supporting notes
+and clearly labelled links. Contextual editing remains available to every
+permitted choir member. A service's Praise and Worship sections keep their own
+authority and selection order; save explicitly and retain unsaved choices during
+same-profile refresh. Every child route validates its owning team/date before
+rendering or acting, including direct links.
 
 ### Announcements and events
 
@@ -163,6 +186,12 @@ and description. A related team is context, not an audience restriction. Keep
 management contextual and permission-aware; explain whole-series consequences
 to the person editing. Do not add RSVP, reminders, maps or unsupported actions.
 
+Keep notice/event titles full-width. Place quiet Manage beside the smaller
+audience/category context above the title, so long content does not hide it or
+squeeze the title. Detail and selected-image previews show the whole image;
+list thumbnails may crop. A failed image load has a quiet visible fallback,
+with text still readable. No new image viewer or download action is introduced.
+
 Forms put essential fields first; disclose optional linking, pinning, recurrence
 and image controls where useful. Preserve existing limits, date/time/recurrence
 and end-date semantics, including saved links absent from a filtered chooser.
@@ -171,6 +200,11 @@ Hydrate for the actual account/organisation/item scope; preserve drafts and know
 saved outcomes during same-profile refresh. In particular, an announcement whose
 text saved but image failed must offer recovery without creating a duplicate.
 Existing image hooks and notification calls remain unchanged.
+
+A known successful save stays visibly successful through a temporary access
+check. Explain any unfinished image step and use Close/Done, rather than Cancel,
+once text is already saved. Recurrence end dates include the year, and retained
+nonstandard times remain in chronological order without rounding them.
 
 ### Profile, identity and notifications
 
@@ -189,6 +223,31 @@ Login prioritises usable email sign-in/signup. Unavailable providers may be
 explained in a secondary disclosure rather than advertised as main actions.
 Demo access remains available. Confirmation is a success/information state,
 never a password error. Invitation identity/token/Not now behavior is preserved.
+
+Church selection is a readable list with an explicit current-church marker,
+understandable switching progress and a safe Back/Cancel when entered from an
+active church. A failed account lookup is not a no-church state. The no-church
+screen explains invitation-based joining and the existing create-church option,
+without offering unsupported church discovery or automatic email matching.
+Keep authentication/bootstrap routing inside its established abstraction.
+
+Church member administration starts with people and search, with role/access
+details and consequential actions disclosed in context. Use the existing server
+search and describe its bounded result honestly; do not imply that an absent
+first-page result proves a person does not exist. Connect a person's applicable
+invitation action directly to the existing invitation workflow. Distinguish
+active access, an unlinked directory identity and removed access in plain
+language without inventing account status elsewhere. Preserve all four exclusive
+church roles, last-admin protections and the exact membership/history effects.
+
+Invitations prioritise a clear invite action and readable current/history
+states. Keep the short creation form separate from the full candidate list;
+choosing an existing directory person is a searchable field interaction.
+Saved-but-unsent, resend/supersede and revoke outcomes need adjacent explicit
+feedback. Acceptance screens lead with the church, bounded server-provided
+identity context, current state and the next permitted action. Keep Not now and
+wrong-account recovery discoverable, preserve pending tokens safely and never
+claim delivery or acceptance from an unresolved client preview.
 
 ## Visual system
 
