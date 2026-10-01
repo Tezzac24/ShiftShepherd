@@ -1,6 +1,6 @@
 # Navigation flow review
 
-Status: in progress after announcement/event acceptance on 1 October.
+Status: in progress after Rota acceptance on 1 October.
 The complete redesign, final visual review and PR gates are still outstanding.
 
 ## Counting and evidence
@@ -23,7 +23,7 @@ fixtures. None establishes native or live-service QA.
 | Task and starting context | Before | Current | Path and interaction notes |
 | --- | ---: | ---: | --- |
 | Understand the immediate overview / Home | 0 | 0 | Personal serving/event focus, actual unread cue and recent notices are visible on Home. |
-| Open the next duty / Home | 1 | 1 | Personal focus opens its date; availability is edited within the date. The rota composition still awaits its own redesign. |
+| Open the next duty / Home | 1 | 1 | Personal focus opens its date; Change availability opens a response sheet within that route. Multi-role response and recovery are personally inspected. |
 | Choose another personal duty / Home | 3 via a team shortcut; 4 via Teams | 2 | My serving opens Schedule's serving view, then the date. The Schedule segment is an in-place choice. |
 | Open a joined team / Home | 1 via a shortcut; 2 via Teams | 2 | Teams tab, then team. Removing Home's full team directory is an intentional clarity trade-off. |
 | Open a team / Teams | 1 | 1 | Membership and church-admin All teams remain distinct. |
@@ -46,6 +46,8 @@ fixtures. None establishes native or live-service QA.
 | Create announcement / Home | 2 | 2 | All announcements, New announcement. Audience/event choices are sheets; optional image/pin/link controls expand in place. |
 | Create event / Home | 2 | 2 | Schedule, New event. Date/time/repeat choices are in-place sheets; save retains the existing completion route. |
 | Edit event / Schedule | 2 | 2 | Event, Manage sheet, Edit event/series. Whole-series consequences are explicit; management stays near the heading on long content. |
+| View/update availability / Schedule | Not exposed | 1 | My serving segment, then date. The labelled response sheet keeps the saved response and optional note; multi-role partial failure and retry were inspected. |
+| Edit a later rota date / Teams | 4 | 3 | Team, Rota, edit form. Manage → Edit dates adds two initial interactions; the mode persists for further edits. Native Edit dates header and fixed Done remain visible while scrolling; Back retains the mode and Done restores reading. |
 
 The new zero-admin team stayed at zero members after edit/archive/restore.
 Another create added only the explicitly selected Sarah as team admin; the
@@ -60,7 +62,6 @@ acceptance. Update their evidence after their owning worker and director review.
 
 | Task and starting context | Before | Expected final path/count | Outstanding review |
 | --- | ---: | --- | --- |
-| View/update availability / Schedule | Not exposed | My serving, date: 1 | Inline response composition and multi-role behavior. |
 | Read a library song / Teams | 3 | Team, Songs, song: 3 | Library/detail and scoped deep links. |
 | Add a song / Teams | 3 | Team, Songs, Add: 3 | Ordinary choir-member authority and form. |
 | Choose own service songs / Schedule | Not exposed | My serving, date, section choice: 2 | Section-specific permissions and saved selection. |

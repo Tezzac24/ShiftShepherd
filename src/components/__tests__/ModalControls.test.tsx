@@ -31,6 +31,19 @@ test.each(['Cancel', 'Close'])('%s cancels a confirmation and exposes the underl
   expect(screen.getByText('Underlying screen')).toBeOnTheScreen();
 });
 
+test('a custom secondary label dismisses without confirming and does not change the next default', async () => {
+  const screen = renderConfirmation();
+  let result!: Promise<boolean>;
+  act(() => { result = confirm({ title: 'Write an announcement?', message: 'Review before posting.', confirmLabel: 'Write announcement', cancelLabel: 'Not now', destructive: false }); });
+  expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Not now' }));
+  await expect(result).resolves.toBe(false);
+  act(() => { result = confirm({ title: 'Restore date?', message: 'The date will be active again.', confirmLabel: 'Restore' }); });
+  expect(screen.queryByRole('button', { name: 'Not now' })).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+  await expect(result).resolves.toBe(false);
+});
+
 test('platform back/Escape cancels the confirmation', async () => {
   const screen = renderConfirmation();
   let result!: Promise<boolean>;

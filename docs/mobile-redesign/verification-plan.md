@@ -72,6 +72,13 @@ accessibility snapshot alongside the correctly labelled selected image. The
 visible full-image/fallback/recovery states pass; the cause of the extra node is
 unconfirmed. Recheck during the shared accessibility review, distinguishing
 retained or inspection-only web DOM from native output before changing controls.
+The same unnamed image role appeared on fresh Login/Home after 1 October runtime
+recovery, before any fixture, with zero page errors; a literal `img` element query
+was empty. Its provenance is still unconfirmed, so it is not attributed to the
+announcement component without further evidence.
+The fresh primary-tab snapshot also includes decorative icon glyphs in Home,
+Schedule, Teams and Profile names; Messages has a clean explicit label. Review
+explicit native tab labels and decorative-child hiding across all five tabs.
 If the running controller cannot inspect DOM metadata directly, use an ignored,
 demo-guarded inspection fixture to report only image alt/role/hidden state and
 parent tags (never source URLs/base64). Restore it exactly afterward; do not

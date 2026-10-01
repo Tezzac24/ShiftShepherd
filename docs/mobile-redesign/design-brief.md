@@ -152,12 +152,33 @@ as well as colour. Keep edit/cancel/restore/delete in a labelled Manage surface,
 with the existing separate confirmations and notice-draft offer. Cancelled dates
 explain their status and keep permitted recovery available.
 
+Cancellation uses one clear confirmation surface: **Cancel date** and **Keep
+date**, with the existing optional reason field. Explain that the reason appears
+on the team rota; an empty reason stays empty. Retain it on failure, preserve
+scope/status guards, and offer an announcement draft only after cancellation
+succeeds. Do not promise notification delivery.
+
 Team rota lists use readable date rows and can disclose past dates from existing
-loaded data. Creation starts with the date details, then clearly paired person
-and role choices. Monthly planning stays one understandable form: pattern and
+loaded data. Virtualize the collection. Authorised managers may choose **Edit
+dates** from Manage to enter a clearly labelled selection mode on the same list;
+each row then opens its existing edit route. Keep **Edit dates** in the native
+header and **Done** in the fixed footer so the mode and exit stay clear while
+scrolling. Preserve the mode through a same-profile refresh, and fence actual
+scope or authority loss. Ordinary members never see this mode.
+
+Creation starts with the date details, then clearly paired person and role
+choices. Completed assignment rows show compact name/role summaries, with one
+inline editor open at a time. Open new/incomplete rows and reveal the offending
+row during validation; retain stable draft identities and existing assignment
+semantics. Monthly planning stays one understandable form: pattern and
 times, default people, then dates and optional individual changes. Keep the
 existing batch result authoritative, including partial success; never hide or
-silently retry the already-created part.
+silently retry the already-created part. Keep team context on persistent result
+pages. After cancellation, the optional **Write an announcement?** offer leads
+to a draft that the user must **Post announcement** to publish; **Not now** skips
+that optional next action without implying the cancellation is undone. Include a supplied
+cancellation reason in factual draft copy; do not invent a future meeting or
+imply that the existing rota push behavior has changed.
 
 “Songs” replaces “Song Database” in presentation. A scannable library leads to
 readable lyrics and labelled external links without displaying a raw URL as the
@@ -307,7 +328,8 @@ Use borders/dividers and whitespace for structure. Avoid shadows on every row.
 - Page heading: short context/eyebrow if helpful, full readable title, optional
   explanation and one adjacent/following action that can wrap.
 - List groups: white surface with comfortable full-width rows and dividers.
-  Chevrons mean navigation; switches mean a saved preference; do not mix meanings.
+  Chevrons mean navigation; switches change a labelled preference or form choice.
+  Make immediate preference saving versus form submission clear in context.
   A failed automatic save restores the previous choice and explains the failure
   beside the affected preference. Keep both the feedback and retry control in
   view, including for choices near the bottom of a long screen.
@@ -323,6 +345,8 @@ Use borders/dividers and whitespace for structure. Avoid shadows on every row.
 - Confirmations: name the action/context and real consequence; clear Cancel;
   use destructive colour only when warranted. Long content scrolls. Dismissal
   resolves as cancellation, including back and unmount.
+  The default secondary label remains Cancel; an optional contextual label such
+  as Not now may clarify a follow-up after an action has already succeeded.
 - Forms: grouped required fields first; optional detail disclosed when useful;
   inline field errors plus visible summary/first-error focus and scroll. Retain
   drafts on failure. Save/Cancel remain reachable above safe area/keyboard.

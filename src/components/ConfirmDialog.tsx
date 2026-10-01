@@ -13,6 +13,7 @@ export interface ConfirmOptions {
   title: string;
   message: string;
   confirmLabel?: string;
+  cancelLabel?: string;
   /** Existing caller default remains true; routine actions can opt out. */
   destructive?: boolean;
   returnFocusRef?: FocusRef;
@@ -75,7 +76,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               variant={options.destructive === false ? 'primary' : 'destructive'}
               onPress={() => close(true)}
             />
-            <Button title="Cancel" variant="secondary" onPress={() => close(false)} />
+            <Button title={options.cancelLabel ?? 'Cancel'} variant="secondary" onPress={() => close(false)} />
           </>
         ) : null}
       >
