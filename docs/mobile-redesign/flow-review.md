@@ -1,6 +1,6 @@
 # Navigation flow review
 
-Status: in progress after Rota acceptance on 1 October.
+Status: in progress after Music acceptance on 6 October.
 The complete redesign, final visual review and PR gates are still outstanding.
 
 ## Counting and evidence
@@ -48,6 +48,9 @@ fixtures. None establishes native or live-service QA.
 | Edit event / Schedule | 2 | 2 | Event, Manage sheet, Edit event/series. Whole-series consequences are explicit; management stays near the heading on long content. |
 | View/update availability / Schedule | Not exposed | 1 | My serving segment, then date. The labelled response sheet keeps the saved response and optional note; multi-role partial failure and retry were inspected. |
 | Edit a later rota date / Teams | 4 | 3 | Team, Rota, edit form. Manage → Edit dates adds two initial interactions; the mode persists for further edits. Native Edit dates header and fixed Done remain visible while scrolling; Back retains the mode and Done restores reading. |
+| Read a library song / Teams | 3 | 3 | Team, Songs, song. Grouped search results open readable lyrics and the Music links disclosure. |
+| Add a song / Teams | 3 | 3 | Team, Songs, Add song. Ordinary members retain editing; optional fields expand in place. |
+| Choose own service songs / Schedule | Not exposed | 2 | My serving segment, date, section choices. Choose songs/Song order are segments on the same route; saved order and Back were checked in demo. |
 
 The new zero-admin team stayed at zero members after edit/archive/restore.
 Another create added only the explicitly selected Sarah as team admin; the
@@ -62,9 +65,6 @@ acceptance. Update their evidence after their owning worker and director review.
 
 | Task and starting context | Before | Expected final path/count | Outstanding review |
 | --- | ---: | --- | --- |
-| Read a library song / Teams | 3 | Team, Songs, song: 3 | Library/detail and scoped deep links. |
-| Add a song / Teams | 3 | Team, Songs, Add: 3 | Ordinary choir-member authority and form. |
-| Choose own service songs / Schedule | Not exposed | My serving, date, section choice: 2 | Section-specific permissions and saved selection. |
 | Invite/manage church members / Profile | 1 | Contextual church-management row: 1 | Organisation/invitation screen families. |
 | Change church role / Profile | 2 | Church members, role: 2 | Four exclusive roles and final-admin presentation. |
 | Switch church / Home | 2 to the choice via Profile | Shared church control, selector: 1 | Multi-organisation selector/state presentation. Header routing has behavior coverage; no live switch QA is claimed. |
@@ -76,7 +76,7 @@ acceptance. Update their evidence after their owning worker and director review.
   Teams tab keeps the path short and recognisable.
 - Reading a song through the general library takes three transitions from Teams
   and four from Home. Service-song links on a personal duty provide a shorter
-  contextual path; verify those during the music phase.
+  contextual path, verified during the music phase.
 - Editing a library song can take four transitions from Teams. Selecting songs
   for an arbitrary date one is not serving can also take four from Teams. From
   the already-open choir hub each takes three. These retain useful reading/date

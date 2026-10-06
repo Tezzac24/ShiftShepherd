@@ -185,6 +185,24 @@ readable lyrics and labelled external links without displaying a raw URL as the
 main content. All choir members retain song editing. Date-specific praise and
 worship choices remain separately authorised. Selection/reorder controls have
 comfortable targets and save remains reachable after scrolling.
+The library uses grouped virtualized rows with dividers, full titles, artist and
+tags; avoid separate panels and link counts for every song. Above the lyrics,
+provide a compact **Music links** disclosure with the existing labelled links
+and adjacent failure/retry when expanded. Keep it collapsed by default so long
+lyrics remain the main reading content without hiding access to listening links.
+Service selection uses the shared **Choose songs / Song order (N)** segments
+on the existing route, defaulting to Choose songs. Keep the switch reachable
+while scrolling and Save/Cancel fixed. Choose contains search and grouped
+virtualized checkbox rows; Order contains the existing labelled Up/Down/Remove
+controls and an empty-state path back to Choose. Keep draft order, notes and
+query across segments; choosing a song must not grow another list above the
+library or automatically switch views.
+After an uncertain new-song save, **Check song library** becomes the primary
+footer action; **Try saving again** remains explicit and secondary. Prefill
+library search with the submitted title from the failed attempt, keep Back to
+the retained draft, and never infer a saved song's identity from a title match.
+The choir-only hub shortcut does not introduce a new team-type permission gate
+on existing helper-authorized song deep links; preserve those routes.
 
 Song detail prioritises title, artist and readable lyrics, with supporting notes
 and clearly labelled links. Contextual editing remains available to every

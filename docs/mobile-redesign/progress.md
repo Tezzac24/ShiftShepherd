@@ -1,6 +1,6 @@
 # Mobile redesign continuity checkpoint
 
-Updated 1 October 2026 after the user's request to preserve parent context.
+Updated 6 October 2026; continuing from the user's context-preservation checkpoint.
 This is the entry point after compaction. Continue the existing redesign; do not
 repeat the completed audit or reopen accepted design decisions without new
 rendered evidence. Implementation detail remains in the repository.
@@ -10,17 +10,20 @@ rendered evidence. Implementation detail remains in the repository.
 - Goal remains active: complete mobile redesign, one branch, one final reviewed
   PR with green required CI. Do not merge. No redesign PR has been opened yet.
 - Branch: `feat/mobile-ui-ux-reimagination`.
-- HEAD: `4cb68f0c2e5194c887c5f0277448e1c951eb98b5` (9 commits ahead).
-- Base and last fetched `origin/main`: `ecde433` (rechecked 1 October).
+- HEAD: `3965a43978f16eeb1894d8fd6402a87ae54b50f0` (10 commits ahead).
+- Base and last fetched `origin/main`: `ecde433` (rechecked 6 October).
 - Unrelated open PR #19 (Expo SDK57) is excluded. This branch uses main's SDK54;
   repository CI uses Node20. Local Node is 24.19.
 - Initial clean-tree/fetch/open-PR/migration checks, required reading, complete
   route inventory, flow map and the director's first-hand audit are complete.
   The representative-slice gate is accepted. Do not restart them.
-- Uncommitted work is the validated Rota family, its local helpers/tests,
-  obsolete RotaEntryCard removal, shared confirmation label and documentation.
-- Rota worker `rota_refinement` is complete and personally accepted; earlier
-  workers are terminal. No implementation worker is running. Choir/music is next.
+- Music is personally accepted and fully validated; its logical phase commit is
+  next. Uncommitted files are confined to Choir/music helpers/tests and the
+  director's mobile-redesign documents.
+- All implementation workers are complete. Do not reuse the original audit.
+  Auth/bootstrap/no-church/create/switch is the next fresh sequential worker.
+- Main and open PRs were rechecked on 6 October: main is unchanged and the only
+  open PR is unrelated SDK-upgrade #19. Use the dedicated GitHub PR search.
 
 ## Accepted areas and commits
 
@@ -35,7 +38,8 @@ rendered evidence. Implementation detail remains in the repository.
 | Team create/edit/archive/restore/Add member | 7a53707 | 1,062 tests/84 suites; creation/retry/scope/lifecycle review |
 | Messages and chat | d724d40 | 1,118 tests/87 suites; 56 focused; history/composer/recovery review |
 | Announcements and events | 4cb68f0 | 1,206 tests/91 suites; 113 focused; 56 parent captures |
-| Rota, availability and monthly planning | Pending phase commit | 1,302 tests/93 suites; 118 focused; 59 parent captures |
+| Rota, availability and monthly planning | 3965a43 | 1,302 tests/93 suites; 118 focused; 59 parent captures |
+| Choir/music | Pending phase commit | 1,387 tests/96 suites; 51 affected tests after final refinement; 52 parent captures |
 
 Each accepted implementation phase also passed typecheck, lint, migration
 filename check, diff check and demo-only Android/iOS/web export (43 routes).
@@ -135,61 +139,60 @@ Protected baseline Git objects for final comparison:
 | src/lib/auth/ | fe517839f764a72daaa58efaf6f53a23f2043429 |
 | app.json | 3150afc0603d0ade0c5ee712e5c26f6c6c18e19f |
 
-## Latest accepted slice: Rota
+## Latest accepted slice: Choir/music
 
-Rota list/detail/single-date/month forms, RotaScope and rotaPresentation are
-personally accepted. The obsolete RotaEntryCard is removed. New compact
-assignment summaries keep one editor open, stable local row IDs stay out of
-payloads, and validation opens/reveals incomplete rows. The virtualized date
-list has optional past dates and contextual Edit dates mode, with persistent
-native header/fixed Done; same-profile refresh retains it and role loss resets
-it. Cancellation retains its optional reason and offers a factual manual
-announcement draft with Not now. The shared confirmation API now supports an
-optional secondary label while keeping Cancel as the default elsewhere.
+Accepted 6 October: grouped virtualized library, readable lyrics with Music links
+disclosure above, ordinary-member CRUD, focused form with optional fields, and
+sticky Choose songs/Song order segments with fixed save. Existing generic-team
+deep links retain helper authority; the choir-only hub shortcut does not create
+a new team-type permission gate. Local scope/child/org guards preserve drafts
+through same-profile refresh and reject stale work after real access changes.
 
-Final phase validation: **1,302 tests/93 suites**, **118 focused/4 suites**,
-typecheck, lint, 38-migration check, diff check and demo-only Android/iOS/web
-export (43 routes) passed. The final header/footer refinement additionally
-passed 68 affected tests. Protected backend/services/Auth/permissions/types,
-dependencies/configuration are unchanged. Export required approved process
-permissions for Hermes; no deployment occurred.
+Existing song/link and section writes can fail after partial completion. The UI
+keeps drafts/order and acknowledges uncertainty. New-song recovery prioritizes
+Check song library with the failed attempt's submitted title, keeps Back to the
+draft, and leaves retry explicit/secondary. It never infers a saved ID from titles.
+This uses existing APIs; no backend addition or DESIGN BLOCKER is needed.
 
-Parent rendered at 375/390/393/430 phone widths. Actual demo inspection covered
-multi-role creation/availability/cancel/restore/delete and member denial. All 13
-offline scenarios covered long names/lists, cold edit/read/retry, partial own
-response, cancellation failure/reason retry, exact monthly partial prefix,
-zero-result retry and known saved results during an access refresh. Refinements
-passed compact 17-row editing, eighteenth-row validation reveal, 32-date/past
-scrolling, edit→Cancel/Back/Done and refresh/role loss. My serving→Hannah's own
-Worship date exposes only her section choice; Back preserves the segment.
+Final phase checks passed: **1,387 tests/96 suites**, typecheck, clean lint,
+38-migration filename check, diff check and demo-only Android/iOS/web export
+(43 routes). The last recovery refinement passed 51 affected tests. Protected
+backend/services/Auth/permissions/AppData/types/config/dependencies are unchanged.
+The export used approved Hermes process permissions and did not deploy anything.
 
-There are 59 temporary captures in .cache/ui-audit/rota/. Final 55–59 supersede
-the offscreen edit-mode exit and verify empty/loading/error/retry. Every fixture
-is inactive/restored exactly, no shim/marker remains, and normal Choir rota
-has zero browser page errors. Current demo user is Hannah. Disposable
-rota-mupnvrow-1 was deleted; Daniel's original rota-ushers-1 is Available with
-an empty note. No hosted data was mutated.
+Parent inspected 375×812, 390×844 and 430×932. Normal demo CRUD, optional fields,
+selection/reorder/save/clear, permission differences and Back passed. Disposable
+song-mupy3ina-2 was deleted and Hannah's rota-choir-2 worship section restored
+empty. All 13 offline scenarios covered 60-song scrolling/search, long titles/
+artists/lyrics, cold/loading/error/retry, external-link failure, uncertain and
+partial saves, submitted-title recovery, retained drafts, readiness/role loss,
+archive/cancellation and late completion. Fifty-two captures are in ignored
+.cache/ui-audit/choir-music; final 51–52 supersede the earlier creation recovery.
+All fixtures are inactive/restored exactly, no shim/markers remain, and normal
+demo has zero browser page errors. Native/live-service QA is not claimed.
 
 ## Exact next action after compaction
 
-1. Read this checkpoint, repository instructions and only files relevant to the
-   next slice. Do not re-audit accepted families.
-2. Record the validated Rota phase as its logical commit on the same branch,
-   then start a **fresh sequential Choir/music worker** on library/detail/form
-   and service-section selection. Reuse the central brief and frozen contract.
-3. Parent owns final visual acceptance. Coordinate the live browser; no source
-   edits or tests while any inspection fixture is active. Require compact
-   worker handoffs (<=400 words), no implementation dumps.
-4. Personally inspect ordinary-member music CRUD, section permissions,
-   team/child matching, cold/error/empty/long content, retained selections,
-   explicit save/order and external-link recovery. Run relevant/full checks,
-   update compact ledgers, commit when accepted, then move to identity/auth.
-5. Never start parallel redesign teams, split the branch/PR, or merge.
+1. Read this checkpoint, repository instructions and only next-slice files.
+   Do not re-audit accepted families or reopen their design without new evidence.
+2. Commit the accepted Music phase on the same feature branch, then start a
+   **fresh sequential Auth/identity-presentation worker** for login/signup/
+   confirmation, account bootstrap, no-church, church creation and switching.
+   Organisation members/roles and invitations follow as the next bounded family.
+3. The worker reads the shared brief/contract and actual code, keeps Auth logic
+   behind existing abstractions, uses existing actions and returns <=400 words.
+   Parent owns global decisions, documentation and final personal visual review.
+4. Coordinate the existing browser. Fixtures must be inactive before source
+   edits/checks; inspect status, never assume it. Current demo user is Hannah;
+   the music library is clean and rota-choir-2 worship choices are empty.
+5. Inspect the changed area, common paths, role/state variants and appropriate
+   checks before accepting/committing and starting the next worker.
+   One branch, one final PR, no merge.
 
 ## Runtime and inspection recovery
 
-Preview: http://localhost:8089, exec session 59930. Controller:
-http://127.0.0.1:8090, session 66548. Both were recovered only after their former
+Preview: http://localhost:8089, exec session 89908. Controller:
+http://127.0.0.1:8090, session 80068. Both were recovered only after their former
 handles/endpoints were actually gone. An observation timeout alone is not a
 reason to restart. Probe before recovering; keep ongoing communication.
 
@@ -204,37 +207,40 @@ exec-rota-fixture.js restores rotaFixtureSource. The Rota fixture README/CLI is
 under .cache/ui-audit/rota-availability/fixture/. It documents all 13 scenarios,
 exact restoration and safe in-memory controls. Scenarios use team-choir and
 offline-rota; actual Auth must remain demo. Artifacts stay ignored, not committed.
+exec-choir-fixture.js similarly restores choirFixtureSource. The music fixture
+uses team-choir, offline-song and offline-rota; activation and restoration must
+be sequential, with a full goto and visible OFFLINE CHOIR INSPECTION banner.
+The audit skill guidance was read and its context preflight found no saved
+context; the user-authorized existing Chrome/Playwright workflow continues.
 Browser scroll is wheel-at-pointer; move into scroll content before interpreting
 a no-scroll result. Native header Back can be link Go back; fallback is button Back.
 
 ## Remaining sequence and final gates
 
-1. Commit the accepted Rota phase as above.
-2. Choir/music: library, detail, form, section selection/reorder, cold/error and
-   scope states; preserve ordinary-member song CRUD and section-specific authority.
-3. Auth/bootstrap/no-church/create/switch presentation.
-4. Organisation members/roles and invitation admin/acceptance states. Preserve
+1. Commit accepted Music; prior families stay accepted.
+2. Auth/bootstrap/no-church/create/switch presentation.
+3. Organisation members/roles and invitation admin/acceptance states. Preserve
    bounded server search, exact selected target, four roles, last-admin rules,
    removed/unlinked identity, wrong-account/token/expiry/saved-unsent behavior.
-5. Shared accessibility/forms/states/dead-code pass. Outstanding evidence:
+4. Shared accessibility/forms/states/dead-code pass. Outstanding evidence:
    live-style TeamMembers role/removal dialogs (offline), selected/expanded/busy
    state consistency, decorative tab glyphs in accessible names, unidentified
    unnamed image role seen on Login/Home/Rota, large-text/long-list review.
    Investigate actual DOM/native evidence; do not assume the image source.
-6. Independent sequential UX/accessibility and technical/regression reviews.
+5. Independent sequential UX/accessibility and technical/regression reviews.
    Resolve every blocker/high/medium; fix or explain remaining low findings.
-7. Final personal visual pass and exact-final-head validation: typecheck, lint,
+6. Final personal visual pass and exact-final-head validation: typecheck, lint,
    test:ci, check:migrations, git diff --check, npx expo export; protected diff,
    no secrets/real data/new migration/config/Edge changes; fresh read-only hosted
    alignment. Follow verification-plan.md for the state matrix.
-8. Reconcile final README/AGENTS/CLAUDE counts and presentation status without
+7. Reconcile final README/AGENTS/CLAUDE counts and presentation status without
    rewriting historical deployed-contract facts or native QA caveats.
-9. Push this branch; open one PR titled feat: reimagine mobile user experience.
+8. Push this branch; open one PR titled feat: reimagine mobile user experience.
    Use the requested 14-topic body, logical commits and no attribution trailers.
    All required CI must be green on final HEAD; resolve actionable comments and
    threads. **Do not merge.**
-10. Provide the requested 18-topic completion report, before/after flow counts,
-    native QA checklist and release-hardening sequence. Only then complete goal.
+9. Provide the requested 18-topic completion report, before/after flow counts,
+   native QA checklist and release-hardening sequence. Only then complete goal.
 
 Native iPhone navigation, keyboard, safe areas, modals, scrolling, picker, status
 bar, deep links, touch/large-text/screen-reader behavior and push taps remain QA

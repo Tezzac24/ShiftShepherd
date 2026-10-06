@@ -1,290 +1,230 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
-import { Card } from '../../components/Card';
-import { EmptyState } from '../../components/EmptyState';
+import { FormErrorSummary } from '../../components/FormErrorSummary';
+import { ListGroup } from '../../components/ListGroup';
+import { ListRow } from '../../components/ListRow';
+import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
 import { SelectField } from '../../components/SelectField';
+import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
-import { useRequiredUser } from '../../lib/auth/AuthContext';
-import { canManageSongs } from '../../lib/permissions';
 import { suggestedSongTags } from '../../lib/mockData';
-import { SongLink, SongPlatform } from '../../types';
+import { Song, SongLink, SongPlatform } from '../../types';
 import { makeId } from '../../utils/ids';
+import { ChoirAccessState, ChoirScope, ChoirScopeValue } from './ChoirScope';
+import { DraftLink, matchingSong, SongDraft, songDraft, SongErrors, SongField, validateSongDraft } from './choirPresentation';
 
-interface DraftLink {
-  platform: SongPlatform;
-  url: string;
+const platforms: SongPlatform[] = ['YouTube', 'Spotify', 'Apple Music', 'Other'];
+
+/** Song collaboration remains available to every choir member. */
+export default function SongFormScreen() {
+  const { teamId, songId } = useLocalSearchParams<{ teamId: string | string[]; songId?: string | string[] }>();
+  return <ChoirScope teamId={typeof teamId === 'string' ? teamId : null} routeKey={songId === undefined ? 'new' : `edit:${String(songId)}`}>
+    {(scope) => <SongForm scope={scope} songId={typeof songId === 'string' ? songId : null} editing={songId !== undefined} />}
+  </ChoirScope>;
 }
 
-const PLATFORMS: SongPlatform[] = ['YouTube', 'Spotify', 'Apple Music', 'Other'];
-
-/** Add/edit song — any choir member can do this. */
-export default function SongFormScreen() {
+function SongForm({ scope, songId, editing }: { scope: ChoirScopeValue; songId: string | null; editing: boolean }) {
+  const { team, user } = scope;
   const router = useRouter();
-  const { teamId, songId } = useLocalSearchParams<{ teamId: string; songId?: string }>();
-  const user = useRequiredUser();
   const data = useAppData();
   const showToast = useToast();
-
-  const team = data.teams.find((t) => t.id === teamId);
-  const existing = songId ? data.songs.find((s) => s.id === songId) : undefined;
-  const editing = !!existing;
-
-  const [title, setTitle] = useState(existing?.title ?? '');
-  const [artist, setArtist] = useState(existing?.artist ?? '');
-  const [lyrics, setLyrics] = useState(existing?.lyrics ?? '');
-  const [notes, setNotes] = useState(existing?.notes ?? '');
-  const [tags, setTags] = useState<string[]>(existing?.tags ?? []);
-  const [links, setLinks] = useState<DraftLink[]>(
-    existing?.links.map((l) => ({ platform: l.platform, url: l.url })) ?? [],
-  );
-  const [error, setError] = useState<string | null>(null);
+  const existing = matchingSong(data.songs, songId, team?.id ?? null, user.profile.organisation_id);
+  const original = useRef<Song | undefined>(undefined);
+  const [draft, setDraft] = useState<SongDraft | null>(null);
+  const [errors, setErrors] = useState<SongErrors>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [failedCreationTitle, setFailedCreationTitle] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [linksOpen, setLinksOpen] = useState(false);
+  const nextLinkId = useRef(1);
+  const active = useRef(true);
+  const closed = useRef(false);
+  const requestPending = useRef(false);
+  const completed = useRef(false);
+  const current = useRef({ ready: scope.ready, existing, failedCreationTitle });
+  current.current = { ready: scope.ready, existing, failedCreationTitle };
+  const scrollRef = useRef<ScrollView>(null);
+  const titleRef = useRef<TextInput>(null);
+  const lyricsRef = useRef<TextInput>(null);
+  const positions = useRef<Partial<Record<SongField, number>>>({});
+  const heading = editing ? 'Edit song' : 'Add song';
 
-  if ((!team || (songId && !existing)) && (data.teamsLoading || data.songsLoading)) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ title: editing ? 'Edit Song' : 'Add Song' }} />
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <AppText tone="secondary">Loading song details...</AppText>
-        </View>
-      </Screen>
-    );
-  }
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => {
+    if (draft || !scope.ready || (editing && !existing)) return;
+    original.current = existing;
+    setDraft(songDraft(existing));
+  }, [draft, scope.ready, editing, existing]);
+  useEffect(() => {
+    if (!savedId || !scope.ready || !team || closed.current) return;
+    closed.current = true;
+    showToast(editing ? 'Song updated.' : 'Song added.');
+    if (router.canGoBack()) router.back();
+    else router.replace({ pathname: '/teams/[teamId]/songs/[songId]', params: { teamId: team.id, songId: savedId } });
+  }, [savedId, scope.ready, team, editing, router, showToast]);
+  useEffect(() => { if (saveError) scrollRef.current?.scrollTo({ y: 0, animated: false }); }, [saveError]);
 
-  if (!team || !canManageSongs(user, team)) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ title: 'Songs' }} />
-        <EmptyState
-          icon="lock-closed-outline"
-          title="No permission"
-          message="You do not have permission to do that."
-        />
-      </Screen>
-    );
-  }
-
-  if (songId && !existing) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ title: 'Edit Song' }} />
-        <EmptyState
-          icon="musical-notes-outline"
-          title="Song not found"
-          message={data.songsError ?? 'This song may have been deleted.'}
-        />
-        {data.songsError ? (
-          <Button
-            title="Try Again"
-            variant="secondary"
-            icon="refresh-outline"
-            onPress={() => void data.refreshSongs()}
-          />
-        ) : null}
-      </Screen>
-    );
-  }
-
-  const toggleTag = (tag: string) => {
-    setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  const close = () => {
+    closed.current = true;
+    if (router.canGoBack()) router.back();
+    else if (team && editing && songId) router.replace({ pathname: '/teams/[teamId]/songs/[songId]', params: { teamId: team.id, songId } });
+    else if (team) router.replace({ pathname: '/teams/[teamId]/songs', params: { teamId: team.id } });
+    else router.replace('/(tabs)/teams');
   };
-
-  const updateLink = (index: number, patch: Partial<DraftLink>) => {
-    setLinks((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+  const editable = () => active.current && !closed.current && current.current.ready && !requestPending.current && !completed.current
+    && (!editing || !!current.current.existing);
+  const focusField = (field: SongField) => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, (positions.current[field] ?? 0) - spacing.md), animated: false });
+    (field === 'title' ? titleRef : lyricsRef).current?.focus();
   };
-
-  const handleSave = async () => {
-    if (saving) return;
-    if (!title.trim() || !lyrics.trim()) {
-      setError('Please add at least a song title and lyrics (or a placeholder).');
+  const change = <K extends keyof SongDraft>(field: K, value: SongDraft[K]) => {
+    if (!editable()) return;
+    setDraft((previous) => previous ? { ...previous, [field]: value } : previous);
+    if (field === 'title' || field === 'lyrics') setErrors((previous) => ({ ...previous, [field]: undefined }));
+  };
+  const updateLink = (localId: string, patch: Partial<Pick<DraftLink, 'platform' | 'url'>>) => {
+    if (draft) change('links', draft.links.map((link) => link.localId === localId ? { ...link, ...patch } : link));
+  };
+  const checkLibrary = () => {
+    const attemptedTitle = current.current.failedCreationTitle;
+    if (!editable() || !team || attemptedTitle === null) return;
+    void data.refreshSongs();
+    // Push keeps this draft in the stack so Back can return to it. A failed
+    // refresh remains visible in the library; no title-based identity inference.
+    router.push({ pathname: '/teams/[teamId]/songs', params: { teamId: team.id, search: attemptedTitle } });
+  };
+  const save = async () => {
+    if (!editable() || !draft || !team) return;
+    const validated = validateSongDraft(draft);
+    setErrors(validated);
+    if (Object.keys(validated).length) {
+      requestAnimationFrame(() => { if (editable()) focusField(Object.keys(validated)[0] as SongField); });
       return;
     }
-    const songIdForLinks = existing?.id ?? 'pending';
-    const cleanLinks: SongLink[] = links
-      .filter((l) => l.url.trim())
-      .map((l) => ({
-        id: makeId('link'),
-        song_id: songIdForLinks,
-        platform: l.platform,
-        url: l.url.trim(),
-      }));
-
-    const record = {
-      team_id: team.id,
-      title: title.trim(),
-      artist: artist.trim() || null,
-      lyrics: lyrics.trim(),
-      notes: notes.trim() || null,
-      tags,
-      links: cleanLinks,
-      added_by: existing?.added_by ?? user.profile.id,
-    };
-    setError(null);
-    setSaving(true);
+    setSaveError(null);
+    const cleanLinks: SongLink[] = draft.links.filter((link) => link.url.trim()).map((link) => ({
+      id: makeId('link'), song_id: existing?.id ?? 'pending', platform: link.platform, url: link.url.trim(),
+    }));
+    const record = { team_id: team.id, title: draft.title.trim(), lyrics: draft.lyrics.trim(),
+      artist: draft.artist.trim() || null, notes: draft.notes.trim() || null, tags: draft.tags, links: cleanLinks,
+      added_by: original.current?.added_by ?? user.profile.id };
+    requestPending.current = true; setSaving(true);
     try {
-      if (existing) {
-        await data.updateSong(existing.id, record);
-        showToast('Song updated.');
-      } else {
-        await data.addSong(record);
-        showToast('Song added.');
+      let id: string;
+      if (editing && existing) { await data.updateSong(existing.id, record); id = existing.id; }
+      else id = (await data.addSong(record)).id;
+      if (active.current && !closed.current) { completed.current = true; setSavedId(id); }
+    } catch (error) {
+      if (active.current && !closed.current) {
+        setSaveError(error instanceof Error ? error.message : 'Your changes could not be saved. Please try again.');
+        if (!editing) setFailedCreationTitle(record.title);
       }
-      router.back();
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : 'Your changes could not be saved. Please try again.',
-      );
-      setSaving(false);
+    } finally {
+      requestPending.current = false;
+      if (active.current) setSaving(false);
     }
   };
 
-  return (
-    <Screen keyboard>
-      <Stack.Screen options={{ title: editing ? 'Edit Song' : 'Add Song' }} />
+  if (savedId) return <Screen><Stack.Screen options={{ title: 'Song saved' }} />
+    <PageHeading title={editing ? 'Changes saved' : 'Song added'} description="Your song is saved in the team library." />
+    {!scope.ready ? <StatePanel compact kind="loading" title="Checking your access…" message="You can close this screen or wait to continue." /> : null}
+    <Button title="Close" variant="secondary" onPress={close} />
+  </Screen>;
+  if (!scope.ready || !team) return <ChoirAccessState scope={scope} title={heading} onExit={close} exitLabel="Cancel" />;
+  if (editing && !existing) return <Screen><Stack.Screen options={{ title: heading }} />
+    {data.songsLoading ? <StatePanel headingLevel={1} kind="loading" title="Loading this song…" />
+      : data.songsError ? <StatePanel headingLevel={1} kind="error" title="Couldn't load this song" message={data.songsError}
+        action={{ label: 'Retry songs', onPress: () => void data.refreshSongs() }} />
+        : <StatePanel headingLevel={1} title="Song unavailable" message="This song may have been deleted or belongs to a different team." />}
+    <Button title="Back to songs" variant="secondary" onPress={() => { closed.current = true; router.replace({ pathname: '/teams/[teamId]/songs', params: { teamId: team.id } }); }} />
+  </Screen>;
+  if (!draft) return <Screen><Stack.Screen options={{ title: heading }} /><StatePanel headingLevel={1} kind="loading" title="Preparing the song…" /></Screen>;
 
-      <TextField label="Song title" placeholder="e.g. Amazing Grace" value={title} onChangeText={setTitle} />
-      <TextField
-        label="Artist / source (optional)"
-        placeholder="e.g. John Newton"
-        value={artist}
-        onChangeText={setArtist}
-      />
-      <TextField
-        label="Lyrics"
-        placeholder="Paste or type the lyrics here…"
-        value={lyrics}
-        onChangeText={setLyrics}
-        multiline
-        style={styles.lyricsInput}
-      />
-      <TextField
-        label="Notes (optional)"
-        placeholder="e.g. Usually sung in G. Verse 1 acapella."
-        value={notes}
-        onChangeText={setNotes}
-        multiline
-      />
-
-      <AppText variant="label">Tags (optional)</AppText>
-      <View style={styles.tagRow}>
-        {suggestedSongTags.map((tag) => {
-          const selected = tags.includes(tag);
-          return (
-            <Pressable
-              key={tag}
-              accessibilityRole="button"
-              accessibilityLabel={`Tag: ${tag}`}
-              accessibilityState={{ selected }}
-              onPress={() => toggleTag(tag)}
-              style={[styles.tag, selected && styles.tagSelected]}
-            >
-              <AppText variant="label" style={{ color: selected ? colors.white : colors.accent }}>
-                {tag}
-              </AppText>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <AppText variant="label" style={{ marginTop: spacing.sm }}>
-        Music links (optional)
-      </AppText>
-      {links.map((link, i) => (
-        <Card key={i} style={styles.linkCard}>
-          <View style={styles.linkHeader}>
-            <AppText variant="label" tone="primary">
-              Link {i + 1}
-            </AppText>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Remove link ${i + 1}`}
-              onPress={() => setLinks((prev) => prev.filter((_, idx) => idx !== i))}
-              hitSlop={12}
-            >
-              <Ionicons name="close-circle-outline" size={24} color={colors.danger} />
-            </Pressable>
-          </View>
-          <SelectField
-            label="Platform"
-            value={link.platform}
-            options={PLATFORMS.map((p) => ({ label: p, value: p }))}
-            onChange={(v) => updateLink(i, { platform: v })}
-          />
-          <TextField
-            label="Web address"
-            placeholder="https://…"
-            autoCapitalize="none"
-            keyboardType="url"
-            value={link.url}
-            onChangeText={(v) => updateLink(i, { url: v })}
-          />
-        </Card>
-      ))}
-      <Button
-        title="Add Music Link"
-        variant="secondary"
-        icon="link-outline"
-        onPress={() => setLinks((prev) => [...prev, { platform: 'YouTube', url: '' }])}
-      />
-
-      {error ? (
-        <AppText tone="danger" style={styles.error}>
-          {error}
-        </AppText>
-      ) : null}
-
-      <View style={styles.actions}>
-        <Button
-          title={saving ? 'Saving...' : editing ? 'Save Changes' : 'Add Song'}
-          icon="checkmark-outline"
-          loading={saving}
-          disabled={saving}
-          onPress={() => void handleSave()}
-        />
-        <Button
-          title="Cancel"
-          variant="secondary"
-          onPress={() => router.back()}
-          disabled={saving}
-        />
-      </View>
-    </Screen>
-  );
+  const availableTags = [...new Set([...suggestedSongTags, ...draft.tags])];
+  const uncertainCreation = !editing && failedCreationTitle !== null;
+  return <Screen keyboard scrollRef={scrollRef} footer={<View style={styles.fields}>
+    {uncertainCreation ? <Button title="Check song library" variant="primary" disabled={saving} onPress={checkLibrary} /> : null}
+    <View style={styles.actions}>
+      <Button title="Cancel" variant={uncertainCreation ? 'ghost' : 'secondary'} disabled={saving} onPress={close} style={styles.cancel} />
+      <Button title={uncertainCreation ? 'Try saving again' : editing ? 'Save changes' : 'Save song'} variant={uncertainCreation ? 'secondary' : 'primary'}
+        loading={saving} onPress={() => void save()} style={styles.save} />
+    </View>
+  </View>}>
+    <Stack.Screen options={{ title: heading }} />
+    <PageHeading eyebrow={team.name} title={heading} description="Start with the title and lyrics." />
+    {saveError || uncertainCreation ? <View style={styles.fields}><StatePanel compact kind="error" title="Couldn't confirm the save"
+      message={editing ? 'Some changes may already be saved. Your draft is kept here.' : 'This song may already be in the library. Check before trying again; your draft is kept here.'} />
+      {saveError && saveError !== 'Your changes could not be saved. Please try again.' ? <AppText tone="danger">{saveError}</AppText> : null}
+    </View> : null}
+    {data.songsError && editing ? <StatePanel compact kind="error" title="Couldn't refresh this song" message="Your draft is kept. Try again for the latest library data."
+      action={{ label: 'Retry songs', onPress: () => void data.refreshSongs() }} /> : null}
+    <FormErrorSummary errors={Object.entries(errors).filter(([, message]) => !!message).map(([key, message]) => ({ key, message: message!, onPress: () => focusField(key as SongField) }))} />
+    <View onLayout={(event) => { positions.current.title = event.nativeEvent.layout.y; }}>
+      <TextField ref={titleRef} label="Song title" placeholder="e.g. Amazing Grace" value={draft.title} onChangeText={(value) => change('title', value)} error={errors.title} editable={!saving} />
+    </View>
+    <View onLayout={(event) => { positions.current.lyrics = event.nativeEvent.layout.y; }}>
+      <TextField ref={lyricsRef} label="Lyrics" placeholder="Paste or type the lyrics here" value={draft.lyrics} onChangeText={(value) => change('lyrics', value)}
+        error={errors.lyrics} editable={!saving} multiline style={styles.lyrics} />
+    </View>
+    <ListRow title="Artist and notes (optional)" subtitle={detailsOpen ? undefined : [draft.artist, draft.notes.trim() ? 'Notes added' : null].filter(Boolean).join(' · ') || 'Artist, source or guidance for your team'}
+      icon={detailsOpen ? 'remove-outline' : 'add-outline'} showChevron={false} disabled={saving} accessibilityState={{ expanded: detailsOpen }}
+      onPress={() => { if (editable()) setDetailsOpen((value) => !value); }} />
+    {detailsOpen ? <View style={styles.fields}>
+      <TextField label="Artist / source (optional)" placeholder="e.g. John Newton" value={draft.artist} onChangeText={(value) => change('artist', value)} editable={!saving} />
+      <TextField label="Notes (optional)" placeholder="e.g. Usually sung in G." value={draft.notes} onChangeText={(value) => change('notes', value)} editable={!saving} multiline />
+    </View> : null}
+    <ListRow title="Tags (optional)" subtitle={tagsOpen ? undefined : draft.tags.join(' · ') || 'Help people find this song'}
+      icon={tagsOpen ? 'remove-outline' : 'add-outline'} showChevron={false} disabled={saving} accessibilityState={{ expanded: tagsOpen }}
+      onPress={() => { if (editable()) setTagsOpen((value) => !value); }} />
+    {tagsOpen ? <View style={styles.tags}>{availableTags.map((tag) => {
+      const checked = draft.tags.includes(tag);
+      return <Pressable key={tag} accessibilityRole="checkbox" accessibilityLabel={`Tag: ${tag}`} accessibilityState={{ checked, disabled: saving }}
+        aria-checked={checked} aria-disabled={saving} disabled={saving}
+        onPress={() => change('tags', checked ? draft.tags.filter((item) => item !== tag) : [...draft.tags, tag])}
+        style={({ pressed }) => [styles.tag, checked && styles.checkedTag, pressed && styles.pressed]}>
+        <AppText variant="label" tone={checked ? 'inverse' : 'primary'}>{checked ? '✓ ' : ''}{tag}</AppText>
+      </Pressable>;
+    })}</View> : null}
+    <ListRow title="Music links (optional)" subtitle={linksOpen ? undefined : draft.links.length ? `${draft.links.length} ${draft.links.length === 1 ? 'link' : 'links'}` : 'YouTube, Spotify, Apple Music or another link'}
+      icon={linksOpen ? 'remove-outline' : 'add-outline'} showChevron={false} disabled={saving} accessibilityState={{ expanded: linksOpen }}
+      onPress={() => { if (editable()) setLinksOpen((value) => !value); }} />
+    {linksOpen ? <View style={styles.fields}>
+      {draft.links.map((link, index) => <ListGroup key={link.localId}><View style={styles.linkFields}>
+        <AppText variant="subheading" headingLevel={2}>Link {index + 1}</AppText>
+        <SelectField label={`Platform for link ${index + 1}`} value={link.platform} options={platforms.map((platform) => ({ label: platform, value: platform }))}
+          onChange={(value) => updateLink(link.localId, { platform: value })} disabled={saving} />
+        <TextField label={`Web address for link ${index + 1}`} placeholder="https://…" autoCapitalize="none" autoCorrect={false} keyboardType="url"
+          value={link.url} onChangeText={(value) => updateLink(link.localId, { url: value })} editable={!saving} />
+        <Button title="Remove link" accessibilityLabel={`Remove link ${index + 1}`} variant="ghost" icon="remove-circle-outline" disabled={saving}
+          onPress={() => change('links', draft.links.filter((item) => item.localId !== link.localId))} />
+      </View></ListGroup>)}
+      <Button title="Add music link" variant="secondary" icon="link-outline" disabled={saving}
+        onPress={() => change('links', [...draft.links, { localId: `new:${nextLinkId.current++}`, platform: 'YouTube', url: '' }])} />
+    </View> : null}
+  </Screen>;
 }
 
 const styles = StyleSheet.create({
-  loadingWrap: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
-  lyricsInput: { minHeight: 160 },
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  tag: {
-    minHeight: touchTarget - 12,
-    borderRadius: radius.pill,
-    borderWidth: 1.5,
-    borderColor: colors.accent,
-    backgroundColor: colors.accentSoft,
-    paddingHorizontal: spacing.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tagSelected: { backgroundColor: colors.accent },
-  linkCard: { gap: spacing.md },
-  linkHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  error: { textAlign: 'center' },
-  actions: { gap: spacing.sm, marginTop: spacing.sm },
+  lyrics: { minHeight: 190 },
+  fields: { gap: spacing.md },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  tag: { minHeight: touchTarget, minWidth: touchTarget, paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primarySoft, justifyContent: 'center' },
+  checkedTag: { backgroundColor: colors.primary },
+  pressed: { borderColor: colors.text, borderWidth: 2 },
+  linkFields: { padding: spacing.lg, gap: spacing.md },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  cancel: { flexGrow: 1, flexBasis: 100 },
+  save: { flexGrow: 2, flexBasis: 160 },
 });

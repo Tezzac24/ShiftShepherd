@@ -29,7 +29,7 @@ The baseline test result is an implementation starting point, not evidence that 
 | Team rota | List/detail, single-date create/edit/delete, cancel/restore, own availability, choir monthly planning | Rotas remain separate from church events. Availability notes remain optional. No swap, attendance or automatic scheduling feature. |
 | Announcements | List/detail, pinned state, church/team audience, create/edit/delete, one image, optional linked event | Posting creates the published row. There is no backend draft or read/unread state. |
 | Events | Organisation-wide events, category, optional related team, recurring base rows expanded on-device, create/edit/delete | A related team is context, not an audience restriction. No RSVP. Categories remain the existing app values mapped to live categories by name. |
-| Choir/music | Searchable songs, lyrics, tags, external links, collaborative song CRUD, independently ordered praise/worship selections | Songs belong to choir teams. Song-library editing and service-specific song selection have different permissions. |
+| Choir/music | Searchable songs, lyrics, tags, external links, collaborative song CRUD, independently ordered praise/worship selections | Songs are team-scoped; primary navigation exposes them in choir teams. Retain existing helper-authorized deep links. Library editing and service-specific selection have different permissions. |
 | Chat | Accessible conversations, immutable text messages, one optional image, latest previews, authoritative unread counts and forward-only read marking | No reactions, message editing/deletion, replies, receipts, typing, presence or arbitrary attachments. |
 | Organisations | Account context, active linked organisation choices, organisation switching, no-organisation creation | Only one profile/organisation is active. Organisation creation is restricted to eligible no-organisation accounts. |
 | Organisation members | Searchable bounded admin directory, exclusive role replacement, confirmed removal and self-leave | The list is capped at 200 results and exposes server-calculated last-admin/current-user state. It is not a total-count API. |
@@ -98,6 +98,19 @@ Keep assignment data intact when grouping for display. `peopleForEntry()` combin
 Cancellation retains the date and its explanation. Cancelled dates are not upcoming responsibilities; a cancellation may offer a separately chosen announcement, but must not imply that no push is sent. Monthly planning continues through the existing batch action, including honest reporting of partial creation.
 
 Ordinary choir members can add, edit and delete library songs. Selecting songs for a date is narrower: Praise Leader edits praise, Worship Leader edits worship, legacy Song Leader edits both, and choir team admins/church admins override both. Preserve these meaningful role strings and section boundaries even when UI labels become friendlier.
+
+The existing library route uses `canManageSongs` (church admin or team member),
+which has no team-type restriction. Do not add a choir-type gate to those
+authorized deep links merely because the normal hub shortcut is choir-only.
+Keep active profile, team/child/organisation matching and archive restrictions.
+
+Existing song/link saves and section replacement have multiple write/read steps.
+A generic action failure does not prove that no change reached the server. Keep
+the draft/order, use outcome-uncertain copy and explicit recovery. Creation can
+offer Check song library as the primary action through existing refresh/navigation
+while Back retains the draft. Search uses the submitted title from the failed
+attempt; never infer a saved identity from matching titles or retry automatically.
+This client fallback needs no backend addition or new guarantee of atomicity.
 
 Sources: [selectors](../../src/lib/appData/selectors.ts), [permissions](../../src/lib/permissions/index.ts), [rota service](../../src/lib/supabase/services/rotas.ts), [song service](../../src/lib/supabase/services/songs.ts), [active assignment SQL helper](../../supabase/migrations/20260715004513_add_team_creation_editing_and_archive.sql).
 
