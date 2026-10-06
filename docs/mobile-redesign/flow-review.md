@@ -1,6 +1,6 @@
 # Navigation flow review
 
-Status: in progress after Music acceptance on 6 October.
+Status: in progress after Auth/church-entry acceptance on 6 October.
 The complete redesign, final visual review and PR gates are still outstanding.
 
 ## Counting and evidence
@@ -51,6 +51,8 @@ fixtures. None establishes native or live-service QA.
 | Read a library song / Teams | 3 | 3 | Team, Songs, song. Grouped search results open readable lyrics and the Music links disclosure. |
 | Add a song / Teams | 3 | 3 | Team, Songs, Add song. Ordinary members retain editing; optional fields expand in place. |
 | Choose own service songs / Schedule | Not exposed | 2 | My serving segment, date, section choices. Choose songs/Song order are segments on the same route; saved order and Back were checked in demo. |
+| Switch church / Home | 2 to the choice via Profile | 1 to the choice | Shared church control opens the selector. Selection completes through the existing routing hub to Home, one further destination transition. Long names, current identity, mandatory selection, uncertain outcomes and account replacement were inspected with guarded offline fixtures; no live switch QA is claimed. |
+| Set up a church / no-church account | 1 | 1 | Existing creation route, one short name field and a fixed submit footer. Invitation-based joining remains the alternative. Required-name and uncertain-create recovery are visible; no hosted church was created. |
 
 The new zero-admin team stayed at zero members after edit/archive/restore.
 Another create added only the explicitly selected Sarah as team admin; the
@@ -67,7 +69,6 @@ acceptance. Update their evidence after their owning worker and director review.
 | --- | ---: | --- | --- |
 | Invite/manage church members / Profile | 1 | Contextual church-management row: 1 | Organisation/invitation screen families. |
 | Change church role / Profile | 2 | Church members, role: 2 | Four exclusive roles and final-admin presentation. |
-| Switch church / Home | 2 to the choice via Profile | Shared church control, selector: 1 | Multi-organisation selector/state presentation. Header routing has behavior coverage; no live switch QA is claimed. |
 
 ## Exceptions and trade-offs
 

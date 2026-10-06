@@ -9,6 +9,14 @@ import { useAuth } from '../lib/auth/AuthContext';
 import { AppText } from './AppText';
 import { Button } from './Button';
 
+/** The active live church must match both the account pointer and current user. */
+export function resolvedActiveOrganisation({ authMode, user, accountContext }: Pick<ReturnType<typeof useAuth>, 'authMode' | 'user' | 'accountContext'>) {
+  return authMode === 'supabase' && user && accountContext && accountContext.account.active_profile_id === user.profile.id
+    ? accountContext.organisations.find((item) => item.profile.id === user.profile.id
+      && item.organisation.id === user.profile.organisation_id)
+    : undefined;
+}
+
 /** Opt-in primary-screen context. Screen remains responsible for safe-area padding. */
 export function OrganisationHeader() {
   const router = useRouter();
@@ -16,10 +24,7 @@ export function OrganisationHeader() {
   const { organisation } = useAppData();
   // AppData's unresolved live directory contains fallback demo metadata. Only
   // the account's server-resolved, active profile may name a live church here.
-  const active = authMode === 'supabase' && user && accountContext && accountContext.account.active_profile_id === user.profile.id
-    ? accountContext.organisations.find((item) => item.profile.id === user?.profile.id
-      && item.organisation.id === user?.profile.organisation_id)
-    : undefined;
+  const active = resolvedActiveOrganisation({ authMode, user, accountContext });
   const name = authMode === 'supabase' ? active?.organisation.name : organisation.name;
   const canSwitch = authMode === 'supabase' && !!active && accountStatus === 'ready'
     && (accountContext?.organisations.length ?? 0) > 1;

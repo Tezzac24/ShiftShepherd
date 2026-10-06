@@ -110,6 +110,14 @@ The app uses Expo Router: `app/` contains file-based routes (thin re-exports), `
 ### Authentication
 Auth logic stays abstracted behind `src/lib/auth/AuthContext.tsx`, which is dual-mode: demo login, and Supabase email/password Auth with open signup, session restore, an authenticated no-organisation state, account-global identity, and one server-validated active organisation profile. Existing `profiles` remain organisation identities; one Auth user may own one per organisation. The deployed identity migration removes historical email auto-linking, so signup creates no organisation access. Invitation acceptance requires the matching server-verified email; already-configured matching OAuth identities work, while phone-only identities do not. Do not spread mode selection or session mapping across screens.
 
+Church creation/switching uses the feature-local `ChurchEntryPresentationProvider`
+under AuthProvider and above the profile-keyed AppData boundary. It retains only
+transient account-owned request/draft/target/status across the existing
+`setUser(null)` remount, with identity/mode/profile and stale-result fences. It
+stores no session, app data or persistent state. Keep Auth actions, routing
+guards, startup gating and data-provider keys unchanged; mounted screens
+continue through the root routing hub to preserve invitation precedence.
+
 ### Role-Based UI
 All screens render conditionally based on the current user's `OrganisationRole`. Permission checks belong in `src/lib/permissions/`, not inline in components.
 

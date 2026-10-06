@@ -219,6 +219,14 @@ Do not scatter auth/session logic across screens.
 
 Future Supabase Auth integration should happen behind the existing auth abstraction where possible.
 
+Church creation/switching uses the feature-local `ChurchEntryPresentationProvider`
+under AuthProvider and above the profile-keyed AppData boundary. It retains only
+transient account-owned request/draft/target/status across the existing
+`setUser(null)` remount, with identity/mode/profile and stale-result fences. It
+stores no session, app data or persistent state. Keep Auth actions, routing
+guards, startup gating and data-provider keys unchanged; mounted screens
+continue through the root routing hub to preserve invitation precedence.
+
 ### Role-Based UI and Permissions
 
 Permission logic must stay in `src/lib/permissions/`.

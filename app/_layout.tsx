@@ -9,6 +9,7 @@ import { ConfirmProvider } from '@/src/components/ConfirmDialog';
 import { StartupScreen } from '@/src/components/StartupScreen';
 import { ToastProvider } from '@/src/components/Toast';
 import { PushRegistrationProvider } from '@/src/features/notifications/useDevicePushRegistration';
+import { ChurchEntryPresentationProvider } from '@/src/features/organisations/ChurchEntryPresentation';
 import { AppDataProvider, useAppData } from '@/src/lib/appData/AppDataContext';
 import { AuthProvider, useAuth } from '@/src/lib/auth/AuthContext';
 import { paperTheme } from '@/src/lib/theme/paperTheme';
@@ -129,16 +130,18 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <PushRegistrationProvider>
-        <AccountScopedAppDataProvider>
-          <PaperProvider theme={paperTheme}>
-            <ConfirmProvider>
-              <ToastProvider>
-                <RootStack hasStarted={hasStarted} />
-                <StatusBar style="dark" />
-              </ToastProvider>
-            </ConfirmProvider>
-          </PaperProvider>
-        </AccountScopedAppDataProvider>
+        <ChurchEntryPresentationProvider>
+          <AccountScopedAppDataProvider>
+            <PaperProvider theme={paperTheme}>
+              <ConfirmProvider>
+                <ToastProvider>
+                  <RootStack hasStarted={hasStarted} />
+                  <StatusBar style="dark" />
+                </ToastProvider>
+              </ConfirmProvider>
+            </PaperProvider>
+          </AccountScopedAppDataProvider>
+        </ChurchEntryPresentationProvider>
       </PushRegistrationProvider>
     </AuthProvider>
   );

@@ -270,6 +270,19 @@ screen explains invitation-based joining and the existing create-church option,
 without offering unsupported church discovery or automatic email matching.
 Keep authentication/bootstrap routing inside its established abstraction.
 
+Church create/switch presentation may use a feature-local transient provider
+under AuthProvider and above the profile-keyed AppData boundary. Those existing
+Auth actions intentionally clear the current user and remount screens. The
+presentation provider retains only the account-owned request/draft/target and
+status, keyed to auth mode and authIdentity.id; it stores no session or app data
+and uses no persistence. Fence sign-out, account/mode changes, unrelated profile
+changes and stale completions. Root guards, the startup gate, data keys and Auth
+behavior remain unchanged. Only mounted screens continue through the existing
+root routing hub so invitation precedence is preserved. A failed action may
+have committed before account refresh failed: offer truthful account-refresh
+recovery, without inferred identity, automatic creation retry or manual session
+repair. A stale context ID is not a confirmed current church while user is null.
+
 Church member administration starts with people and search, with role/access
 details and consequential actions disclosed in context. Use the existing server
 search and describe its bounded result honestly; do not imply that an absent
