@@ -17,6 +17,7 @@ import { userName } from '../../lib/appData/selectors';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { canViewTeamChat } from '../../lib/permissions';
 import { SessionUser } from '../../types';
+import { useCurrentTime } from '../../utils/useCurrentTime';
 import { chatTimeline } from './chatPresentation';
 import { useChatImageDraft } from './useChatImageDraft';
 import { useTeamChatRealtime } from './useTeamChatRealtime';
@@ -42,6 +43,7 @@ function TeamChatContent({ teamId, user, authorityResolved, accountError }: {
   teamId: string; user: SessionUser; authorityResolved: boolean; accountError: boolean;
 }) {
   const data = useAppData();
+  const now = useCurrentTime();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { fontScale } = useWindowDimensions();
@@ -75,7 +77,7 @@ function TeamChatContent({ teamId, user, authorityResolved, accountError }: {
   canViewRef.current = canView;
   const teamKey = canView ? team?.id : undefined;
   const chatLive = data.chatLive;
-  const timeline = chatTimeline(teamId, user.profile.organisation_id, data.chatMessages);
+  const timeline = chatTimeline(teamId, user.profile.organisation_id, data.chatMessages, now);
   const lastVisibleMessageId = timeline[timeline.length - 1]?.message.id ?? null;
 
   // The existing hook owns focused registration and foreground/reconnect
@@ -183,8 +185,8 @@ function TeamChatContent({ teamId, user, authorityResolved, accountError }: {
             onPress={() => void data.refreshChat()} disabled={data.chatLoading}
             style={({ pressed }) => [styles.statusBar, pressed && styles.pressed]}>
             <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden>
-              {data.chatLoading ? <ActivityIndicator size="small" color={colors.primary} accessible={false} />
-                : <Ionicons name="refresh-outline" size={22} color={colors.primary} accessible={false} />}
+              {data.chatLoading ? <ActivityIndicator size="small" color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
+                : <Ionicons name="refresh-outline" size={22} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />}
             </View>
             <View style={styles.statusCopy}>
               <AppText variant={showHistoryError ? 'label' : 'small'} tone={showHistoryError ? 'danger' : 'secondary'}
@@ -203,7 +205,7 @@ function TeamChatContent({ teamId, user, authorityResolved, accountError }: {
           <View style={styles.statusBar} accessible accessibilityRole="progressbar"
             accessibilityLabel="Connecting to chat" accessibilityState={{ busy: true }} aria-busy>
             <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden>
-              <ActivityIndicator size="small" color={colors.textMuted} accessible={false} />
+              <ActivityIndicator size="small" color={colors.textMuted} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
             </View>
             <AppText variant="small" tone="muted">Connecting…</AppText>
           </View>

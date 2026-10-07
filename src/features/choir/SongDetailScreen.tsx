@@ -143,7 +143,7 @@ function SongDetail({ scope, songId }: { scope: ChoirScopeValue; songId: string 
         <ListRow icon={platformIcons[link.platform]} title={link.platform === 'Other' ? 'Open music link' : `Open on ${link.platform}`}
           accessibilityLabel={`Open ${link.platform === 'Other' ? 'music' : link.platform} link ${index + 1}`}
           disabled={!!openingLink || deleting} accessibilityState={{ busy: openingLink === link.id }}
-          showChevron={false} right={<Ionicons name="open-outline" size={22} color={colors.primary} accessible={false} aria-hidden />}
+          showChevron={false} right={<Ionicons name="open-outline" size={22} color={colors.primary} accessible={false} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />}
           onPress={() => void openLink(link.id)} />
         {linkError === link.id ? <View style={styles.linkError}><StatePanel compact kind="error" title="Couldn't open this link"
           message="Try again, or use Manage to check the saved music link."

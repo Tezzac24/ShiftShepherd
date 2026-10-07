@@ -21,6 +21,7 @@ import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
 import { canManageTeamRota, isChurchAdmin, leaveTeamState } from '../../lib/permissions';
 import { Team } from '../../types';
 import { formatClockTime, formatFullDate, formatUpcoming, parseDateKey } from '../../utils/dates';
+import { useCurrentTime } from '../../utils/useCurrentTime';
 import { HomeNotice } from '../home/HomeNotice';
 import { TeamAccessBoundary } from './TeamAccessBoundary';
 import { currentTeamMembers, teamManagementChoices } from './teamPresentation';
@@ -49,7 +50,7 @@ export function TeamIdentityHeader({ team, onOpenSettings, canOpenSettings, subt
         accessibilityState={{ expanded: manageOpen }} aria-expanded={manageOpen}
         onPress={onOpenSettings} style={({ pressed }) => [styles.manageAction, pressed && styles.pressed]}
         testID="team-settings-action">
-        <Ionicons name="options-outline" size={20} color={colors.primary} accessible={false} />
+        <Ionicons name="options-outline" size={20} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
         <AppText variant="label" tone="primary">Manage</AppText>
       </Pressable> : null}
     </View> : null}
@@ -79,6 +80,7 @@ function TeamSpaceContent({ team, isCurrentScope }: { team: Team; isCurrentScope
   const user = useRequiredUser();
   const { authMode } = useAuth();
   const data = useAppData();
+  useCurrentTime();
   const { canManage: canManagePhoto } = useTeamAvatar(team);
   const [manageOpen, setManageOpen] = useState(false);
   const manageRef = useRef<View>(null);
@@ -219,7 +221,7 @@ function TeamSpaceContent({ team, isCurrentScope }: { team: Team; isCurrentScope
         accessibilityState={{ disabled: leaveDisabled, busy: leaving }} aria-disabled={leaveDisabled} aria-busy={leaving}
         disabled={leaveDisabled} onPress={() => void requestLeave()} testID="leave-team-action"
         style={({ pressed }) => [styles.leaveAction, pressed && styles.leavePressed]}>
-        {leaving ? <ActivityIndicator size="small" color={colors.danger} /> : <Ionicons name="log-out-outline" size={20} color={leaveDisabled ? colors.textMuted : colors.danger} accessible={false} />}
+        {leaving ? <ActivityIndicator size="small" color={colors.danger} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden /> : <Ionicons name="log-out-outline" size={20} color={leaveDisabled ? colors.textMuted : colors.danger} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />}
         <AppText variant="label" tone={leaveDisabled ? 'muted' : 'danger'}>{leaving ? 'Leaving…' : 'Leave team'}</AppText>
       </Pressable>
     </View> : null}

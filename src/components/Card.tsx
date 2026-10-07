@@ -26,6 +26,7 @@ export function Card({
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={accessibilityHint}
         accessibilityState={{ disabled }}
+        aria-disabled={disabled}
         disabled={disabled}
         testID={testID}
         onPress={disabled ? undefined : onPress}

@@ -26,7 +26,7 @@ export function HomeNotice({ announcement, authorName, teamName, imageUri, onPre
       <AppText variant="small" tone="muted">Posted by {authorName}</AppText>
       <View style={styles.read}>
         <AppText variant="label" tone="primary">Read announcement</AppText>
-        <Ionicons name="arrow-forward" size={20} color={colors.primary} accessible={false} />
+        <Ionicons name="arrow-forward" size={20} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
       </View>
     </Pressable>
   );

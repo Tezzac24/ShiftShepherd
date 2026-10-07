@@ -32,7 +32,7 @@ export function OrganisationHeader() {
 
   return (
     <View style={styles.header}>
-      <Ionicons name="business-outline" size={22} color={colors.primary} accessible={false} />
+      <Ionicons name="business-outline" size={22} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
       <AppText
         variant="bodyBold" tone="primary" style={styles.name}
         accessibilityLabel={name ? `Current church: ${name}` : undefined}

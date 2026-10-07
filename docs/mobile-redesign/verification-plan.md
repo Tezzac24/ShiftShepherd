@@ -84,17 +84,28 @@ demo-guarded inspection fixture to report only image alt/role/hidden state and
 parent tags (never source URLs/base64). Restore it exactly afterward; do not
 restart the working controller to obtain another inspection API.
 
+7October follow-up reproduced an extra unnamed accessibility image only after
+screenshot capture: the same availability modal had none immediately before
+capture. A guarded DOM probe during that modal found only its three labelled
+avatar divs, no img/svg or unlabelled image node. Home likewise had none; the
+ordinary history Back image has empty alt and a hidden0×0svg. Treat the remaining
+capture-only node as inspection evidence, not an attributed application image
+defect. Native VoiceOver inspection remains required.
+
 Use deterministic offline Jest/RNTL tests for changed interaction behavior.
 Retain the strong existing service, lifecycle, permission and routing suites.
 Do not replace meaningful assertions with snapshots of implementation details.
 Live-only visual states may require safe mocked component fixtures; never enable
 real backend access merely to obtain a screenshot.
 
-Still outstanding from the Teams representative review: synthetic visual
-inspection of live member role/removal dialogs (including final-team-admin
-demotion versus protected removal). Normal/read-only rosters and their large-
-list states are accepted; their behavioral permission coverage does not replace
-this remaining presentation check.
+7October guarded team-dialog inspection now covers promotion, ordinary/final
+demotion, peer-admin role/removal gates, protected final-admin removal/Leave,
+own demotion then internal Back with membership retained and Leave enabled,
+and lost-response recovery through current-member refresh. No live mutation or
+native QA is claimed. Synthetic1.6/1.8 text inspection covered Home/Schedule/
+serving/availability, event fields/footer/date sheet and unavailable route at
+375/390/393/430. Controlled hook time covered midnight/foreground and retained
+14October form date/November picker month; no system/global clock or data changed.
 
 ## Final acceptance gates
 
@@ -136,6 +147,8 @@ These items remain unchecked until actually exercised on a native build:
 - [ ] Touch targets with one hand, VoiceOver labels/state/order and maximum text.
 - [ ] Reduced motion and OS appearance/contrast expectations.
 - [ ] Organisation switch/access loss removes the previous church's content.
+- [ ] Foreground/hour/day changes refresh current-day/greeting views while
+  preserving a deliberately chosen calendar month or form date.
 - [ ] Push tap behavior on the existing supported payloads. The baseline has no
   explicit notification-response navigation handler; do not claim a new route
   behavior or successful native delivery from this redesign's web checks.

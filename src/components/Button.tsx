@@ -62,9 +62,9 @@ export const Button = forwardRef<View, ButtonProps>(function Button({
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={labelColor} accessible={false} />
+        <ActivityIndicator color={labelColor} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
       ) : icon ? (
-        <Ionicons name={icon} size={22} color={labelColor} accessible={false} />
+        <Ionicons name={icon} size={22} color={labelColor} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
       ) : null}
       <AppText variant="bodyBold" style={[styles.label, { color: labelColor }]}>
         {title}

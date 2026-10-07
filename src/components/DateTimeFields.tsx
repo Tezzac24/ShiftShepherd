@@ -11,6 +11,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { calendarTouchTarget, colors, radius, spacing, touchTarget } from '../../constants/theme';
 import { formatUpcoming, parseDateKey, toDateKey } from '../utils/dates';
+import { useCurrentTime } from '../utils/useCurrentTime';
 import { AppText } from './AppText';
 import { ModalSurface } from './ModalSurface';
 import { SelectField, SelectOption } from './SelectField';
@@ -53,11 +54,10 @@ function buildMonthDays(month: Date): (Date | null)[] {
 }
 
 export function DateField({ label, value, onChange, daysAhead = 365, disabled = false, error }: DateFieldProps) {
+  const todayKey = toDateKey(useCurrentTime());
   const today = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
+    return parseDateKey(todayKey);
+  }, [todayKey]);
   const selectedDate = value ? parseDateKey(value) : null;
   const [open, setOpen] = useState(false);
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
@@ -109,14 +109,14 @@ export function DateField({ label, value, onChange, daysAhead = 365, disabled = 
         style={({ pressed }) => [styles.field, disabled && styles.disabled, error ? { borderColor: colors.danger } : null, pressed && styles.pressed]}
       >
         <View style={styles.fieldValue}>
-          <Ionicons name="calendar-outline" size={22} color={colors.primary} accessible={false} />
+          <Ionicons name="calendar-outline" size={22} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           <AppText tone={selectedDate ? 'default' : 'muted'} style={styles.valueText}>{selectedLabel}</AppText>
         </View>
         <Ionicons
           name={open ? 'chevron-up' : 'chevron-down'}
           size={22}
           color={colors.textMuted}
-          accessible={false}
+          accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden
         />
       </Pressable>
       {error ? <AppText variant="small" tone="danger" accessibilityRole="alert" accessibilityLiveRegion="polite">{error}</AppText> : null}
@@ -144,7 +144,7 @@ export function DateField({ label, value, onChange, daysAhead = 365, disabled = 
                 name="chevron-back"
                 size={20}
                 color={canGoPrev ? colors.primary : colors.textMuted}
-                accessible={false}
+                accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden
               />
               <AppText variant="label" tone={canGoPrev ? 'primary' : 'muted'} style={styles.monthButtonLabel}>
                 Previous
@@ -171,7 +171,7 @@ export function DateField({ label, value, onChange, daysAhead = 365, disabled = 
                 name="chevron-forward"
                 size={20}
                 color={canGoNext ? colors.primary : colors.textMuted}
-                accessible={false}
+                accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden
               />
             </Pressable>
           </View>
@@ -236,8 +236,9 @@ export function DateField({ label, value, onChange, daysAhead = 365, disabled = 
 }
 
 export function DateListField({ label, value, onChange, daysAhead = 90, disabled, error }: DateFieldProps) {
+  const now = useCurrentTime();
   const options: SelectOption[] = [];
-  const start = new Date();
+  const start = new Date(now);
   start.setHours(0, 0, 0, 0);
 
   // If editing an entry whose date is in the past, keep it choosable.

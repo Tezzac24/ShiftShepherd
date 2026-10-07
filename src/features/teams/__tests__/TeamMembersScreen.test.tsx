@@ -10,10 +10,21 @@ import { useToast } from '../../../components/Toast';
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+let mockFocusStart: (() => void | (() => void)) | undefined;
+let mockFocusCleanup: (() => void) | undefined;
 jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
   useLocalSearchParams: () => ({ teamId: '30000000-0000-4000-a000-000000000001' }),
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useFocusEffect: (callback: () => void | (() => void)) => {
+    const React = jest.requireActual<typeof import('react')>('react');
+    React.useEffect(() => {
+      mockFocusStart = callback;
+      const cleanup = callback();
+      mockFocusCleanup = cleanup || undefined;
+      return cleanup;
+    }, [callback]);
+  },
 }));
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
 jest.mock('../../../lib/auth/AuthContext', () => ({
@@ -110,6 +121,8 @@ function makeData(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFocusStart = undefined;
+  mockFocusCleanup = undefined;
   mockUseAuth.mockReturnValue({ authMode: 'supabase' });
   mockUseRequiredUser.mockReturnValue(LEADER_SESSION);
   mockUseConfirm.mockReturnValue(jest.fn().mockResolvedValue(true));
@@ -133,7 +146,7 @@ describe('TeamMembersScreen', () => {
     const screen = render(<TeamMembersScreen />);
     expect(screen.queryByLabelText('Remove Hannah Adeyemi from team')).toBeNull();
     expect(
-      screen.getByText('Team admins cannot remove another team admin in this version.'),
+      screen.getByText('Ask a church admin to manage another team admin’s membership.'),
     ).toBeTruthy();
   });
 
@@ -317,13 +330,13 @@ describe('Members read access and navigation', () => {
     expect(screen.getByText('Hannah Adeyemi')).toBeTruthy();
   });
 
-  it('does not show an empty member list when a refresh failed', () => {
+  it('does not show an empty member list when a refresh failed', async () => {
     const data = makeData({ memberships: [], teamsError: 'Connection interrupted.' });
     mockUseAppData.mockReturnValue(data);
     const screen = render(<TeamMembersScreen />);
     expect(screen.getByText("Couldn't refresh the member list")).toBeTruthy();
     expect(screen.queryByText('No members yet')).toBeNull();
-    fireEvent.press(screen.getByLabelText('Retry members'));
+    await act(async () => fireEvent.press(screen.getByLabelText('Retry members')));
     expect(data.refreshTeams).toHaveBeenCalledTimes(1);
   });
 });
@@ -382,11 +395,13 @@ describe('TeamMembersScreen role management', () => {
     expect(setTeamMemberRole).toHaveBeenCalledTimes(1);
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Make Hannah Adeyemi a team admin?',
+        title: 'Make team admin?',
         confirmLabel: 'Make team admin',
       }),
     );
     expect(confirm.mock.calls[0][0].message).not.toContain('church admin');
+    expect(confirm.mock.calls[0][0].message).toContain(`help organise ${TEAM.name}`);
+    expect(confirm.mock.calls[0][0].message).not.toContain('permissions');
     screen.rerender(<TeamMembersScreen />);
     expect(screen.getAllByText('Team admin')).toHaveLength(2);
     expect(screen.getAllByText('Hannah Adeyemi')).toHaveLength(1);
@@ -404,7 +419,9 @@ describe('TeamMembersScreen role management', () => {
       expect(setTeamMemberRole).toHaveBeenCalledWith(TEAM.id, LEADER.id, 'member'),
     );
     const dialog = confirm.mock.calls[0][0];
-    expect(dialog.title).toBe("Remove Sarah Williams's team admin role?");
+    expect(dialog.title).toBe('Remove team admin role?');
+    expect(dialog.message).toContain(LEADER.full_name);
+    expect(dialog.message).toContain(LEADER.email);
     expect(dialog.message).toContain('will remain a member');
     expect(dialog.message).toContain('leave the team without a team admin');
   });
@@ -465,5 +482,143 @@ describe('TeamMembersScreen role management', () => {
     // Only Sarah's original leader badge remains; Hannah stays an ordinary member.
     expect(screen.getAllByText('Team admin')).toHaveLength(1);
     expect(screen.getByLabelText(PROMOTE_MEMBER)).toBeTruthy();
+  });
+});
+
+describe('Uncertain member changes and refresh recovery', () => {
+  const responseError = 'The connection ended before a response arrived.';
+  const ADMIN_SESSION: SessionUser = { ...LEADER_SESSION, orgRole: 'church_admin' };
+  const PROMOTE_MEMBER = 'Make Hannah Adeyemi a team admin';
+
+  async function failPromotion(overrides: Record<string, unknown> = {}) {
+    mockUseRequiredUser.mockReturnValue(ADMIN_SESSION);
+    const data = makeData({ setTeamMemberRole: jest.fn().mockRejectedValue(new Error(responseError)), ...overrides });
+    mockUseAppData.mockReturnValue(data);
+    const screen = render(<TeamMembersScreen />);
+    fireEvent.press(screen.getByLabelText(PROMOTE_MEMBER));
+    await waitFor(() => expect(screen.getByText(responseError)).toBeTruthy());
+    return { screen, data };
+  }
+
+  it('shows the server role after a lost write response and refresh, without repeating or inferring the write', async () => {
+    let serverMemberships = MEMBERSHIPS;
+    let data = makeData();
+    const setTeamMemberRole = jest.fn().mockImplementation(async () => {
+      serverMemberships = [MEMBERSHIPS[0], { ...MEMBERSHIPS[1], role: 'team_leader' as const }];
+      throw new Error(responseError);
+    });
+    const refreshTeams = jest.fn().mockImplementation(async () => {
+      data = makeData({ memberships: serverMemberships, setTeamMemberRole, refreshTeams });
+      mockUseAppData.mockReturnValue(data);
+    });
+    mockUseRequiredUser.mockReturnValue(ADMIN_SESSION);
+    data = makeData({ setTeamMemberRole, refreshTeams });
+    mockUseAppData.mockReturnValue(data);
+    const screen = render(<TeamMembersScreen />);
+    fireEvent.press(screen.getByLabelText(PROMOTE_MEMBER));
+    await waitFor(() => expect(screen.getByText(responseError)).toBeTruthy());
+    expect(screen.getByText('Couldn’t confirm change')).toBeTruthy();
+    expect(screen.queryByText('Change not saved')).toBeNull();
+    expect(screen.getByText(/Refresh members to check the current memberships and roles/)).toBeTruthy();
+    expect(screen.getAllByText('Team admin')).toHaveLength(1);
+    fireEvent.press(screen.getByLabelText('Refresh members'));
+    await waitFor(() => expect(screen.getAllByText('Team admin')).toHaveLength(2));
+    expect(screen.getByLabelText("Remove Hannah Adeyemi's team admin role")).toBeTruthy();
+    expect(screen.getByText('Couldn’t confirm change')).toBeTruthy();
+    expect(setTeamMemberRole).toHaveBeenCalledTimes(1);
+    expect(refreshTeams).toHaveBeenCalledTimes(1);
+    expect(mockUseToast.mock.results[0].value).not.toHaveBeenCalled();
+  });
+
+  it('refreshes an already-applied removal after a lost response without removing twice', async () => {
+    let serverMemberships = MEMBERSHIPS;
+    let data = makeData();
+    const removeTeamMember = jest.fn().mockImplementation(async () => {
+      serverMemberships = [MEMBERSHIPS[0]];
+      throw new Error(responseError);
+    });
+    const refreshTeams = jest.fn().mockImplementation(async () => {
+      data = makeData({ memberships: serverMemberships, removeTeamMember, refreshTeams });
+      mockUseAppData.mockReturnValue(data);
+    });
+    data = makeData({ removeTeamMember, refreshTeams });
+    mockUseAppData.mockReturnValue(data);
+    const screen = render(<TeamMembersScreen />);
+    fireEvent.press(screen.getByLabelText('Remove Hannah Adeyemi from team'));
+    await waitFor(() => expect(screen.getByText(responseError)).toBeTruthy());
+    expect(screen.getByText('Hannah Adeyemi')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Refresh members'));
+    await waitFor(() => expect(screen.queryByText('Hannah Adeyemi')).toBeNull());
+    expect(screen.getByText('1 current member')).toBeTruthy();
+    expect(screen.getByText('Couldn’t confirm change')).toBeTruthy();
+    expect(removeTeamMember).toHaveBeenCalledTimes(1);
+    expect(refreshTeams).toHaveBeenCalledTimes(1);
+    const dialog = (mockUseConfirm.mock.results[0].value as jest.Mock).mock.calls[0][0];
+    expect(dialog.message).toContain('church role');
+    expect(dialog.message).not.toContain('organisation role');
+  });
+
+  it('catches a rejected recovery read, locks duplicate actions and retains the original uncertainty', async () => {
+    let rejectRead!: (error: Error) => void;
+    const refreshTeams = jest.fn().mockReturnValue(new Promise<void>((_resolve, reject) => { rejectRead = reject; }));
+    const { screen, data } = await failPromotion({ refreshTeams });
+    fireEvent.press(screen.getByLabelText('Refresh members'));
+    expect(screen.getByLabelText('Refresh members')).toHaveProp('accessibilityState', expect.objectContaining({ disabled: true, busy: true }));
+    fireEvent.press(screen.getByLabelText('Refresh members'));
+    fireEvent.press(screen.getByLabelText(PROMOTE_MEMBER));
+    expect(refreshTeams).toHaveBeenCalledTimes(1);
+    expect(data.setTeamMemberRole).toHaveBeenCalledTimes(1);
+    await act(async () => rejectRead(new Error('Members could not be loaded.')));
+    expect(screen.getByText('Couldn’t refresh members')).toBeTruthy();
+    expect(screen.getByText('Members could not be loaded.')).toBeTruthy();
+    expect(screen.getByText(responseError)).toBeTruthy();
+    expect(screen.getByLabelText('Refresh members')).toHaveProp('accessibilityState', expect.objectContaining({ disabled: false, busy: false }));
+    expect(screen.queryByText(/Change (not saved|saved)/)).toBeNull();
+  });
+
+  it('uses AppData read-error state when refresh resolves and never labels the earlier change saved or unsaved', async () => {
+    let data = makeData();
+    const refreshTeams = jest.fn().mockImplementation(async () => {
+      data = makeData({ ...data, teamsError: 'The current member list could not be loaded.' });
+      mockUseAppData.mockReturnValue(data);
+    });
+    const setup = await failPromotion({ refreshTeams });
+    data = setup.data;
+    fireEvent.press(setup.screen.getByLabelText('Refresh members'));
+    await waitFor(() => expect(setup.screen.getByText('The current member list could not be loaded.')).toBeTruthy());
+    expect(setup.screen.getByText(responseError)).toBeTruthy();
+    expect(setup.screen.getByText('Couldn’t confirm change')).toBeTruthy();
+    expect(setup.screen.queryByText(/Change (not saved|saved)/)).toBeNull();
+    expect(setup.screen.getAllByLabelText('Refresh members')).toHaveLength(1);
+  });
+
+  it('ignores a stale recovery completion after the owner changes', async () => {
+    let rejectRead!: (error: Error) => void;
+    const refreshTeams = jest.fn().mockReturnValue(new Promise<void>((_resolve, reject) => { rejectRead = reject; }));
+    const { screen, data } = await failPromotion({ refreshTeams });
+    fireEvent.press(screen.getByLabelText('Refresh members'));
+    mockUseRequiredUser.mockReturnValue({ ...ADMIN_SESSION, profile: { ...LEADER, id: 'replacement-owner' }, memberships: [] });
+    screen.rerender(<TeamMembersScreen />);
+    await act(async () => rejectRead(new Error('Stale read failure.')));
+    expect(screen.queryByText('Stale read failure.')).toBeNull();
+    expect(screen.queryByText(responseError)).toBeNull();
+    expect(screen.queryByLabelText('Refresh members')).toBeNull();
+    expect(data.setTeamMemberRole).toHaveBeenCalledTimes(1);
+    expect(refreshTeams).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a blurred read failure and permits a new recovery after returning', async () => {
+    let rejectRead!: (error: Error) => void;
+    const refreshTeams = jest.fn().mockReturnValueOnce(new Promise<void>((_resolve, reject) => { rejectRead = reject; })).mockResolvedValue(undefined);
+    const { screen } = await failPromotion({ refreshTeams });
+    fireEvent.press(screen.getByLabelText('Refresh members'));
+    act(() => mockFocusCleanup?.());
+    await act(async () => rejectRead(new Error('Offscreen read failure.')));
+    expect(screen.queryByText('Offscreen read failure.')).toBeNull();
+    act(() => { mockFocusStart?.(); });
+    expect(screen.getByLabelText('Refresh members')).toHaveProp('accessibilityState', expect.objectContaining({ disabled: false, busy: false }));
+    fireEvent.press(screen.getByLabelText('Refresh members'));
+    await waitFor(() => expect(refreshTeams).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Couldn’t confirm change')).toBeTruthy();
   });
 });

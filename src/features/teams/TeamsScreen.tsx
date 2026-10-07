@@ -19,6 +19,7 @@ import { nextActiveRotaEntryForTeam } from '../../lib/appData/selectors';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
 import { canManageTeamLifecycle, isMemberOfTeam, isTeamLeader } from '../../lib/permissions';
 import { formatUpcoming, parseDateKey } from '../../utils/dates';
+import { useCurrentTime } from '../../utils/useCurrentTime';
 import { teamDirectory } from './teamPresentation';
 
 export default function TeamsScreen() {
@@ -26,6 +27,7 @@ export default function TeamsScreen() {
   const user = useRequiredUser();
   const { authMode, accountStatus, isLoading } = useAuth();
   const data = useAppData();
+  useCurrentTime();
   const insets = useSafeAreaInsets();
   const [view, setView] = useState<'mine' | 'all'>('mine');
   const [search, setSearch] = useState('');
@@ -56,7 +58,7 @@ export default function TeamsScreen() {
             <Pressable ref={manageRef} accessibilityRole="button" accessibilityLabel="Manage teams"
               accessibilityState={{ expanded: manageOpen }} aria-expanded={manageOpen}
               onPress={() => setManageOpen(true)} style={({ pressed }) => [styles.manage, pressed && styles.pressed]}>
-              <Ionicons name="options-outline" size={20} color={colors.primary} accessible={false} />
+              <Ionicons name="options-outline" size={20} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
               <AppText variant="label" tone="primary">Manage</AppText>
             </Pressable>
           ) : undefined} />
@@ -88,7 +90,7 @@ export default function TeamsScreen() {
               <AppText variant="small" tone="primary">{membership}</AppText>
               <AppText variant="small" tone="secondary">{context}</AppText>
             </View>
-            <Ionicons name="chevron-forward" size={22} color={colors.textMuted} accessible={false} />
+            <Ionicons name="chevron-forward" size={22} color={colors.textMuted} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           </Pressable>;
         }}
         ListEmptyComponent={showLoading ? <StatePanel kind="loading" title="Loading your teams…" />

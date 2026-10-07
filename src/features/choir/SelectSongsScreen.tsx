@@ -178,7 +178,7 @@ function SongSelection({ scope, entry, section, permitted }: {
     const inOther = otherIds.has(song.id);
     return <View style={[styles.songRow, rowIndex === 0 && styles.firstSong, rowIndex === results.length - 1 && styles.lastSong]}><ListRow title={song.title}
       subtitle={[songSummary(song), inOther ? `Selected for ${otherLabel.toLowerCase()}` : checked ? 'Selected' : null].filter(Boolean).join('\n')}
-      leading={<Ionicons name={checked ? 'checkbox' : 'square-outline'} size={26} color={inOther ? colors.textMuted : colors.primary} accessible={false} aria-hidden />}
+      leading={<Ionicons name={checked ? 'checkbox' : 'square-outline'} size={26} color={inOther ? colors.textMuted : colors.primary} accessible={false} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />}
       showChevron={false} accessibilityRole="checkbox" accessibilityState={{ checked }} disabled={saving || inOther}
       accessibilityLabel={`${song.title}${inOther ? `. Already selected for ${otherLabel.toLowerCase()}` : ''}`}
       onPress={() => toggle(song.id)} /></View>;

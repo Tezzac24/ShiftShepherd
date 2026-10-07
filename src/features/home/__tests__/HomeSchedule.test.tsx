@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import React from 'react';
 
 import { OrganisationHeader } from '../../../components/OrganisationHeader';
@@ -8,6 +8,7 @@ import { useAuth, useRequiredUser } from '../../../lib/auth/AuthContext';
 import { AccountContext, SessionUser } from '../../../types';
 import CalendarScreen from '../../calendar/CalendarScreen';
 import HomeScreen from '../HomeScreen';
+import { formatFullDate } from '../../../utils/dates';
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 const mockPush = jest.fn();
@@ -49,6 +50,26 @@ beforeEach(() => {
 afterEach(() => jest.useRealTimers());
 
 describe('Home overview', () => {
+  it('updates the date, greeting and next serving at midnight without changing saved data', () => {
+    jest.setSystemTime(new Date(2026, 8, 21, 23, 59, 59));
+    data.rotaEntries = [makeEntry({ date: '2026-09-21', title: 'Today serving' }), makeEntry({ id: 'tomorrow', date: '2026-09-22', title: 'Next day serving' })];
+    data.rotaAssignments = [makeAssignment(), makeAssignment({ id: 'tomorrow-assignment', rota_entry_id: 'tomorrow' })];
+    const savedEntries = data.rotaEntries;
+    const savedAssignments = data.rotaAssignments;
+    const screen = render(<HomeScreen />);
+    expect(screen.getByText('Today serving')).toBeOnTheScreen();
+    expect(screen.getByRole('header', { name: /Good evening/ })).toBeOnTheScreen();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.queryByText('Today serving')).toBeNull();
+    expect(screen.getByText('Next day serving')).toBeOnTheScreen();
+    expect(screen.getByText(formatFullDate(new Date(2026, 8, 22)))).toBeOnTheScreen();
+    expect(screen.getByRole('header', { name: /Good morning/ })).toBeOnTheScreen();
+    expect(data.rotaEntries).toBe(savedEntries);
+    expect(data.rotaAssignments).toBe(savedAssignments);
+    expect(data.refreshRotas).not.toHaveBeenCalled();
+    expect(data.availabilityResponses).toEqual([]);
+  });
+
   it('leads with all next-duty roles and a single response action, with a permanent My serving route', () => {
     data.rotaAssignments.push(makeAssignment({ id: 'worship', role_name: 'Worship Leader' }));
     const screen = render(<HomeScreen />);

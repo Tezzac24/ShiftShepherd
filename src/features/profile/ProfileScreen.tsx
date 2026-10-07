@@ -229,7 +229,7 @@ export default function ProfileScreen() {
               onPress={() => setShowChurchName((value) => !value)}
               style={({ pressed }) => [styles.disclosure, pressed && styles.pressed]}>
               <AppText variant="bodyBold" style={styles.flex}>Different name at this church</AppText>
-              <Ionicons name={showChurchName ? 'chevron-up' : 'chevron-down'} size={22} color={colors.primary} accessible={false} />
+              <Ionicons name={showChurchName ? 'chevron-up' : 'chevron-down'} size={22} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
             </Pressable>
             {showChurchName ? (
               <TextField ref={churchNameRef} label="Name at this church (optional)"

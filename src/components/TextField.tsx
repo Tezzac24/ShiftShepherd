@@ -29,7 +29,8 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
 }, ref) {
   const [focused, setFocused] = useState(false);
   const { fontScale } = useWindowDimensions();
-  const isDisabled = !!disabled || editable === false;
+  const isDisabled = !!disabled || editable === false || !!accessibilityState?.disabled || !!rest['aria-disabled'];
+  const busy = accessibilityState?.busy ?? rest['aria-busy'];
   const hint = [accessibilityHint, error ?? helper].filter(Boolean).join('. ');
 
   return (
@@ -43,8 +44,10 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         accessibilityHint={hint || undefined}
         accessibilityState={{
           ...accessibilityState,
-          disabled: isDisabled || accessibilityState?.disabled,
+          disabled: isDisabled, busy,
         }}
+        aria-disabled={isDisabled}
+        aria-busy={busy}
         editable={!isDisabled}
         multiline={multiline}
         cursorColor={cursorColor}

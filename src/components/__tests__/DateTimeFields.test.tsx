@@ -47,6 +47,25 @@ test('calendar retains its inclusive range, blocks past dates and returns a date
   expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
 });
 
+test('day rollover refreshes relative labels and range without resetting a chosen date or displayed month', () => {
+  jest.setSystemTime(new Date(2026, 8, 21, 23, 59, 59));
+  const change = jest.fn();
+  const screen = render(<DateField label="Date" value="2026-09-22" onChange={change} />);
+  expect(screen.getByText('Tomorrow')).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole('button', { name: 'Date: ' + dateLabel(9, 22) }));
+  fireEvent.press(screen.getByRole('button', { name: 'Next month' }));
+  expect(screen.getByRole('header', { name: 'October 2026' })).toBeOnTheScreen();
+  act(() => jest.advanceTimersByTime(1000));
+  expect(screen.getByRole('header', { name: 'October 2026' })).toBeOnTheScreen();
+  expect(change).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole('button', { name: 'Previous month' }));
+  expect(screen.getByRole('button', { name: dateLabel(9, 22) })).toHaveProp('accessibilityState', expect.objectContaining({ selected: true, disabled: false }));
+  expect(screen.getByRole('button', { name: dateLabel(9, 21) })).toHaveProp('accessibilityState', expect.objectContaining({ disabled: true }));
+  fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+  expect(screen.getByText('Today')).toBeOnTheScreen();
+  expect(change).not.toHaveBeenCalled();
+});
+
 test('an existing past date remains selectable and its month remains reachable', () => {
   const change = jest.fn();
   const screen = render(<DateField label="Date" value="2026-08-20" onChange={change} />);

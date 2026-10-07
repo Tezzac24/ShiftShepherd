@@ -7,11 +7,11 @@ in [progress](progress.md) and the [verification plan](verification-plan.md).
 
 | Area | Baseline problem | Design decision | Intended improvement and acceptance |
 | --- | --- | --- | --- |
-| Shared language | Low-contrast secondary text, inconsistent controls and cramped long confirmations. | Semantic teal/neutral tokens, native wrapping controls, explicit headings, scrollable shared sheets and reachable errors. | Readable, predictable interaction; foundation accepted, final large-text/cross-app pass pending. |
+| Shared language | Low-contrast secondary text, inconsistent controls and cramped long confirmations. | Semantic teal/neutral tokens, wrapping controls, role-appropriate states, one content h1, scrollable sheets and reachable errors. | Foundation and shared pass accepted after synthetic1.6/1.8 phone review. Native maximum text/VoiceOver remain QA. |
 | Home | Competing summaries and a repeated team directory obscure the immediate task. | One personal serving/event focus, actual unread cue, editorial notices and nonduplicated events. | The next useful action is clear; accepted. |
 | Schedule | Personal serving dates require finding their individual teams. | Church events and My serving share one stable primary destination while retaining distinct data. | Other personal duties take two transitions from Home instead of four via Teams; accepted. |
 | Teams | Admin visibility is labelled as membership; daily tools compete with administration and an inert Resources row. | My teams/All teams distinction, direct Chat/Rota/Members/Songs, contextual Manage. | Participation is clearer and capabilities remain close; accepted. |
-| Team members | Ordinary members lack a full roster; adding a person takes four transitions from Teams. | Direct full-name Members list with separately gated management and Add member. | Roster takes two transitions and adding takes three; core screens/forms accepted, live role-dialog visual review pending. |
+| Team members | Ordinary members lack a full roster; adding takes four transitions and uncertain failures claim nothing saved. | Full-name roster, separately gated Add/role/removal, short identity-rich dialogs and honest Refresh members recovery. | Roster takes two transitions, adding three. Guarded dialogs/final-admin distinctions/recovery personally inspected; no hosted/native pass. |
 | Team lifecycle | An optional initial admin occupies a long directory, and retry/photo outcomes are easy to confuse. | Searchable optional chooser, explicit no-admin default, retained create outcome and separate photo recovery. | Shorter creation with truthful recovery and unchanged lifecycle rules; accepted. |
 | Profile/preferences | Identity, membership, administration and account actions form an undifferentiated long page. | Compact identity, early full-row preferences, contextual church management and separate account/demo actions. | Routine personal actions are recognisable; accepted. |
 | Conversations | Dense previews, weak empty-state guidance and inconsistent message/composer treatment. | Full-name conversation rows, truthful read-state feedback, readable messages and a growing composer. | Conversation selection and sending are clearer; accepted. Cached-history retry remains visible, and reading older messages preserves position. |
@@ -27,3 +27,10 @@ in [progress](progress.md) and the [verification plan](verification-plan.md).
 Navigation counts and deliberate exceptions are tracked separately in
 [flow-review.md](flow-review.md); menus and confirmations are not treated as
 effortless simply because they do not add routes.
+
+Current-day presentation previously stayed on yesterday in a long-lived Home.
+The local hour/foreground hook refreshes dates/greeting without background polling,
+replacing selected form dates or changing data; controlled scheduling and picker
+retention were personally inspected. Unknown routes previously displayed the
+generated black developer page, raw URL and Sitemap. A shared unavailable screen
+now provides one safe Continue through the established auth/invitation hub.

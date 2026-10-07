@@ -18,6 +18,7 @@ import { eventDestination, homeEventPreview, myServing, scheduleDestination, ser
 import { latestAnnouncement, upcomingEvents, userName, visibleTeams } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { formatFullDate, greetingForNow } from '../../utils/dates';
+import { useCurrentTime } from '../../utils/useCurrentTime';
 import { ScheduleEventRow } from '../calendar/ScheduleRows';
 import { ServingFeedback } from '../calendar/ServingFeedback';
 import { EventFocus, ServingFocus } from './HomeFocus';
@@ -27,6 +28,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const user = useRequiredUser();
   const data = useAppData();
+  const now = useCurrentTime();
   const firstName = user.profile.full_name.trim().split(/\s+/)[0];
   const serving = myServing(user, data.rotaEntries, data.rotaAssignments, data.teams, data.availabilityResponses);
   const duty = serving[0];
@@ -44,7 +46,7 @@ export default function HomeScreen() {
     <Screen safeTop>
       <OrganisationHeader />
       <View>
-        <PageHeading title={`${greetingForNow()}, ${firstName}`} eyebrow={formatFullDate(new Date())} />
+        <PageHeading title={`${greetingForNow(now)}, ${firstName}`} eyebrow={formatFullDate(now)} />
 
       {!noDuty ? (
         <View style={styles.section}>

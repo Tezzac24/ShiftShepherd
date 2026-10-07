@@ -68,7 +68,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <View style={styles.message}>
                 <Ionicons
                   name={tone === 'error' ? 'alert-circle' : 'checkmark-circle'}
-                  size={24} color={tone === 'error' ? colors.danger : colors.success} accessible={false}
+                  size={24} color={tone === 'error' ? colors.danger : colors.success} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden
                 />
                 <AppText
                   variant="bodyBold"

@@ -34,7 +34,7 @@ export function TeamInitialAdminChooser({ visible, onClose, opener, organisation
     leading={<Avatar name={profile.full_name} uri={getAvatarUri(profile)} size={40} />}
     accessibilityRole="radio" accessibilityLabel={[profile.full_name, profile.id === currentProfileId ? 'you' : null, profile.email].filter(Boolean).join(', ')}
     accessibilityState={{ checked: selectedId === profile.id }} showChevron={false}
-    right={<Ionicons name={selectedId === profile.id ? 'radio-button-on' : 'radio-button-off'} size={24} color={colors.primary} accessible={false} />}
+    right={<Ionicons name={selectedId === profile.id ? 'radio-button-on' : 'radio-button-off'} size={24} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />}
     onPress={() => choose(profile.id)} />;
 
   return <ModalSurface visible={visible} title="Initial team admin" onClose={onClose} returnFocusRef={opener}>
@@ -42,7 +42,7 @@ export function TeamInitialAdminChooser({ visible, onClose, opener, organisation
     <ListGroup>
       <ListRow title="No initial team admin" subtitle="You can appoint someone later." icon="person-outline"
         accessibilityRole="radio" accessibilityLabel="No initial team admin" accessibilityState={{ checked: selectedId === null }}
-        showChevron={false} right={<Ionicons name={selectedId === null ? 'radio-button-on' : 'radio-button-off'} size={24} color={colors.primary} accessible={false} />}
+        showChevron={false} right={<Ionicons name={selectedId === null ? 'radio-button-on' : 'radio-button-off'} size={24} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />}
         onPress={() => choose(null)} />
     </ListGroup>
     <TextField label="Search active members" placeholder="Name or email" value={query} onChangeText={setQuery}

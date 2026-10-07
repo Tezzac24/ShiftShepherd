@@ -16,12 +16,14 @@ import { useAppData } from '../../lib/appData/AppDataContext';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canManageTeamLifecycle } from '../../lib/permissions';
 import { useOnAppForeground } from '../../utils/useAppForeground';
+import { useCurrentTime } from '../../utils/useCurrentTime';
 import { chatConversations, conversationPreview, conversationTimestamp } from './chatPresentation';
 
 export default function MessagesScreen() {
   const router = useRouter();
   const user = useRequiredUser();
   const data = useAppData();
+  const now = useCurrentTime();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
 
@@ -79,7 +81,7 @@ export default function MessagesScreen() {
           const unread = data.unreadByTeam[team.id] ?? 0;
           const preview = lastMessage ? conversationPreview(lastMessage, data.users, user.profile.id)
             : data.chatLoading ? 'Loading messages…' : data.chatError ? 'Messages unavailable' : 'No messages yet';
-          const timestamp = lastMessage ? conversationTimestamp(lastMessage.created_at) : null;
+          const timestamp = lastMessage ? conversationTimestamp(lastMessage.created_at, now) : null;
           return <Pressable accessibilityRole="button"
             accessibilityLabel={`${team.name}${unread ? `, ${unread} unread ${unread === 1 ? 'message' : 'messages'}` : ''}. ${preview}${timestamp ? `. ${timestamp}` : ''}`}
             accessibilityHint="Opens the team conversation"

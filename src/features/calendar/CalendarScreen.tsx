@@ -17,6 +17,7 @@ import { eventDestination, myServing, scheduleViewFromParam, servingDestination 
 import { pastEvents, upcomingEvents } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canManageEvents } from '../../lib/permissions';
+import { useCurrentTime } from '../../utils/useCurrentTime';
 import { ScheduleEventRow, ServingRow } from './ScheduleRows';
 import { ServingFeedback } from './ServingFeedback';
 
@@ -26,6 +27,7 @@ export default function CalendarScreen() {
   const selectedView = scheduleViewFromParam(view);
   const user = useRequiredUser();
   const data = useAppData();
+  useCurrentTime();
   const churchEvents = data.events.filter((event) => event.organisation_id === user.profile.organisation_id);
   const events = upcomingEvents(churchEvents);
   // Finished base events retain the existing history/series semantics.
@@ -64,7 +66,7 @@ export default function CalendarScreen() {
             onPress={() => setShowPast((current) => !current)}
             style={({ pressed }) => [styles.pastToggle, pressed && styles.pressed]}>
             <AppText variant="label" tone="secondary" style={styles.headingText}>Past events ({past.length})</AppText>
-            <Ionicons name={showPast ? 'chevron-up' : 'chevron-down'} size={20} color={colors.textMuted} accessible={false} />
+            <Ionicons name={showPast ? 'chevron-up' : 'chevron-down'} size={20} color={colors.textMuted} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           </Pressable>
           {showPast ? <ListGroup>{past.map((event) => <ScheduleEventRow key={event.id} event={event}
             category={data.categories.find((category) => category.id === event.category_id)}

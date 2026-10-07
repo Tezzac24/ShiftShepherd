@@ -211,7 +211,7 @@ function AnnouncementForm({ params, user, authorityResolved }: { params: Params;
     <StatePanel headingLevel={1} title="No permission" icon="lock-closed-outline" message="You can no longer manage this announcement or its team is unavailable." />
     <Button title="All announcements" variant="secondary" onPress={() => router.replace('/announcements')} />
   </Screen>;
-  if (!draft) return <Screen><Stack.Screen options={{ title: screenTitle }} /><StatePanel kind="loading" title="Preparing announcement…" /></Screen>;
+  if (!draft) return <Screen><Stack.Screen options={{ title: screenTitle }} /><StatePanel headingLevel={1} kind="loading" title="Preparing announcement…" /></Screen>;
 
   const busy = step !== 'draft';
   const optionalSummary = [draft.pinned ? 'Pinned' : null, draft.linkedEventId ? 'Event linked' : null, showsImage ? 'Image selected' : null].filter(Boolean).join(' · ');

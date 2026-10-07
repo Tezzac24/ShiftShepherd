@@ -4,6 +4,7 @@ import React from 'react';
 import { PaperProvider } from 'react-native-paper';
 
 import { colors } from '@/constants/theme';
+import { AppText } from '@/src/components/AppText';
 import { Button } from '@/src/components/Button';
 import { ConfirmProvider } from '@/src/components/ConfirmDialog';
 import { StartupScreen } from '@/src/components/StartupScreen';
@@ -42,6 +43,13 @@ function RootStack({ hasStarted }: { hasStarted: React.MutableRefObject<boolean>
         headerStyle: { backgroundColor: colors.card },
         headerTintColor: colors.primary,
         headerTitleStyle: { color: colors.text, fontWeight: '700', fontSize: 18 },
+        // The header gives route context; the screen content owns its full
+        // level-one heading. Keep context text readable without a second h1.
+        headerTitle: ({ children }) => (
+          <AppText variant="label" style={{ color: colors.text, fontWeight: '700', fontSize: 18 }}>
+            {children}
+          </AppText>
+        ),
         headerShadowVisible: false,
         headerBackTitle: 'Back',
         headerBackButtonDisplayMode: 'default',

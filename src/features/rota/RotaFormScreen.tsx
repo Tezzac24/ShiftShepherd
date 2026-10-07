@@ -151,7 +151,7 @@ function RotaForm({ scope, entryId, editing }: { scope: RotaScopeValue; entryId:
         : <StatePanel headingLevel={1} title="Date unavailable" message="This date may have been removed or belongs to a different team." />}
     <Button title="Back to rota" variant="secondary" onPress={() => { closed.current = true; router.replace({ pathname: '/teams/[teamId]/rota', params: { teamId: team.id } }); }} />
   </Screen>;
-  if (!draft) return <Screen><Stack.Screen options={{ title: heading }} /><StatePanel kind="loading" title="Preparing the date…" /></Screen>;
+  if (!draft) return <Screen><Stack.Screen options={{ title: heading }} /><StatePanel headingLevel={1} kind="loading" title="Preparing the date…" /></Screen>;
 
   const members = teamMembers(team.id, data.memberships, data.users).filter(({ profile }) => profile.organisation_id === user.profile.organisation_id);
   const basePeople = members.map(({ profile }) => ({ label: profile.full_name, value: profile.id }));

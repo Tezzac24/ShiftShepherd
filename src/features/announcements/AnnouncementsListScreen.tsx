@@ -9,6 +9,7 @@ import { useAppData } from '../../lib/appData/AppDataContext';
 import { userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { canCreateAnyAnnouncement, canCreateTeamAnnouncements } from '../../lib/permissions';
+import { useCurrentTime } from '../../utils/useCurrentTime';
 import { HomeNotice } from '../home/HomeNotice';
 import { accessibleAnnouncements, announcementTeam } from './announcementPresentation';
 
@@ -17,6 +18,7 @@ export default function AnnouncementsListScreen() {
   const { teamId } = useLocalSearchParams<{ teamId?: string | string[] }>();
   const user = useRequiredUser();
   const data = useAppData();
+  useCurrentTime();
   const filtered = teamId !== undefined;
   const team = announcementTeam(user, data.teams, teamId);
   const announcements = accessibleAnnouncements(user, data.announcements, data.archivedTeams)

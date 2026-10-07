@@ -374,9 +374,9 @@ function RotaDetail({ scope, entryId }: { scope: RotaScopeValue; entryId: string
       {me.assignments.length > 1 ? <AppText tone="secondary">One response covers all your roles: {me.roleSummary}.</AppText> : null}
       <AppText variant="bodyBold">Can you make it?</AppText>
       <ListGroup>{RESPONSE_OPTIONS.map((status) => <ListRow key={status} title={availabilityLabels[status]}
-        accessibilityRole="radio" accessibilityState={{ checked: pendingStatus === status, selected: pendingStatus === status }}
+        accessibilityRole="radio" accessibilityState={{ checked: pendingStatus === status }}
         showChevron={false} disabled={savingResponse} onPress={() => setPendingStatus(status)}
-        right={<Ionicons name={pendingStatus === status ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={colors.primary} accessible={false} aria-hidden />} />)}</ListGroup>
+        right={<Ionicons name={pendingStatus === status ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={colors.primary} accessible={false} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />} />)}</ListGroup>
       <TextField label="Note (optional)" placeholder="e.g. I may be 10 minutes late." value={note} onChangeText={setNote} multiline editable={!savingResponse} />
     </ModalSurface> : null}
   </Screen>;

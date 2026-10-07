@@ -21,6 +21,7 @@ import { useAuth } from '../../lib/auth/AuthContext';
 import { canEditAnnouncement } from '../../lib/permissions';
 import { SessionUser } from '../../types';
 import { formatFullDate, formatTime, formatUpcoming } from '../../utils/dates';
+import { useCurrentTime } from '../../utils/useCurrentTime';
 import { accessibleAnnouncements, announcementAuthorityKey, announcementTeam } from './announcementPresentation';
 
 export default function AnnouncementDetailScreen() {
@@ -35,6 +36,7 @@ export default function AnnouncementDetailScreen() {
 function AnnouncementDetail({ id, user, authorityResolved }: { id: string | null; user: SessionUser; authorityResolved: boolean }) {
   const router = useRouter();
   const data = useAppData();
+  useCurrentTime();
   const confirm = useConfirm();
   const showToast = useToast();
   const [managing, setManaging] = useState(false);

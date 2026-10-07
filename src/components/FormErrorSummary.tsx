@@ -21,7 +21,7 @@ export function FormErrorSummary({ errors, title = 'Please check these details' 
   return (
     <View style={styles.panel}>
       <View style={styles.heading}>
-        <Ionicons name="alert-circle-outline" size={24} color={colors.danger} accessible={false} />
+        <Ionicons name="alert-circle-outline" size={24} color={colors.danger} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
         <AppText variant="bodyBold" tone="danger" accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.text}>
           {title}
         </AppText>
@@ -33,7 +33,7 @@ export function FormErrorSummary({ errors, title = 'Please check these details' 
           style={({ pressed }) => [styles.error, pressed && styles.pressed]}
         >
           <AppText tone="danger" style={styles.text}>{error.message}</AppText>
-          <Ionicons name="arrow-forward" size={20} color={colors.danger} accessible={false} />
+          <Ionicons name="arrow-forward" size={20} color={colors.danger} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
         </Pressable>
       ) : (
         <AppText key={error.key} tone="danger">{error.message}</AppText>

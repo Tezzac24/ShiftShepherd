@@ -27,7 +27,7 @@ export function StatePanel({
     <ActivityIndicator color={color} size={compact ? 'small' : 'large'} accessible={false}
       accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
   ) : (
-    <Ionicons name={statusIcon} size={compact ? 24 : 28} color={color} accessible={false} />
+    <Ionicons name={statusIcon} size={compact ? 24 : 28} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
   );
 
   return (
@@ -47,12 +47,14 @@ export function StatePanel({
           variant={compact ? 'bodyBold' : 'subheading'}
           style={!compact && styles.center}
           headingLevel={headingLevel}
-          accessibilityRole={kind === 'error' ? 'alert' : undefined}
+          accessibilityRole={kind === 'error' && headingLevel === undefined ? 'alert' : undefined}
           accessibilityLiveRegion={kind === 'error' || kind === 'loading' ? 'polite' : undefined}
         >
           {title}
         </AppText>
-        {message ? <AppText tone="secondary" style={!compact && styles.center}>{message}</AppText> : null}
+        {message ? <AppText tone="secondary" style={!compact && styles.center}
+          accessibilityRole={kind === 'error' && headingLevel !== undefined ? 'alert' : undefined}
+          accessibilityLiveRegion={kind === 'error' && headingLevel !== undefined ? 'polite' : undefined}>{message}</AppText> : null}
         {action ? <Button title={action.label} onPress={action.onPress} variant={kind === 'error' ? 'secondary' : 'primary'} /> : null}
       </View>
     </View>

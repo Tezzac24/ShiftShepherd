@@ -29,7 +29,7 @@ fixtures. None establishes native or live-service QA.
 | Open a team / Teams | 1 | 1 | Membership and church-admin All teams remain distinct. |
 | Read full team member names / Teams | 3 for managers; no dedicated member view | 2 | Team, then Members. The old member route remains compatible. |
 | Add a team member / Teams | 4 | 3 | Team, Members, Add member. Live-only mutation gates remain; the form was visually inspected through a safe fixture. |
-| Change/remove a team role / Teams | 3 | 2 | Team, Members, then contextual actions and confirmation. Live role/removal dialog visuals remain for the shared-state review. |
+| Change/remove a team role / Teams | 3 | 2 | Team, Members, then labelled row actions and confirmation. Guarded phone inspection covers promotion, non-final/final demotion, peer-role gates, protected removal and unknown-response refresh. Own final demotion retains membership and enables Leave through internal Back; no live RPC or native QA is claimed. |
 | Edit or archive a team / Teams | 3 | 2 | Team, Manage action sheet, Edit. Archive needs confirmation; completion opens Archived teams. |
 | Create a team / Teams | 1 | 1 | Manage teams menu opens New team. Choosing an optional initial admin adds a searchable field sheet; no admin remains the default. |
 | Restore a team / Teams | 1 | 1 | Manage teams menu opens Archived teams. Restore is confirmed; the persistent result offers Open team or continued list work. |

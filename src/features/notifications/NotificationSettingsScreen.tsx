@@ -133,7 +133,7 @@ export default function NotificationSettingsScreen() {
               <SectionHeader title="Church and team updates" />
               <ListGroup>{preferenceRows(updates)}</ListGroup>
               {prefsLive && saving ? <View style={styles.status} accessibilityLiveRegion="polite">
-                <ActivityIndicator size="small" color={colors.primary} accessible={false} />
+                <ActivityIndicator size="small" color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
                 <AppText variant="small" tone="secondary">Saving your choice…</AppText>
               </View> : null}
             </View>
@@ -144,7 +144,7 @@ export default function NotificationSettingsScreen() {
                 {deviceState.kind === 'hydrating' ? <StatePanel compact kind="loading" title="Checking this device…" />
                   : deviceState.kind === 'registered' ? <>
                     <View style={styles.status}>
-                      <Ionicons name="checkmark-circle-outline" size={24} color={colors.success} accessible={false} />
+                      <Ionicons name="checkmark-circle-outline" size={24} color={colors.success} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
                       <AppText variant="bodyBold" style={styles.statusText}>Device registered</AppText>
                     </View>
                     <AppText tone="secondary">This device is registered for your current church. Your choices above decide which announcements, messages and rota updates are allowed.</AppText>

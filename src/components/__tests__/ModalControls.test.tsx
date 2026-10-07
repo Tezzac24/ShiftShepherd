@@ -88,7 +88,7 @@ function Picker() {
 test('picker exposes the selection, supports search and returns the chosen value', () => {
   const screen = render(<Picker />);
   fireEvent.press(screen.getByRole('button', { name: 'Role: Member' }));
-  expect(screen.getByRole('radio', { name: 'Member' })).toHaveProp('accessibilityState', expect.objectContaining({ selected: true, checked: true }));
+  expect(screen.getByRole('radio', { name: 'Member' })).toHaveProp('accessibilityState', expect.objectContaining({ checked: true }));
   expect(screen.getByRole('radio', { name: 'Unavailable person' })).toHaveProp('accessibilityState', expect.objectContaining({ disabled: true }));
   fireEvent.changeText(screen.getByLabelText('Search role'), 'help manage');
   expect(screen.queryByRole('radio', { name: 'Member' })).toBeNull();
@@ -96,7 +96,7 @@ test('picker exposes the selection, supports search and returns the chosen value
   expect(screen.getByRole('button', { name: 'Role: Team admin' })).toHaveProp('accessibilityState', expect.objectContaining({ expanded: false }));
 
   fireEvent.press(screen.getByRole('button', { name: 'Role: Team admin' }));
-  expect(screen.getByRole('radio', { name: 'Team admin. Help manage the team' })).toHaveProp('accessibilityState', expect.objectContaining({ selected: true }));
+  expect(screen.getByRole('radio', { name: 'Team admin. Help manage the team' })).toHaveProp('accessibilityState', expect.objectContaining({ checked: true }));
 });
 
 test('picker cancellation and disabled choices do not change the value', () => {
@@ -128,6 +128,19 @@ test('action sheets ignore disabled actions and close before invoking a selected
   expect(blocked).not.toHaveBeenCalled();
   fireEvent.press(screen.getByRole('button', { name: 'Edit team' }));
   expect(order).toEqual(['close', 'edit']);
+});
+
+test('action-sheet button choices mirror native selection and disable state on web', () => {
+  const screen = render(<ActionSheet visible title="View" onClose={jest.fn()} actions={[
+    { key: 'all', label: 'All dates', selected: true, onPress: jest.fn() },
+    { key: 'past', label: 'Past dates', selected: false, disabled: true, onPress: jest.fn() },
+  ]} />);
+  for (const [label, selected, disabled] of [['All dates', true, false], ['Past dates', false, true]] as const) {
+    const choices: { props: Record<string, unknown> }[] = screen.UNSAFE_root.findAll((node: { props: Record<string, unknown> }) => node.props.accessibilityLabel === label && node.props['aria-pressed'] !== undefined && node.props['aria-disabled'] !== undefined);
+    expect(choices.length).toBeGreaterThan(0);
+    expect(choices.every((node) => node.props['aria-pressed'] === selected && node.props['aria-disabled'] === disabled)).toBe(true);
+  }
+  expect(screen.getByRole('button', { name: 'All dates' })).toHaveProp('accessibilityState', expect.objectContaining({ selected: true, disabled: false }));
 });
 
 describe('modal dismissal focus', () => {

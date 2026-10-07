@@ -19,6 +19,7 @@ import { peopleForEntry, selectionsForEntry } from '../../lib/appData/selectors'
 import { canManageTeamRota } from '../../lib/permissions';
 import { RotaEntry } from '../../types';
 import { formatClockTime, parseDateKey } from '../../utils/dates';
+import { useCurrentTime } from '../../utils/useCurrentTime';
 import { fullScheduleDate, ScheduleDateMarker } from '../calendar/ScheduleRows';
 import { RotaAccessState, RotaScope, RotaScopeValue } from './RotaScope';
 import { matchingRotaEntry, teamRotaDates } from './rotaPresentation';
@@ -35,6 +36,7 @@ export default function RotaListScreen() {
 function RotaList({ scope }: { scope: RotaScopeValue }) {
   const { user, team } = scope;
   const data = useAppData();
+  const now = useCurrentTime();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [showPast, setShowPast] = useState(false);
@@ -62,7 +64,7 @@ function RotaList({ scope }: { scope: RotaScopeValue }) {
     router.push({ pathname: latest.editingDates ? '/teams/[teamId]/rota/edit' : '/teams/[teamId]/rota/[entryId]', params: { teamId: latestTeam.id, entryId: id } });
   };
   if (!scope.ready || !team) return <RotaAccessState scope={scope} />;
-  const { upcoming, past } = teamRotaDates(data.rotaEntries, team.id, user.profile.organisation_id);
+  const { upcoming, past } = teamRotaDates(data.rotaEntries, team.id, user.profile.organisation_id, now);
   const hasDates = upcoming.length > 0 || past.length > 0;
   const sections: RotaSection[] = !hasDates && (data.rotasLoading || data.rotasError) ? [] : [
     { key: 'upcoming', data: upcoming }, ...(past.length ? [{ key: 'past' as const, data: showPast ? past : [] }] : []),
@@ -93,7 +95,7 @@ function RotaList({ scope }: { scope: RotaScopeValue }) {
         {cancelled ? <Badge label="Cancelled" tone="danger" /> : null}
         <AppText variant="small" tone="secondary">{context}</AppText>
       </View>
-      <Ionicons name="chevron-forward" size={22} color={colors.textMuted} accessible={false} aria-hidden style={styles.chevron} />
+      <Ionicons name="chevron-forward" size={22} color={colors.textMuted} accessible={false} aria-hidden style={styles.chevron} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
     </Pressable>;
   };
 

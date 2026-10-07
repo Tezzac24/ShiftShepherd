@@ -9,6 +9,7 @@ import RootLayout from '../../../app/_layout';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { makeTeam, makeUser } from '../../lib/appData/__tests__/presentationFixtures';
 import { useAuth } from '../../lib/auth/AuthContext';
+import { PageHeading } from '../PageHeading';
 
 const mockReplace = jest.fn();
 let mockRootOptions: (props: { navigation: { canGoBack: () => boolean } }) => NativeStackNavigationOptions;
@@ -61,6 +62,28 @@ test('five labelled destinations retain their existing routes and Schedule repla
   render(<TabsLayout />);
   expect(Object.keys(mockTabScreens)).toEqual(['home', 'calendar', 'teams', 'messages', 'profile']);
   expect(Object.values(mockTabScreens).map((options) => options.title)).toEqual(['Home', 'Schedule', 'Teams', 'Messages', 'Profile']);
+  expect(Object.values(mockTabScreens).map((options) => options.tabBarAccessibilityLabel)).toEqual(['Home', 'Schedule', 'Teams', 'Messages', 'Profile']);
+});
+
+test('primary tabs have explicit names and decorative icons are hidden on every platform', () => {
+  render(<TabsLayout />);
+  for (const options of Object.values(mockTabScreens)) {
+    const icon = options.tabBarIcon?.({ focused: true, color: '#155C52', size: 24 });
+    if (!React.isValidElement<{ accessible: boolean; 'aria-hidden': boolean; accessibilityElementsHidden: boolean; importantForAccessibility: string }>(icon)) throw new Error('Expected a tab icon.');
+    expect(icon.props).toMatchObject({ accessible: false, 'aria-hidden': true, accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' });
+  }
+});
+
+test('the stack context title stays readable while content supplies the sole level-one heading', () => {
+  render(<RootLayout />);
+  const options = mockRootOptions({ navigation: { canGoBack: () => true } });
+  if (typeof options.headerTitle !== 'function') throw new Error('Expected the semantic context renderer.');
+  const screen = render(<>{options.headerTitle({ children: 'Member', tintColor: '#155C52' })}<PageHeading title="Church role" /></>);
+  const context = screen.getByText('Member');
+  expect(context).toHaveProp('allowFontScaling', true);
+  expect(StyleSheet.flatten(context.props.style)).toMatchObject({ fontSize: 18, fontWeight: '700', color: '#182F2A' });
+  expect(screen.getAllByRole('header')).toHaveLength(1);
+  expect(screen.getByRole('header', { name: 'Church role' })).toHaveProp('aria-level', 1);
 });
 
 test('Messages retains the existing accessible-team sum, visible badge cap and uncapped reader label', () => {
@@ -83,7 +106,7 @@ test('the tab bar includes the safe area, readable labels and space for wrapped 
   const label = mockTabOptions.tabBarLabel;
   if (typeof label !== 'function') throw new Error('Expected the wrapping text label.');
   const text = render(<>{label({ focused: false, color: '#155C52', position: 'below-icon', children: 'Messages' })}</>);
-  const messages = text.getByText('Messages');
+  const messages = text.getByText('Messages', { includeHiddenElements: true });
   expect(StyleSheet.flatten(messages.props.style).fontSize).toBe(13);
   expect(messages).toHaveProp('allowFontScaling', true);
   fireEvent(messages, 'layout', { nativeEvent: { layout: { height: 54 } } });

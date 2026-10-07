@@ -30,20 +30,23 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow({
   accessibilityState, testID,
 }, ref) {
   const grouped = useContext(ListGroupContext);
+  const blocked = disabled || !!accessibilityState?.disabled;
+  const checked = ['switch', 'checkbox', 'radio'].includes(accessibilityRole) ? accessibilityState?.checked : undefined;
+  const selected = accessibilityRole === 'tab' || accessibilityRole === 'button' ? accessibilityState?.selected : undefined;
   const content = (
     <>
       {leading ?? (icon ? (
         <View style={[styles.iconWrap, destructive && styles.dangerIcon]}>
-          <Ionicons name={icon} size={24} color={destructive ? colors.danger : colors.primary} accessible={false} />
+          <Ionicons name={icon} size={24} color={destructive ? colors.danger : colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
         </View>
       ) : null)}
       <View style={styles.textWrap}>
-        <AppText variant="bodyBold" tone={disabled ? 'muted' : destructive ? 'danger' : 'default'}>{title}</AppText>
+        <AppText variant="bodyBold" tone={blocked ? 'muted' : destructive ? 'danger' : 'default'}>{title}</AppText>
         {subtitle ? <AppText variant="small" tone="secondary">{subtitle}</AppText> : null}
       </View>
       {right}
       {onPress && showChevron && accessibilityRole === 'button' ? (
-        <Ionicons name="chevron-forward" size={22} color={colors.textMuted} accessible={false} />
+        <Ionicons name="chevron-forward" size={22} color={colors.textMuted} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
       ) : null}
     </>
   );
@@ -56,15 +59,16 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow({
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel ?? [title, subtitle].filter(Boolean).join('. ')}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{ ...accessibilityState, disabled: disabled || accessibilityState?.disabled }}
-      aria-checked={['switch', 'checkbox', 'radio'].includes(accessibilityRole) ? accessibilityState?.checked : undefined}
-      aria-selected={accessibilityRole === 'tab' ? accessibilityState?.selected : undefined}
+      accessibilityState={{ ...accessibilityState, checked, selected, disabled: blocked }}
+      aria-checked={checked}
+      aria-selected={accessibilityRole === 'tab' ? selected : undefined}
+      aria-pressed={accessibilityRole === 'button' ? selected : undefined}
       aria-expanded={accessibilityState?.expanded}
       aria-busy={accessibilityState?.busy}
-      aria-disabled={disabled || accessibilityState?.disabled}
+      aria-disabled={blocked}
       testID={testID}
-      onPress={disabled ? undefined : onPress}
-      disabled={disabled}
+      onPress={blocked ? undefined : onPress}
+      disabled={blocked}
       style={({ pressed }) => [rowStyle, pressed && styles.pressed]}
     >
       {content}

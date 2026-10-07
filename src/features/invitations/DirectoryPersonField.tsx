@@ -57,7 +57,7 @@ export function DirectoryPersonField({ value, onChange, disabled, scope }: {
       disabled={disabled} onPress={() => { setQuery(''); setOpen(true); }} style={({ pressed }) => [styles.trigger, pressed && styles.pressed]}>
       <View style={styles.copy}><AppText>{value?.full_name ?? 'Choose a listed person'}</AppText>
         {value ? <AppText variant="small" tone="secondary">{value.email}</AppText> : null}</View>
-      <Ionicons name="chevron-down" size={22} color={colors.primary} accessible={false} />
+      <Ionicons name="chevron-down" size={22} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
     </Pressable>
     <AppText variant="small" tone="secondary">Choose someone listed in this church who hasn’t joined the app, or whose access was removed.</AppText>
     <ModalSurface title="Choose a listed person" visible={open && !disabled} onClose={() => setOpen(false)} scroll={false} returnFocusRef={trigger}>

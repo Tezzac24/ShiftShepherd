@@ -45,6 +45,7 @@ export default function TabsLayout() {
         tabBarAllowFontScaling: true,
         tabBarLabel: ({ color, children }) => (
           <AppText variant="navigation" accessible={false}
+            accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden
             style={{ color, textAlign: 'center', maxWidth: '100%' }}
             onLayout={(event) => {
               const height = Math.ceil(event.nativeEvent.layout.height);
@@ -71,15 +72,17 @@ export default function TabsLayout() {
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
+          tabBarAccessibilityLabel: 'Home',
+          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />,
         }}
       />
       <Tabs.Screen
         name="calendar"
         options={{
           title: 'Schedule',
+          tabBarAccessibilityLabel: 'Schedule',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar-outline" size={size} color={color} />
+            <Ionicons name="calendar-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
@@ -87,8 +90,9 @@ export default function TabsLayout() {
         name="teams"
         options={{
           title: 'Teams',
+          tabBarAccessibilityLabel: 'Teams',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people-outline" size={size} color={color} />
+            <Ionicons name="people-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
@@ -102,7 +106,7 @@ export default function TabsLayout() {
               ? `Messages, ${unreadTotal} unread`
               : 'Messages',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubbles-outline" size={size} color={color} />
+            <Ionicons name="chatbubbles-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
@@ -110,8 +114,9 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: 'Profile',
+          tabBarAccessibilityLabel: 'Profile',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-circle-outline" size={size} color={color} />
+            <Ionicons name="person-circle-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />

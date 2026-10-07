@@ -214,7 +214,7 @@ function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: 
           disabled={disabled} onPress={() => { dirty.current = true; setSelectedRole(option.value); }}
           testID={`organisation-role-${option.value}`} style={({ pressed }) => [styles.option, checked && styles.selected, pressed && styles.pressed]}>
           <View style={styles.optionTitle}>
-            <Ionicons name={checked ? 'radio-button-on' : 'radio-button-off'} size={24} color={checked ? colors.primary : colors.borderStrong} accessible={false} />
+            <Ionicons name={checked ? 'radio-button-on' : 'radio-button-off'} size={24} color={checked ? colors.primary : colors.borderStrong} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
             <View style={styles.copy}><AppText variant="bodyBold" tone={disabled && !checked ? 'muted' : 'default'}>{option.label}</AppText></View>
           </View>
           <AppText tone="secondary">{description}</AppText>

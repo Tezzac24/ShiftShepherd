@@ -45,6 +45,8 @@ export function ActionSheet({
           accessibilityRole="button"
           accessibilityLabel={[action.label, action.description].filter(Boolean).join('. ')}
           accessibilityState={{ disabled: !!action.disabled, selected: action.selected }}
+          aria-disabled={!!action.disabled}
+          aria-pressed={action.selected}
           disabled={action.disabled}
           onPress={action.disabled ? undefined : () => {
             // Set this before either callback: either may synchronously unmount
@@ -62,7 +64,7 @@ export function ActionSheet({
           {action.icon ? (
             <Ionicons
               name={action.icon} size={24} accessible={false}
-              color={action.disabled ? colors.textMuted : action.destructive ? colors.danger : colors.primary}
+              color={action.disabled ? colors.textMuted : action.destructive ? colors.danger : colors.primary} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden
             />
           ) : null}
           <View style={styles.text}>
@@ -71,7 +73,7 @@ export function ActionSheet({
             </AppText>
             {action.description ? <AppText variant="small" tone="secondary">{action.description}</AppText> : null}
           </View>
-          {action.selected ? <Ionicons name="checkmark" size={24} color={colors.primary} accessible={false} /> : null}
+          {action.selected ? <Ionicons name="checkmark" size={24} color={colors.primary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden /> : null}
         </Pressable>
       ))}
     </ModalSurface>

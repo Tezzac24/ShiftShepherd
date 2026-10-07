@@ -122,8 +122,35 @@ test('list rows expose only the ARIA selection state appropriate to their role',
   const button = screen.UNSAFE_root.findAll((node: AccessibilityNode) => node.props.accessibilityRole === 'button' && node.props['aria-expanded'] === true)[0];
   expect(button.props['aria-selected']).toBeUndefined();
   expect(button.props['aria-checked']).toBeUndefined();
+  expect(button.props['aria-pressed']).toBe(true);
   const tab = screen.UNSAFE_root.findAll((node: AccessibilityNode) => node.props.accessibilityRole === 'tab' && node.props['aria-selected'] === true);
   expect(tab).toHaveLength(1);
+});
+
+test('a list row disabled through native state suppresses its action and matches web state', () => {
+  const action = jest.fn();
+  const screen = render(<ListRow title="Save choice" onPress={action} accessibilityState={{ disabled: true, busy: true }} />);
+  const row = screen.getByRole('button', { name: 'Save choice' });
+  expect(row).toHaveProp('accessibilityState', expect.objectContaining({ disabled: true, busy: true }));
+  expect(screen.UNSAFE_root.findAll((node: AccessibilityNode) => node.props.accessibilityRole === 'button' && node.props['aria-disabled'] === true)).toHaveLength(1);
+  fireEvent.press(row);
+  expect(action).not.toHaveBeenCalled();
+});
+
+test('text-field disabled and busy semantics agree with the input behavior on native and web', () => {
+  const screen = render(<TextField label="Name" value="Kept draft" accessibilityState={{ disabled: true, busy: true }} />);
+  const input = screen.getByLabelText('Name');
+  expect(input).toHaveProp('editable', false);
+  expect(input).toHaveProp('aria-disabled', true);
+  expect(input).toHaveProp('aria-busy', true);
+  expect(input).toHaveProp('accessibilityState', expect.objectContaining({ disabled: true, busy: true }));
+});
+
+test('a busy button exposes its named state once and hides the decorative spinner', () => {
+  const screen = render(<Button title="Saving changes" loading onPress={jest.fn()} />);
+  expect(screen.getAllByRole('button')).toHaveLength(1);
+  expect(screen.queryByRole('progressbar')).toBeNull();
+  expect(isHiddenFromAccessibility(screen.UNSAFE_getByType(ActivityIndicator))).toBe(true);
 });
 
 test('segments announce selection and ignore disabled and current choices', () => {
@@ -174,6 +201,18 @@ test('loading and error panels expose truthful state and an actionable retry', (
   expect(screen.getByRole('alert')).toHaveTextContent('Your changes were not saved');
   fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
   expect(retry).toHaveBeenCalledTimes(1);
+});
+
+test('a full-screen error keeps its explicit heading and announces the visible explanation separately', () => {
+  const screen = render(<StatePanel headingLevel={1} kind="error" title="Couldn't load this team"
+    message="Check your connection and try again." />);
+  expect(screen.getByRole('header', { name: "Couldn't load this team" })).toHaveProp('aria-level', 1);
+  expect(screen.getByRole('alert')).toHaveTextContent('Check your connection and try again.');
+  expect(screen.getByRole('alert')).toHaveProp('accessibilityLiveRegion', 'polite');
+  screen.rerender(<StatePanel headingLevel={1} kind="error" title="Couldn't check access" />);
+  expect(screen.getByRole('header', { name: "Couldn't check access" })).toHaveProp('accessibilityLiveRegion', 'polite');
+  expect(screen.getAllByRole('header')).toHaveLength(1);
+  expect(screen.queryByRole('alert')).toBeNull();
 });
 
 test.each([true, false])('a loading panel exposes one named progressbar and hides its decorative spinner (compact: %s)', (compact) => {

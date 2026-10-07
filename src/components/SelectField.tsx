@@ -64,7 +64,7 @@ export function SelectField<T extends string>({
         <AppText tone={selected ? 'default' : 'muted'} style={styles.value}>
           {selected?.label ?? placeholder}
         </AppText>
-        <Ionicons name="chevron-down" size={22} color={colors.textSecondary} accessible={false} />
+        <Ionicons name="chevron-down" size={22} color={colors.textSecondary} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
       </Pressable>
       {error ? (
         <AppText variant="small" tone="danger" accessibilityRole="alert" accessibilityLiveRegion="polite">{error}</AppText>
@@ -97,7 +97,7 @@ export function SelectField<T extends string>({
               <Pressable
                 accessibilityRole="radio"
                 accessibilityLabel={[item.label, item.description].filter(Boolean).join('. ')}
-                accessibilityState={{ selected: checked, checked, disabled: disabled || !!item.disabled }}
+                accessibilityState={{ checked, disabled: disabled || !!item.disabled }}
                 aria-checked={checked}
                 aria-disabled={disabled || !!item.disabled}
                 disabled={disabled || item.disabled}
@@ -112,7 +112,7 @@ export function SelectField<T extends string>({
                 </View>
                 <Ionicons
                   name={checked ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={24} color={checked ? colors.primary : colors.borderStrong} accessible={false}
+                  size={24} color={checked ? colors.primary : colors.borderStrong} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden
                 />
               </Pressable>
             );

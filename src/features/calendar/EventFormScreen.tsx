@@ -147,7 +147,7 @@ function EventForm({ id, editing, occurrenceStart, user, authorityResolved }: {
       message="A church admin must restore the team before this event can be edited or deleted." />
     <Button title="Back to event" variant="secondary" onPress={cancel} />
   </Screen>;
-  if (!draft || savedId) return <Screen><Stack.Screen options={{ title }} /><StatePanel kind="loading" title={savedId ? 'Finishing up…' : 'Preparing event…'} /></Screen>;
+  if (!draft || savedId) return <Screen><Stack.Screen options={{ title }} /><StatePanel headingLevel={1} kind="loading" title={savedId ? 'Finishing up…' : 'Preparing event…'} /></Screen>;
 
   const busy = saving || savedId !== null;
   const timeErrors = eventTimeErrors(draft, original.current);

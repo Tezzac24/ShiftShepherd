@@ -67,6 +67,9 @@ Normal detail screens use a predictable Back action and a concise context title.
 The content owns the full item title. Direct links and denied/missing states
 need an explicit safe fallback, not a blank header with no exit. Native back and
 invitation precedence must remain unchanged. Forms retain clear Cancel/Back.
+The native navigation title is a context label, without a content heading level;
+the PageHeading owns level1. Preserve the existing18pt bold context treatment,
+native Back/history and title text rather than adding two top-level headings.
 
 ### Home
 
@@ -404,6 +407,10 @@ Use borders/dividers and whitespace for structure. Avoid shadows on every row.
   Cancellation returns focus to the opener; choosing a navigation/dialog action
   transfers focus to its destination. Stale dismissal callbacks after reopening
   must not pull focus behind the current surface.
+- Control states follow their role: radios use checked, tabs selected, and
+  selected button choices match native selected to supported aria-pressed.
+  Decorative icons/spinners are hidden in both native and web semantics.
+  A disabled state must actually block the control's press handler.
 - Confirmations: name the action/context and real consequence; clear Cancel;
   use destructive colour only when warranted. Long content scrolls. Dismissal
   resolves as cancellation, including back and unmount.
@@ -417,8 +424,15 @@ Use borders/dividers and whitespace for structure. Avoid shadows on every row.
   and offer Retry; inaccessible/missing direct routes offer a safe exit.
   A loading indicator has one meaningful accessible status; decorative children
   do not add duplicate unnamed progress indicators.
+  Honor an explicit StatePanel heading level; an alert role must not discard it.
+  Visible explanatory content can carry the polite error alert. Avoid duplicate
+  hidden copies or native grouping that removes the heading from navigation.
 - Motion: subtle press feedback only by default. Any modal/state animation must
   respect reduced motion. No decorative or slow transitions.
+- Current-day views refresh their local clock on foreground entry and at the
+  next local hour while active, covering greeting/day changes without background
+  polling. Use a shared local hook, no new global store/provider. Never reset
+  deliberately chosen calendar/form dates or regenerate persisted demo data.
 
 Foundation decisions approved by the director on 21 September:
 
