@@ -291,7 +291,7 @@ export default function ProfileScreen() {
             <SectionHeader title="Manage church" />
             <ListGroup>
               <ListRow icon="people-circle-outline" title="Church members" subtitle="Manage access and roles" onPress={() => router.push('/organisations/members')} />
-              <ListRow icon="mail-outline" title="Invitations" subtitle="Invite, resend or revoke" onPress={() => router.push('/organisations/invitations')} />
+              <ListRow icon="mail-outline" title="Invitations" subtitle="Invite, resend or cancel" onPress={() => router.push('/organisations/invitations')} />
             </ListGroup>
           </View>
         ) : null}

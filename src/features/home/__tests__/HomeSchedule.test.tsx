@@ -20,7 +20,7 @@ jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn(), useRequi
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }));
 
 let user: SessionUser;
-let data: Pick<ReturnType<typeof useAppData>, 'organisation' | 'teams' | 'users' | 'rotaEntries' | 'rotaAssignments'
+let data: Pick<ReturnType<typeof useAppData>, 'organisation' | 'teams' | 'archivedTeams' | 'users' | 'rotaEntries' | 'rotaAssignments'
   | 'availabilityResponses' | 'events' | 'categories' | 'announcements' | 'unreadByTeam' | 'teamsLoading' | 'teamsError'
   | 'rotasLoading' | 'rotasError' | 'eventsLoading' | 'eventsError' | 'announcementsLoading' | 'announcementsError'> & {
   getAnnouncementImageUri: jest.Mock; refreshTeams: jest.Mock; refreshRotas: jest.Mock; refreshEvents: jest.Mock;
@@ -37,7 +37,7 @@ beforeEach(() => {
   auth = { user, authMode: 'demo', accountContext: null, accountStatus: 'ready', refreshAccountContext: jest.fn() };
   data = {
     organisation: { id: 'church-a', name: 'Demo church', logo_url: null, primary_colour: '', created_at: '' },
-    teams: [makeTeam()], users: [profile], rotaEntries: [makeEntry()], rotaAssignments: [makeAssignment()], availabilityResponses: [],
+    teams: [makeTeam()], archivedTeams: [], users: [profile], rotaEntries: [makeEntry()], rotaAssignments: [makeAssignment()], availabilityResponses: [],
     events: [makeEvent()], categories: [], announcements: [makeAnnouncement()], unreadByTeam: {},
     teamsLoading: false, teamsError: null, rotasLoading: false, rotasError: null, eventsLoading: false, eventsError: null,
     announcementsLoading: false, announcementsError: null, getAnnouncementImageUri: jest.fn(),
@@ -115,6 +115,46 @@ describe('Home overview', () => {
     fireEvent.press(screen.getByRole('button', { name: 'View all announcements' }));
     expect(mockPush).toHaveBeenLastCalledWith('/announcements');
     expect(screen.queryByText(/unread/i)).toBeNull();
+  });
+
+  it.each([true, false])('excludes a cached newest team notice after archive (another notice: %s)', (hasNextNotice) => {
+    user = makeUser({ orgRole: 'church_admin', memberships: [] });
+    const archivedNotice = makeAnnouncement({ id: 'archived-notice', team_id: 'team-a', audience: 'team',
+      title: 'Newest team update', pinned: true, created_at: '2026-09-21T10:00:00Z' });
+    data.announcements = hasNextNotice ? [makeAnnouncement(), archivedNotice] : [archivedNotice];
+    const cachedNotices = data.announcements;
+    const screen = render(<HomeScreen />);
+    expect(screen.getByText('Newest team update')).toBeOnTheScreen();
+
+    data.archivedTeams = [makeTeam({ archived_at: '2026-09-21T11:00:00Z', archived_by: profile.id })];
+    data.teams = [];
+    screen.rerender(<HomeScreen />);
+
+    expect(data.announcements).toBe(cachedNotices);
+    expect(screen.queryByText('Newest team update')).toBeNull();
+    if (hasNextNotice) {
+      fireEvent.press(screen.getByRole('button', { name: /^Announcement: Our community meal/ }));
+      expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/announcements/[id]', params: { id: 'notice-a' } });
+      expect(screen.queryByText(/No announcements yet/)).toBeNull();
+    } else {
+      expect(screen.getByText('No announcements yet. Updates from your church will appear here.')).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: /^Announcement:/ })).toBeNull();
+    }
+  });
+
+  it('keeps organisation and team-audience restrictions when choosing the latest notice', () => {
+    data.announcements.push(
+      makeAnnouncement({ id: 'foreign', organisation_id: 'church-b', title: 'Another church', created_at: '2026-09-22T10:00:00Z' }),
+      makeAnnouncement({ id: 'non-member', team_id: 'team-b', audience: 'team', title: 'Another team', created_at: '2026-09-21T10:00:00Z' }),
+    );
+    const screen = render(<HomeScreen />);
+    expect(screen.getByText('Our community meal')).toBeOnTheScreen();
+    expect(screen.queryByText('Another church')).toBeNull();
+    expect(screen.queryByText('Another team')).toBeNull();
+    user = makeUser({ memberships: [...user.memberships, { id: 'membership-b', team_id: 'team-b', user_id: profile.id, role: 'member', created_at: '' }] });
+    screen.rerender(<HomeScreen />);
+    expect(screen.getByText('Another team')).toBeOnTheScreen();
+    expect(screen.queryByText('Another church')).toBeNull();
   });
 
   it('keeps announcement, event and serving load states independent', () => {

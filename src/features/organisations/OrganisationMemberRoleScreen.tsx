@@ -88,10 +88,11 @@ function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: 
     if (router.canGoBack()) router.back(); else router.replace('/');
   };
   const checkAccess = async () => {
-    if (pending.current) return;
+    if (!savedRole || !correctChurch || !scope.isPresent() || pending.current || data.teamsLoading) return;
+    const ticket = capture();
     pending.current = true; setBusy(true); setRefreshFailed(false);
-    try { await data.refreshTeams({ quiet: true }); }
-    catch { if (scope.isPresent()) setRefreshFailed(true); }
+    try { await data.refreshTeams(); }
+    catch { if (isCurrent(ticket)) setRefreshFailed(true); }
     finally { pending.current = false; if (scope.isPresent()) setBusy(false); }
   };
   const save = async () => {
@@ -125,7 +126,7 @@ function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: 
       setMember((row) => row ? { ...row, role: result.role } : row);
       toast(`${target.full_name} is now ${organisationRoleLabel(result.role)}.`);
       // The RPC result is confirmed; a failed directory read cannot undo it.
-      try { await data.refreshTeams({ quiet: true }); }
+      try { await data.refreshTeams(); }
       catch { if (isCurrent(ticket)) setRefreshFailed(true); }
     } catch (cause) {
       if (isCurrent(ticket)) {
@@ -145,9 +146,10 @@ function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: 
 
   if (savedRole) return <Screen>{header}
     <PageHeading title="Role saved" eyebrow={scope.churchName} description={`${member?.full_name ?? 'This person'} is now ${organisationRoleLabel(savedRole)}.`} />
-    {refreshFailed ? <StatePanel compact kind="error" title="Couldn’t refresh church access" message="The role is saved. Check access again before doing more administration."
+    {busy || data.teamsLoading ? <StatePanel compact kind="loading" title="Refreshing church access…" />
+      : data.teamsError || refreshFailed ? <StatePanel compact kind="error" title="Couldn’t refresh church access" message="The role is saved. Check access again before doing more administration."
       action={{ label: 'Check church access', onPress: () => void checkAccess() }} />
-      : busy ? <StatePanel compact kind="loading" title="Refreshing church access…" /> : null}
+      : null}
     <Button title="Done" onPress={close} disabled={busy} />
   </Screen>;
 

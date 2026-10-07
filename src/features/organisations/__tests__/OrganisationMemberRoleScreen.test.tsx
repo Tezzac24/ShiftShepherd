@@ -125,7 +125,7 @@ it('guards duplicate submits and offers Done after a confirmed save', async () =
   fireEvent.press(view.getByText('Save role')); fireEvent.press(view.getByText('Save role'));
   expect(setRole).toHaveBeenCalledTimes(1);
   await act(async () => save.resolve({ profile_id: MEMBER.profile_id, role: 'event_manager' }));
-  await view.findByText('Role saved'); expect(refreshTeams).toHaveBeenCalledWith({ quiet: true });
+  await view.findByText('Role saved'); expect(refreshTeams).toHaveBeenCalledWith();
   fireEvent.press(view.getByText('Done')); expect(mockBack).toHaveBeenCalled();
 });
 
@@ -151,7 +151,7 @@ it('retains the draft across same-account refresh and checks a changed final-adm
   expect(view.queryByText('Save role')).toBeNull(); expect(setRole).not.toHaveBeenCalled();
 });
 
-it('shows a confirmed save even when directory refresh fails or self-demotion removes management', async () => {
+it('keeps a confirmed save after an unexpected refresh rejection or self-demotion removes management', async () => {
   refreshTeams.mockRejectedValue(new Error('read failed'));
   const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
   fireEvent.press(view.getByTestId('organisation-role-event_manager')); fireEvent.press(view.getByText('Save role'));
@@ -160,6 +160,29 @@ it('shows a confirmed save even when directory refresh fails or self-demotion re
   requiredUser.mockReturnValue(demoted); auth.mockReturnValue(adminAuth(demoted)); view.rerender(<OrganisationMemberRoleScreen />);
   expect(view.getByText('Role saved')).toBeTruthy(); expect(view.queryByText('No permission')).toBeNull();
   fireEvent.press(view.getByText('Done')); expect(mockReplace).toHaveBeenCalledWith('/(tabs)/profile');
+});
+
+it('guards a stale read retry after blur and ignores its unexpected rejection after refocus', async () => {
+  const data = { users: [memberProfile(MEMBER)], refreshTeams, teamsLoading: false, teamsError: null as string | null };
+  (useAppData as jest.Mock).mockReturnValue(data);
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-event_manager')); fireEvent.press(view.getByText('Save role'));
+  await view.findByText('Role saved');
+  data.teamsError = 'Directory unavailable.'; view.rerender(<OrganisationMemberRoleScreen />);
+  const staleRetry = view.getByRole('button', { name: 'Check church access' });
+  mockFocused = false; view.rerender(<OrganisationMemberRoleScreen />);
+  fireEvent.press(staleRetry); expect(refreshTeams).toHaveBeenCalledTimes(1);
+
+  mockFocused = true; view.rerender(<OrganisationMemberRoleScreen />);
+  const read = deferred<void>();
+  refreshTeams.mockImplementationOnce(() => { data.teamsError = null; return read.promise; });
+  fireEvent.press(view.getByText('Check church access'));
+  mockFocused = false; view.rerender(<OrganisationMemberRoleScreen />);
+  mockFocused = true; view.rerender(<OrganisationMemberRoleScreen />);
+  await act(async () => read.reject(new Error('Late unexpected rejection.')));
+  expect(view.getByText('Role saved')).toBeTruthy();
+  expect(view.queryByText('Couldn’t refresh church access')).toBeNull();
+  expect(refreshTeams).toHaveBeenCalledTimes(2); expect(setRole).toHaveBeenCalledTimes(1);
 });
 
 it('uses outcome-uncertain recovery and keeps the role choice after an unknown save failure', async () => {

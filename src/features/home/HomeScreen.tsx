@@ -19,6 +19,7 @@ import { latestAnnouncement, upcomingEvents, userName, visibleTeams } from '../.
 import { useRequiredUser } from '../../lib/auth/AuthContext';
 import { formatFullDate, greetingForNow } from '../../utils/dates';
 import { useCurrentTime } from '../../utils/useCurrentTime';
+import { accessibleAnnouncements } from '../announcements/announcementPresentation';
 import { ScheduleEventRow } from '../calendar/ScheduleRows';
 import { ServingFeedback } from '../calendar/ServingFeedback';
 import { EventFocus, ServingFocus } from './HomeFocus';
@@ -37,7 +38,7 @@ export default function HomeScreen() {
   const events = upcomingEvents(data.events.filter((event) => event.organisation_id === user.profile.organisation_id));
   const focusedEvent = noDuty ? events[0] : undefined;
   const preview = homeEventPreview(events, focusedEvent);
-  const announcement = latestAnnouncement(user, data.announcements.filter((notice) => notice.organisation_id === user.profile.organisation_id));
+  const announcement = latestAnnouncement(user, accessibleAnnouncements(user, data.announcements, data.archivedTeams));
   const unread = sumUnread(data.unreadByTeam, visibleTeams(user, data.teams).map((team) => team.id));
   const openSchedule = () => router.push(scheduleDestination('events'));
   const openServing = () => router.push(scheduleDestination('serving'));
