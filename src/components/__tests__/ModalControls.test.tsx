@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { AccessibilityInfo, Modal, Platform, Text, View } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 
@@ -6,6 +6,7 @@ import { ActionSheet } from '../ActionSheet';
 import { ConfirmProvider, useConfirm } from '../ConfirmDialog';
 import { SelectField } from '../SelectField';
 import { FocusRef, ModalSurface } from '../ModalSurface';
+import { ListRow } from '../ListRow';
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -272,6 +273,38 @@ describe('modal dismissal focus', () => {
     fireEvent.press(screen.getByRole('button', { name: 'Close' }));
     flushFrames();
     expect(returnFocusRef.current?.focus).toHaveBeenCalledTimes(1);
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  let managementOpener: FocusRef;
+  function MemberManagement({ personVisible = true }: { personVisible?: boolean }) {
+    const [visible, setVisible] = useState(false);
+    const person = useRef<View>(null);
+    managementOpener = person;
+    return <>
+      {personVisible ? <ListRow ref={person} title="Ruth Johnson" onPress={() => setVisible(true)} /> : null}
+      <ActionSheet visible={visible} title="Manage Ruth" onClose={() => setVisible(false)} returnFocusRef={person}
+        actions={[{ key: 'role', label: 'Manage role', onPress: jest.fn() }]} />
+    </>;
+  }
+
+  test('closing a member management sheet returns focus to the exact people row', () => {
+    const screen = render(<MemberManagement />);
+    fireEvent.press(screen.getByRole('button', { name: 'Ruth Johnson' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    flushFrames();
+    expect(managementOpener.current !== null).toBe(true);
+    expect(resolveNode.mock.calls.some(([node]) => node === managementOpener.current)).toBe(true);
+    expect(focus).toHaveBeenCalledWith(71);
+  });
+
+  test('closing a member sheet safely skips focus if a refreshed list removed its opener', () => {
+    const screen = render(<MemberManagement />, { createNodeMock: () => ({ focus: jest.fn() }) });
+    fireEvent.press(screen.getByRole('button', { name: 'Ruth Johnson' }));
+    screen.rerender(<MemberManagement personVisible={false} />);
+    fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    flushFrames();
+    expect(resolveNode.mock.calls.length).toBe(0);
     expect(focus).not.toHaveBeenCalled();
   });
 });

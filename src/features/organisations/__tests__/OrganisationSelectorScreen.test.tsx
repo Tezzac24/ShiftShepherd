@@ -8,7 +8,8 @@ import { alpha, beta, gamma, authState, linked, renderEntry } from './churchEntr
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
 const mockCanGoBack = jest.fn(() => true);
-jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace, back: mockBack, canGoBack: mockCanGoBack }) }));
+jest.mock('expo-router', () => ({ useGlobalSearchParams: () => ({}), usePathname: () => '/organisations/select',
+  useRouter: () => ({ replace: mockReplace, back: mockBack, canGoBack: mockCanGoBack }) }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn() }));
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));

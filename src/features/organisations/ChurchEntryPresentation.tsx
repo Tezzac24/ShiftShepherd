@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { useGlobalSearchParams, usePathname } from 'expo-router';
 
 import { useAuth } from '../../lib/auth/AuthContext';
 
@@ -16,12 +17,21 @@ type Request = {
   checkFailed: boolean;
 };
 
+export interface AccountContinuationTicket { owner: string | null; generation: number; invitationGeneration: number }
+interface AccountContinuationOptions {
+  invitationToken?: string | null;
+  acceptedProfileId?: string;
+  afterSignOut?: boolean;
+}
+
 interface EntryPresentation {
   request: Request | null;
   create: (name: string) => void;
   switchTo: (profileId: string, name: string) => void;
   checkAccount: () => void;
   clear: () => void;
+  captureAccountContinuation: () => AccountContinuationTicket;
+  canContinueAccount: (ticket: AccountContinuationTicket, options?: AccountContinuationOptions) => boolean;
 }
 
 const EntryContext = createContext<EntryPresentation | null>(null);
@@ -33,11 +43,31 @@ const EntryContext = createContext<EntryPresentation | null>(null);
  */
 export function ChurchEntryPresentationProvider({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
+  const pathname = usePathname();
+  const routeParams = useGlobalSearchParams<{ token?: string | string[] }>();
+  const openedToken = Array.isArray(routeParams.token) ? routeParams.token[0] : routeParams.token;
   const owner = auth.authMode === 'supabase' && auth.isAuthenticated && auth.authIdentity
     ? `${auth.authMode}:${auth.authIdentity.id}` : null;
   const profileId = auth.user?.profile.id ?? null;
-  const latest = useRef({ auth, owner, profileId });
-  latest.current = { auth, owner, profileId };
+  const latest = useRef({ auth, owner, profileId, pathname });
+  const invitationGeneration = useRef(0);
+  if (auth.pendingInvitationToken && auth.pendingInvitationToken !== latest.current.auth.pendingInvitationToken) {
+    invitationGeneration.current += 1;
+  }
+  latest.current = { auth, owner, profileId, pathname };
+  useEffect(() => {
+    // A newly opened link owns its explanation even when adoption and terminal
+    // clearing batch into one Auth update. Clearing params does not increment.
+    if (pathname === '/invite/accept' && openedToken !== undefined) invitationGeneration.current += 1;
+  }, [pathname, openedToken]);
+  // This live identity survives the profile-keyed subtree. No token/session is
+  // retained here; callers supply their invitation hint when checking an exit.
+  const continuationOwner = auth.authMode === 'demo' && auth.isAuthenticated && auth.user
+    ? `demo:${auth.user.profile.id}` : owner;
+  const continuation = useRef({ owner: continuationOwner, generation: 0 });
+  if (continuation.current.owner !== continuationOwner) {
+    continuation.current = { owner: continuationOwner, generation: continuation.current.generation + 1 };
+  }
   const [request, setRequest] = useState<Request | null>(null);
   const owned = useRef<Request | null>(null);
   const sequence = useRef(0);
@@ -103,12 +133,31 @@ export function ChurchEntryPresentationProvider({ children }: { children: React.
     });
   };
 
+  const canContinueAccount = (ticket: AccountContinuationTicket, options?: AccountContinuationOptions) => {
+    if (!mounted.current || !ticket.owner) return false;
+    const currentAuth = latest.current.auth;
+    if (options?.invitationToken && latest.current.pathname !== '/invite/accept') return false;
+    // A newer pending link owns the routing hub and its form. An older screen
+    // must not replace it, even after a same-account profile remount.
+    if (options?.invitationToken && currentAuth.pendingInvitationToken
+      && currentAuth.pendingInvitationToken !== options.invitationToken) return false;
+    if (options?.invitationToken && invitationGeneration.current !== ticket.invitationGeneration) return false;
+    if (options?.afterSignOut) return continuation.current.owner === null && !currentAuth.isAuthenticated
+      && continuation.current.generation === ticket.generation + 1;
+    return continuation.current.owner === ticket.owner && continuation.current.generation === ticket.generation
+      && currentAuth.isAuthenticated && currentAuth.accountStatus === 'ready'
+      && (!options?.acceptedProfileId || (currentAuth.user?.profile.id === options.acceptedProfileId
+        && currentAuth.accountContext?.account.active_profile_id === options.acceptedProfileId));
+  };
+
   return <EntryContext.Provider value={{
     request: valid(request) ? request : null,
     create: (name) => begin('create', name, null),
     switchTo: (target, name) => begin('switch', name, target),
     checkAccount,
     clear: () => { if (owner === latest.current.owner && request?.id === owned.current?.id) publish(null); },
+    captureAccountContinuation: () => ({ ...continuation.current, invitationGeneration: invitationGeneration.current }),
+    canContinueAccount,
   }}>{children}</EntryContext.Provider>;
 }
 

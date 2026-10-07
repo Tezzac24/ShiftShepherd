@@ -20,6 +20,8 @@ jest.mock('expo-router', () => {
   const React = jest.requireActual<typeof import('react')>('react');
   return {
     useRouter: () => ({ replace: mockReplace }),
+    usePathname: () => '/events/example',
+    useGlobalSearchParams: () => ({}),
     Stack: Object.assign(({ screenOptions, children }: { screenOptions: typeof mockRootOptions; children: React.ReactNode }) => {
       mockRootOptions = screenOptions;
       return React.createElement(React.Fragment, null, children);

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useContext } from 'react';
+import React, { forwardRef, useContext } from 'react';
 import { AccessibilityRole, AccessibilityState, Pressable, StyleSheet, Switch, View } from 'react-native';
 
 import { colors, radius, spacing, touchTarget } from '../../constants/theme';
@@ -24,11 +24,11 @@ interface ListRowProps {
 }
 
 /** A full-width control in a ListGroup, or a stand-alone row. */
-export function ListRow({
+export const ListRow = forwardRef<View, ListRowProps>(function ListRow({
   icon, title, subtitle, onPress, right, leading, showChevron = true, destructive,
   disabled = false, accessibilityLabel, accessibilityHint, accessibilityRole = 'button',
   accessibilityState, testID,
-}: ListRowProps) {
+}, ref) {
   const grouped = useContext(ListGroupContext);
   const content = (
     <>
@@ -49,9 +49,10 @@ export function ListRow({
   );
   const rowStyle = [styles.row, grouped && styles.grouped];
 
-  if (!onPress) return <View testID={testID} style={rowStyle}>{content}</View>;
+  if (!onPress) return <View ref={ref} testID={testID} style={rowStyle}>{content}</View>;
   return (
     <Pressable
+      ref={ref}
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel ?? [title, subtitle].filter(Boolean).join('. ')}
       accessibilityHint={accessibilityHint}
@@ -69,7 +70,7 @@ export function ListRow({
       {content}
     </Pressable>
   );
-}
+});
 
 interface SwitchRowProps {
   title: string;

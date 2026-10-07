@@ -1,6 +1,6 @@
 # Navigation flow review
 
-Status: in progress after Auth/church-entry acceptance on 6 October.
+Status: in progress after member/invitation visual acceptance on 7 October.
 The complete redesign, final visual review and PR gates are still outstanding.
 
 ## Counting and evidence
@@ -53,6 +53,12 @@ fixtures. None establishes native or live-service QA.
 | Choose own service songs / Schedule | Not exposed | 2 | My serving segment, date, section choices. Choose songs/Song order are segments on the same route; saved order and Back were checked in demo. |
 | Switch church / Home | 2 to the choice via Profile | 1 to the choice | Shared church control opens the selector. Selection completes through the existing routing hub to Home, one further destination transition. Long names, current identity, mandatory selection, uncertain outcomes and account replacement were inspected with guarded offline fixtures; no live switch QA is claimed. |
 | Set up a church / no-church account | 1 | 1 | Existing creation route, one short name field and a fixed submit footer. Invitation-based joining remains the alternative. Required-name and uncertain-create recovery are visible; no hosted church was created. |
+| Find/manage a church member / Profile | 1 | 1 | Church members, existing server search, then the person's contextual access sheet. Search handles names/email beyond the initial200; actions keep the exact returned person and church. |
+| Invite a new person / Profile | 1 to invitation page | 1 to invitation page; one further form view | Invitations, Invite, short email form. The form replaces the list in the same route, but is meaningful additional effort. Already listed opens a searchable chooser; a known pending person goes to their exact current invitation. |
+| Resend/cancel an invitation / Profile | 1 | 1 | Invitations, labelled Manage row, confirmation. Compact history and current views retain UTC expiry; resending replaces the link. Saved-unsent/unknown outcomes and a pending item outside initial results were inspected offline. |
+| Change a church role / Profile | 2 | 2 | Church members, contextual member sheet, Church role. Four exclusive choices, short promotion confirmation and visible recovery; the sheet is an additional interaction. Final-admin protection offers Open Members to appoint another admin. |
+| Remove church access / Profile | 1 | 1 | Church members, member sheet, Remove access confirmation with full person/church and retained-history consequences. Own membership offers Leave from Profile, keeping the established separate leave flow. |
+| Accept an invitation / opened link | 0 after sign-in/name prerequisites | 0 after sign-in/name prerequisites | The invitation page shows church/account context, required name if needed, and Accept. Unverified email leads with Check invitation; another account remains a secondary choice. Blank-name validation reveals the actual field. Terminal links have a single exit; replay opens the existing church. |
 
 The new zero-admin team stayed at zero members after edit/archive/restore.
 Another create added only the explicitly selected Sarah as team admin; the
@@ -60,15 +66,14 @@ creator's My teams remained unchanged. These are actual local demo flows,
 not hosted membership tests. Same-ID restoration and archived deep-link
 exclusion were checked directly.
 
-## Paths to finish reviewing
+## Remaining flow verification
 
-These counts are retained routes or planned paths, not completed screen-family
-acceptance. Update their evidence after their owning worker and director review.
-
-| Task and starting context | Before | Expected final path/count | Outstanding review |
-| --- | ---: | --- | --- |
-| Invite/manage church members / Profile | 1 | Contextual church-management row: 1 | Organisation/invitation screen families. |
-| Change church role / Profile | 2 | Church members, role: 2 | Four exclusive roles and final-admin presentation. |
+The screen families above have been personally inspected. Guarded church fixtures
+do not certify live email, Auth persistence, Root remounts or server mutations;
+actual-router tests cover account replacement, expected refresh remounts and
+newer/terminal invitation precedence. Native/live QA remains separate. The final
+independent review and shared-state pass still need the team role/removal dialogs,
+cross-app control semantics and final integrated common-flow check.
 
 ## Exceptions and trade-offs
 
@@ -86,5 +91,4 @@ acceptance. Update their evidence after their owning worker and director review.
   UX review must check their discoverability and whether they create excessive
   drilling despite an acceptable route count.
 
-Final reporting must use completed paths and evidence rather than this file's
-remaining expectations.
+Final reporting must use these completed paths with their stated evidence limits.

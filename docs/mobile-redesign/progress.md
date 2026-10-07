@@ -1,249 +1,216 @@
 # Mobile redesign continuity checkpoint
 
-Updated 6 October 2026; continuing from the user's context-preservation checkpoint.
-This is the entry point after compaction. Continue the existing redesign; do not
-repeat the completed audit or reopen accepted design decisions without new
-rendered evidence. Implementation detail remains in the repository.
+Updated 7 October 2026. Read this, repository instructions and next-slice files
+after compaction. Continue the existing redesign; the director's original audit,
+inventory, flow map and representative slice are complete. Do not repeat them
+or reconsider accepted decisions without new rendered evidence.
 
-## Goal and repository state
+## Goal and branch
 
-- Goal remains active: complete mobile redesign, one branch, one final reviewed
-  PR with green required CI. Do not merge. No redesign PR has been opened yet.
+- Complete one coherent mobile redesign, one final PR, required CI green and
+  all actionable review findings resolved. **Do not merge.**
 - Branch: `feat/mobile-ui-ux-reimagination`.
-- HEAD: `3965a43978f16eeb1894d8fd6402a87ae54b50f0` (10 commits ahead).
-- Base and last fetched `origin/main`: `ecde433` (rechecked 6 October).
-- Unrelated open PR #19 (Expo SDK57) is excluded. This branch uses main's SDK54;
-  repository CI uses Node20. Local Node is 24.19.
-- Initial clean-tree/fetch/open-PR/migration checks, required reading, complete
-  route inventory, flow map and the director's first-hand audit are complete.
-  The representative-slice gate is accepted. Do not restart them.
-- Music is personally accepted and fully validated; its logical phase commit is
-  next. Uncommitted files are confined to Choir/music helpers/tests and the
-  director's mobile-redesign documents.
-- All implementation workers are complete. Do not reuse the original audit.
-  Auth/bootstrap/no-church/create/switch is the next fresh sequential worker.
-- Main and open PRs were rechecked on 6 October: main is unchanged and the only
-  open PR is unrelated SDK-upgrade #19. Use the dedicated GitHub PR search.
+- HEAD: `4433fffa3e62c47045771bcd2286786f7f5c8510`, 12 commits ahead.
+- Base/last fetched main: `ecde4334b0fc9d27752f162603d7920ac0225e49`,
+  unchanged on 6 October. Repository Tezzac24/ShiftShepherd.
+- No redesign push/PR yet. Only open PR last checked: #19, unrelated SDK57
+  upgrade, excluded. This branch SDK54; CI Node20, local Node24.19.
+- Current member/invitation family and parent documents are uncommitted.
+  Preserve them. Repository is the source of implementation detail.
+- Use fresh bounded **sequential** workers. Parent owns global direction,
+  integration, phone-size visual acceptance and documents. Compact handoffs
+  only; no full logs/diffs/source/transcripts.
 
-## Accepted areas and commits
+## Accepted checkpoints
 
-| Area | Commit | Known accepted validation |
+| Area | Commit | Tests / suites |
 | --- | --- | --- |
-| Audit, inventory and direction | b77be62 | Parent first-hand audit; baseline 856 tests/76 suites |
-| Shared design foundations | 441f5fd | 881 tests/80 suites; personal visual acceptance |
-| Navigation, Home, Schedule | 771fea0 | 922 tests/83 suites; member/admin/empty/deep-link review |
-| Teams directory, hub, members | 73b2b2e | 965 tests/83 suites; long virtualized roster review |
-| Repository presentation guidance | 5e040eb | README/AGENTS/CLAUDE synchronized |
-| Profile and notification preferences | 3f04df9 | 1,017 tests/84 suites; normal and offline state review |
-| Team create/edit/archive/restore/Add member | 7a53707 | 1,062 tests/84 suites; creation/retry/scope/lifecycle review |
-| Messages and chat | d724d40 | 1,118 tests/87 suites; 56 focused; history/composer/recovery review |
-| Announcements and events | 4cb68f0 | 1,206 tests/91 suites; 113 focused; 56 parent captures |
-| Rota, availability and monthly planning | 3965a43 | 1,302 tests/93 suites; 118 focused; 59 parent captures |
-| Choir/music | Pending phase commit | 1,387 tests/96 suites; 51 affected tests after final refinement; 52 parent captures |
+| First-hand audit and direction | b77be62 | Baseline856/76 |
+| Design foundations | 441f5fd | 881/80 |
+| Home/navigation/Schedule | 771fea0 | 922/83 |
+| Teams representative slice | 73b2b2e | 965/83 |
+| Repository guidance | 5e040eb | Documentation |
+| Profile/preferences | 3f04df9 | 1017/84 |
+| Team forms/lifecycle | 7a53707 | 1062/84 |
+| Chat | d724d40 | 1118/87 |
+| Announcements/events | 4cb68f0 | 1206/91 |
+| Rota/availability | 3965a43 | 1302/93 |
+| Music | 1512a2a | 1387/96 |
+| Auth/church entry | 4433fff | 1430/97 |
+| Members/roles/invitation admin/acceptance | Commit next | 1507/97 |
 
-Each accepted implementation phase also passed typecheck, lint, migration
-filename check, diff check and demo-only Android/iOS/web export (43 routes).
-The final notice/event copy correction passed 55 affected tests/2 suites.
-These are phase checkpoints, not final validation of the whole redesign.
+Each accepted phase passed typecheck, lint, migration check, diff check and
+demo Android/iOS/web export43 routes, with parent phone-size visual acceptance.
+These are phase checks, not final validation. Web is a proxy; no native pass.
+Original evidence/rationale remains in baseline-visual-audit.md, inventories,
+design-decisions.md and flow-review.md. Do not copy it here.
 
-Accepted UI was personally rendered at representative 375×812, 390×844,
-393×852 and/or 430×932 phone sizes. Web remains an inspection proxy, not native
-QA. Original audit and accepted rationale are retained in
-`baseline-visual-audit.md`, both inventory documents, `design-decisions.md`
-and `flow-review.md`. Do not reproduce their full history here.
+## Shared design authority
 
-## Approved global direction
+Read design-brief.md for presentation/IA and product-contract.md for behavior.
+Tokens/components in constants/theme.ts and src/components are implementation
+authority; workers may propose, not independently redefine, global design.
 
-`design-brief.md` is the sole presentation/IA authority; `product-contract.md`
-is the frozen behavior authority. `constants/theme.ts` and shared components
-are the implementation source for tokens and interaction conventions.
+- Calm, obvious, readable and labelled; one clear primary task. Older members,
+  reduced vision/dexterity, brief visits and one-handed phones are primary.
+- Tabs **Home / Schedule / Teams / Messages / Profile**. Schedule retains the
+  calendar route with Church events/My serving. Preserve detail/invitation links.
+- OrganisationHeader resolves current church without live mock flashes.
+  Home prioritizes serving/event focus, authoritative unread, editorial notices
+  and nonduplicated events. Do not repeat the whole team directory.
+- Team hub: Chat/Rota/Members/choir Songs nearby. My teams means membership;
+  admin All teams is separate. Contextual labelled Manage progressively
+  discloses administration; destructive actions have clear confirmations.
+- Profile separates identity/preferences, church administration and account/demo.
+- Common flows normally <=3 meaningful route transitions from named primary
+  context. Sheets/segments/forms/confirmations remain extra effort; accepted
+  exceptions and actual counts belong in flow-review.md.
+- Primary#155C52, bg#F7F8F5, white, ink#182F2A; semantic tokens, no new palette.
+  Type title28/35, heading22/29, body17/26, label16/22, secondary14/21,
+  display32/39, nav13/18. Text scales/wraps; explicit heading levels.
+- Rhythm4/8/12/16/20/24/32/40, gutter20, radii10/14/20. Controls52pt,
+  icons48–52pt; calendar grid44pt documented exception.
+- Reuse Screen/footer, headings, fields, rows/groups, segments, sheets,
+  confirmations, FormErrorSummary and StatePanel. Full content titles with
+  quiet management in smaller context. Native and ARIA states must agree.
+- Retain drafts/known outcomes through same-account refresh; fence actual
+  scope/authority loss. Unknown failures never claim nothing saved. Reveal
+  recovery/errors; RNWeb layout observers must be installed from mount.
+- Retain unusual saved times/filtered choices. Null time is No set time.
+  Images show the whole image with failure fallback.
+- Music links before lyrics; sticky Choose songs/Song order plus fixed Save.
+  Ordinary choir CRUD/generic-team deep-link authority retained. Uncertain
+  creation checks the submitted title in the library; no ID inference.
 
-- Calm, obvious, readable, labelled, one primary action; recognition over memory.
-  Design for older people, reduced vision/dexterity and one-handed phone use.
-- Primary tabs: **Home / Schedule / Teams / Messages / Profile**.
-  Schedule retains the calendar route and Church events/My serving segments.
-  Preserve existing detail paths, invitation routing and predictable Back.
-- Reuse OrganisationHeader for resolved church identity and switching. Never
-  flash mock identity in live mode. Home prioritizes the next personal duty,
-  actual unread messages, editorial notices and nonduplicated events.
-- Team hub puts Chat/Rota/Members/choir Songs nearby. My teams means actual
-  membership; church-admin All teams is separate. Administration belongs in
-  contextual labelled Manage actions, with distinct confirmations.
-- Common actions normally take at most three route transitions from their
-  primary context. Sheets/confirmations are additional interactions, not hidden
-  costs. Counts, accepted exceptions and rationale belong in flow-review.
-- Deep teal primary #155C52, warm #F7F8F5 background, white surfaces, #182F2A
-  ink; semantic success/warning/danger and the established soft surfaces.
-  No feature-specific palette, new framework, font, router or global state.
-- Native system typography: 28/35 title, 22/29 heading, 17/26 body, 16/22 labels,
-  14/21 secondary; 32/39 display and 13/18 navigation where established.
-  Text grows/wraps; explicit heading levels, no headings inferred from bold.
-- Spacing 4/8/12/16/20/24/32/40, 20-point gutter, radii 10/14/20.
-  Default controls 52pt, icon controls 48–52pt, calendar-grid exception 44pt.
-- Reuse Screen/footer, PageHeading, ListGroup/ListRow, SectionHeader, Button,
-  TextField, SwitchRow, SelectField, Date/TimeField, DateMarker, ModalSurface,
-  ActionSheet, FormErrorSummary and StatePanel.
-- Full-width content titles; quiet Manage sits beside smaller context above.
-  Editorial notices, date rows and conversations have distinct structures.
-- Forms keep drafts and known saved outcomes through same-profile refresh.
-  Actual scope/role loss fences stale work; Close after a save prevents later
-  follow-on navigation. Unknown failures must not claim nothing was saved.
-- Errors stay beside the relevant action, with visible recovery. Sheets have
-  labelled Close and correct focus transfer. Native states and ARIA agree.
-  RNWeb layout observers needed for error reveal must exist from mount.
-- Keep valid saved nonstandard times and unavailable filtered choices.
-  Optional null time is No set time. Notice detail images show the whole image
-  and a load-failure fallback. No new gallery/viewer or decorative motion.
+## Product/backend freeze and approved client exceptions
 
-## Frozen backend and product contract
+No backend addition required/approved; **no DESIGN BLOCKER outstanding**.
+No schema/migration/RPC/RLS/Edge/Auth configuration/storage/Realtime/push contract
+or dependency/config changes. Existing Auth/AppData/permissions/server authority
+remain. No real-user mutation, invitation/email/push for inspection.
 
-No backend changes are required or approved. No outstanding DESIGN BLOCKER.
-Use existing services/Auth/AppData/permission helpers and server authority.
-Do not change schema, migrations, RPCs, RLS, functions, Auth, storage, Realtime,
-notification types/token ownership, packages or app configuration for styling.
+Retain active-profile isolation/removed history/verified-email invitations,
+four exclusive organisation roles and last-admin protections. Teams allow
+zero/one/multiple admins; never auto-add creator. Optional initial admin and
+request-key retries remain. Church admins own lifecycle and role changes.
+Final team-admin demotion is allowed; remove/leave protections differ and stay.
+Archive is soft, restore preserves identity/history, archived access excluded.
+Unread is authoritative, six preference keys retained, only chat/announcement/
+rota push delivered. No invented notice unread, RSVP, reactions/presence,
+self-join, general availability, reminder delivery or new push-tap handler.
+Rota response/assignment IDs/cancellation/history/partial month outcomes and
+narrow praise/worship selection authority remain.
 
-Retain active-profile/church isolation, removed-profile history, verified-email
-invitation rules, organisation roles/last-admin protection, and route fencing.
-Teams may have zero/one/multiple admins; creation never auto-adds the caller;
-initial admin is optional and retry keys remain idempotent. Church admins own
-team lifecycle/role changes. Final team-admin demotion to zero is allowed;
-remove/leave protections differ and remain intact. Archive is soft, restore
-retains identity/history, archived teams grant no active access.
+Approved UI architecture: ChurchEntryPresentationProvider under AuthProvider,
+above profile-keyed AppData, retains only account-owned create/switch presentation
+through existing setUser(null) remount. Read-only account/link generation tickets
+guard invitation exits against old accounts/newer links, including terminal links
+adopted/cleared in one batch. No provider navigation, new storage/session/AppData,
+Root guard/key/startup change or Auth-runtime rewrite. Existing '/' hub retains
+invitation precedence. AGENTS/CLAUDE record this extension.
 
-Keep authoritative chat unread/focused-read behavior and existing attachment
-and push contracts. All six preference keys remain; only existing chat,
-announcement and rota delivery is supported. Event/availability reminders
-remain stored but undelivered. No new push-tap handler, announcement unread,
-RSVP, reactions, presence, self-join or general availability calendar.
+Approved CLIENT-service exception: optional validated/normalized exact-target
+pending filters on existing list_organisation_invitations RPC. Default request,
+token-free mapping/errors and server authority unchanged. Only invitations.ts
+and its test change; recover absent initial metadata without substituting identity.
+Exact person selection uses ID+email/name/church hints, existing member search200,
+fresh returned ID/current church. Old ID-only/capped absence remains honest.
+Invitation200 wording removed: deployed RPC has no SQL LIMIT; API may cap results.
 
-Rota response applies only to one's assignments, including all own roles.
-Unchanged person+role assignment pairs retain IDs/responses on edit; only changed
-pairs are replaced/reset. Choir library editing remains available to ordinary
-choir members; praise/worship selection has narrower section authority.
-Cancellation/history/restore, separate optional announcement draft and
-authoritative monthly batch/partial results remain unchanged.
+Read-only hosted recheck6October: teams/profiles/migration schema recovered after
+pause/resume; exact38/38 through20260917223118. ACTIVE functions:
+send-chat-message-pushv7/JWTtrue, manage-organisation-invitationsv3/JWTfalse.
+No repair/mutation. Repeat at final gate.
 
-Read-only hosted recheck **1 October**: public.teams, public.profiles and migration
-history are present; local/remote migration filenames match **38/38** exactly
-through `20260917223118`. Functions remain ACTIVE: send-chat-message-push v7
-(verify_jwt true), manage-organisation-invitations v3 (false). The earlier
-missing metadata followed project pause/resume and resolved without repair.
-No remote mutation, email, invitation or push was sent. Repeat at final gate.
+Protected baseline objects:
+- supabase/:6245e24c42b336c2210db22ed9eec96b67d3dab3
+- src/lib/supabase/:8ff684495135ac9874ae137c1537363e1b182537
+- src/lib/auth/:fe517839f764a72daaa58efaf6f53a23f2043429
+- app.json:3150afc0603d0ade0c5ee712e5c26f6c6c18e19f
 
-Protected baseline Git objects for final comparison:
+Compare Auth runtime separately from allowed routing tests. Explicitly allow
+invitation client service+test; do not claim its whole tree identical.
 
-| Path | Object |
-| --- | --- |
-| supabase/ | 6245e24c42b336c2210db22ed9eec96b67d3dab3 |
-| src/lib/supabase/ | 8ff684495135ac9874ae137c1537363e1b182537 |
-| src/lib/auth/ | fe517839f764a72daaa58efaf6f53a23f2043429 |
-| app.json | 3150afc0603d0ade0c5ee712e5c26f6c6c18e19f |
+## Current bounded operation and exact next action
 
-## Latest accepted slice: Choir/music
+- Prior church_visual_refinement completed compact handoff: role clarity,
+  compact Manage invitation rows, short consequence dialogs, Already listed
+  chooser and direct pending recovery. Worker checks **1498/97**, typecheck/
+  lint/migration/diff green. Parent export artifacts complete iOS+Android/web43;
+  no fixture markers. Not final source after the next refinement.
+- Parent personally reviewed all26 scenarios and recovery flows at375/390/430,
+  58 numbered captures plus settled/error-recovery extras. Directory/server
+  search, exact targets, four roles, final-admin Open Members, long dialogs,
+  pending outside initial history, retained drafts, saved-unsent/unknown,
+  loading/errors and acceptance variants inspected. **Family accepted.**
+- Two MEDIUM acceptance findings resolved and personally re-rendered: unverified
+  email leads with Check invitation; validation waits for layout and reveals the
+  absolute measured field. Summary/repeated-submit recovery passes. Cancelled
+  copy, single terminal exit and present-tense replay inspected at375/430.
+- Worker **/root/invitation_acceptance_refinement is completed**. Final source
+  passed1507/97,57 focused tests, typecheck/lint/diff and guarded fixture checks.
+  No active implementation worker. No export/browser/fixture activation/commit
+  by workers; parent owns final acceptance.
+  Earlier church_members_invitations pending_init is obsolete; do not trigger it.
+- Parent completed directory no-match, actual demo denied routes, member removal
+  dialog, own Leave from Profile, final/accepted exits with controls visible.
+  Screens personally inspected through58 numbered captures plus corrected-state
+  extras; all patched sources restored exactly, shim absent, Hannah/Home.
+- Parent final phase checks pass:1507/97, typecheck/lint/migration38/diff;
+  demo iOS+Android/web export43, fixture-marker scan and protected allowlist.
+  No backend/runtime/config/dependency/permission change outside the recorded
+  invitation client filter and allowed Auth routing tests.
+- **Exact next action:** commit member/invitation family with parent documents.
+  Then launch fresh bounded shared-state/accessibility/forms worker. Never merge.
 
-Accepted 6 October: grouped virtualized library, readable lyrics with Music links
-disclosure above, ordinary-member CRUD, focused form with optional fields, and
-sticky Choose songs/Song order segments with fixed save. Existing generic-team
-deep links retain helper authority; the choir-only hub shortcut does not create
-a new team-type permission gate. Local scope/child/org guards preserve drafts
-through same-profile refresh and reject stale work after real access changes.
+## Runtime and safe inspection
 
-Existing song/link and section writes can fail after partial completion. The UI
-keeps drafts/order and acknowledges uncertainty. New-song recovery prioritizes
-Check song library with the failed attempt's submitted title, keeps Back to the
-draft, and leaves retry explicit/secondary. It never infers a saved ID from titles.
-This uses existing APIs; no backend addition or DESIGN BLOCKER is needed.
+Preview localhost8089/session67318; controller127.0.0.1:8090/session85470.
+Recovered only after old handles/listeners were actually absent. Keep running;
+timeouts alone never justify restart. Demo env: dotenv disabled, Supabase public
+variables blank, EXPO_OFFLINE1. Windows has no usable native simulator.
+Chrome profile browser-profile-recovery-20261007 preserves old profile/artifacts.
+Actual demo Hannah/Home, zero page errors; no active fixture/shim.
 
-Final phase checks passed: **1,387 tests/96 suites**, typecheck, clean lint,
-38-migration filename check, diff check and demo-only Android/iOS/web export
-(43 routes). The last recovery refinement passed 51 affected tests. Protected
-backend/services/Auth/permissions/AppData/types/config/dependencies are unchanged.
-The export used approved Hermes process permissions and did not deploy anything.
+Helpers .cache/ui-audit/exec-browser-helpers.js and exec-church-fixture.js.
+Pack .cache/ui-audit/church-members-invitations/fixture,26scenarios/9anchors,
+parser-valid43-character synthetic token, strict original hydrated-demo/null-client
+guards, in-memory services/Auth/storage and owner-fenced refresh, zero real actions.
+Exact byte/hash restore refuses edits. **Never edit/run checks while active**;
+restore between scenarios. Do not activate while worker is editing sources.
+Hide controls for screenshots; show them for intercepted navigation notices.
+Fixture does not certify actual Root remounts/token persistence/native/backend;
+actual-router Jest covers established routing races.
 
-Parent inspected 375×812, 390×844 and 430×932. Normal demo CRUD, optional fields,
-selection/reorder/save/clear, permission differences and Back passed. Disposable
-song-mupy3ina-2 was deleted and Hannah's rota-choir-2 worship section restored
-empty. All 13 offline scenarios covered 60-song scrolling/search, long titles/
-artists/lyrics, cold/loading/error/retry, external-link failure, uncertain and
-partial saves, submitted-title recovery, retained drafts, readiness/role loss,
-archive/cancellation and late completion. Fifty-two captures are in ignored
-.cache/ui-audit/choir-music; final 51–52 supersede the earlier creation recovery.
-All fixtures are inactive/restored exactly, no shim/markers remain, and normal
-demo has zero browser page errors. Native/live-service QA is not claimed.
+Auth phase accepted37captures/all16 scenarios; do not repeat it. Earlier demo
+music residue/selection restored. Artifacts/tools ignored under.cache/ui-audit.
+Screenshot names end.png; inspect saved image, settle loading before accepting.
+Header Back may be button Back or link Go back; wheel scroll uses pointer.
 
-## Exact next action after compaction
+## Remaining work and completion gates
 
-1. Read this checkpoint, repository instructions and only next-slice files.
-   Do not re-audit accepted families or reopen their design without new evidence.
-2. Commit the accepted Music phase on the same feature branch, then start a
-   **fresh sequential Auth/identity-presentation worker** for login/signup/
-   confirmation, account bootstrap, no-church, church creation and switching.
-   Organisation members/roles and invitations follow as the next bounded family.
-3. The worker reads the shared brief/contract and actual code, keeps Auth logic
-   behind existing abstractions, uses existing actions and returns <=400 words.
-   Parent owns global decisions, documentation and final personal visual review.
-4. Coordinate the existing browser. Fixtures must be inactive before source
-   edits/checks; inspect status, never assume it. Current demo user is Hannah;
-   the music library is clean and rota-choir-2 worship choices are empty.
-5. Inspect the changed area, common paths, role/state variants and appropriate
-   checks before accepting/committing and starting the next worker.
-   One branch, one final PR, no merge.
+1. Shared states/forms/accessibility/dead code: guarded live-style TeamMembers
+   role/removal (final-admin demote allowed vs remove/leave protection), state
+   aliases, tab glyph accessibility, unnamed image-role provenance, large text/
+   long lists/focus, duplicate native/content h1. Controller literal img query
+   empty despite unnamed role: inspect guarded DOM metadata, do not assume source
+   or restart working browser. Date/foreground rollover: long-lived Home showed
+   6October on7October until reload; update current-time views without resetting
+   chosen dates. Parent visual acceptance after fresh bounded sequential worker.
+2. Independent sequential UX/accessibility + technical/regression reviews.
+   Resolve all blocker/high/medium; fix/document low, reinspect affected areas.
+3. Final parent all-major visual pass and exact-final-head typecheck/lint/test:ci/
+   check:migrations/diff/export; protected diff, no secrets/real data/new migration,
+   fresh origin/main/open PR and hosted38/functions. Follow verification-plan.md.
+4. Reconcile README/AGENTS/CLAUDE final counts/status, preserving historical
+   deployed facts and pending native/live QA.
+5. Push same branch, ONE PR feat: reimagine mobile user experience,14-topic body,
+   no model/coauthor attribution. CI green finalHEAD; actionable comments/threads
+   resolved. **Do not merge.**
+6. Requested18-topic report, actual before/after flows, native checklist and
+   release-hardening sequence. Only then mark goal complete.
 
-## Runtime and inspection recovery
-
-Preview: http://localhost:8089, exec session 89908. Controller:
-http://127.0.0.1:8090, session 80068. Both were recovered only after their former
-handles/endpoints were actually gone. An observation timeout alone is not a
-reason to restart. Probe before recovering; keep ongoing communication.
-
-Preview is demo-only (dotenv disabled, public Supabase variables blank,
-EXPO_OFFLINE=1). Persistent demo profile is .cache/ui-audit/browser-profile.
-Playwright1.63.0 and browser tools are isolated in ignored .cache/ui-audit/tools;
-app dependencies are unchanged. Windows has no usable native simulator here.
-
-Durable helpers: .cache/ui-audit/exec-browser-helpers.js restores browserActSource
-and captureSource in functions storage; browser-client.cjs accepts encoded JSON.
-exec-rota-fixture.js restores rotaFixtureSource. The Rota fixture README/CLI is
-under .cache/ui-audit/rota-availability/fixture/. It documents all 13 scenarios,
-exact restoration and safe in-memory controls. Scenarios use team-choir and
-offline-rota; actual Auth must remain demo. Artifacts stay ignored, not committed.
-exec-choir-fixture.js similarly restores choirFixtureSource. The music fixture
-uses team-choir, offline-song and offline-rota; activation and restoration must
-be sequential, with a full goto and visible OFFLINE CHOIR INSPECTION banner.
-The audit skill guidance was read and its context preflight found no saved
-context; the user-authorized existing Chrome/Playwright workflow continues.
-Browser scroll is wheel-at-pointer; move into scroll content before interpreting
-a no-scroll result. Native header Back can be link Go back; fallback is button Back.
-
-## Remaining sequence and final gates
-
-1. Commit accepted Music; prior families stay accepted.
-2. Auth/bootstrap/no-church/create/switch presentation.
-3. Organisation members/roles and invitation admin/acceptance states. Preserve
-   bounded server search, exact selected target, four roles, last-admin rules,
-   removed/unlinked identity, wrong-account/token/expiry/saved-unsent behavior.
-4. Shared accessibility/forms/states/dead-code pass. Outstanding evidence:
-   live-style TeamMembers role/removal dialogs (offline), selected/expanded/busy
-   state consistency, decorative tab glyphs in accessible names, unidentified
-   unnamed image role seen on Login/Home/Rota, large-text/long-list review.
-   Investigate actual DOM/native evidence; do not assume the image source.
-5. Independent sequential UX/accessibility and technical/regression reviews.
-   Resolve every blocker/high/medium; fix or explain remaining low findings.
-6. Final personal visual pass and exact-final-head validation: typecheck, lint,
-   test:ci, check:migrations, git diff --check, npx expo export; protected diff,
-   no secrets/real data/new migration/config/Edge changes; fresh read-only hosted
-   alignment. Follow verification-plan.md for the state matrix.
-7. Reconcile final README/AGENTS/CLAUDE counts and presentation status without
-   rewriting historical deployed-contract facts or native QA caveats.
-8. Push this branch; open one PR titled feat: reimagine mobile user experience.
-   Use the requested 14-topic body, logical commits and no attribution trailers.
-   All required CI must be green on final HEAD; resolve actionable comments and
-   threads. **Do not merge.**
-9. Provide the requested 18-topic completion report, before/after flow counts,
-   native QA checklist and release-hardening sequence. Only then complete goal.
-
-Native iPhone navigation, keyboard, safe areas, modals, scrolling, picker, status
-bar, deep links, touch/large-text/screen-reader behavior and push taps remain QA
-handoff items. No native, live membership/invitation, private-storage or physical
-push-delivery pass is claimed. The current absence of push-tap navigation is a
-known contract limitation, not a hidden redesign addition.
+Native iPhone nav/keyboard/safe areas/sheets/scrolling/picker/status bar/deep links/
+targets/large text/VoiceOver/push taps remain handoff. No native, live membership/
+invitation/private-storage/physical push-delivery pass claimed. Documented rollout
+blockers persist.

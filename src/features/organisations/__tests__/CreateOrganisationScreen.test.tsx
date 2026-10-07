@@ -7,7 +7,8 @@ import { alpha, authState, linked, renderEntry } from './churchEntryFixtures';
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
 const mockCanGoBack = jest.fn(() => false);
-jest.mock('expo-router', () => ({ Stack: { Screen: () => null }, useRouter: () => ({ replace: mockReplace, back: mockBack, canGoBack: mockCanGoBack }) }));
+jest.mock('expo-router', () => ({ Stack: { Screen: () => null }, useGlobalSearchParams: () => ({}), usePathname: () => '/organisations/create',
+  useRouter: () => ({ replace: mockReplace, back: mockBack, canGoBack: mockCanGoBack }) }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn() }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }));

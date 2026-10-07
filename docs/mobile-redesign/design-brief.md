@@ -292,6 +292,15 @@ active access, an unlinked directory identity and removed access in plain
 language without inventing account status elsewhere. Preserve all four exclusive
 church roles, last-admin protections and the exact membership/history effects.
 
+Role forms use a short page title and compact, fully readable person identity;
+the name must not become an oversized multi-line form title. Explain the four
+existing roles in plain church language rather than “baseline organisation
+access” or “high privilege”; keep backend values and permission helpers intact.
+When final-admin protection makes every change unavailable, the useful next
+action is opening Members to appoint another admin, not a disabled Save form.
+Consequential dialogs use short action titles with full name/email/church in
+their body, so a long name cannot crowd the title and Close control.
+
 Invitations prioritise a clear invite action and readable current/history
 states. Keep the short creation form separate from the full candidate list;
 choosing an existing directory person is a searchable field interaction.
@@ -301,7 +310,29 @@ identity context, current state and the next permitted action. Keep Not now and
 wrong-account recovery discoverable, preserve pending tokens safely and never
 claim delivery or acceptance from an unresolved client preview.
 
+Invitation history uses compact readable rows and contextual management rather
+than repeating two full-width buttons on every record. Cancelling an invitation
+is visibly destructive and its confirmation explains that the old link stops
+working. Use plain “Choose a listed person” copy for the existing directory mode.
+A selected person with a known pending invitation leads directly to that current
+invitation and its permitted actions; do not leave a disabled Send button as the
+main action above an offscreen explanation. Missing bounded-history metadata
+must remain honest and must never select a substitute record or invent an ID.
+
 ## Visual system
+
+Invitation acceptance refinements from the director's 7 October phone inspection:
+- An account with an unverified email leads with **Check invitation** after plain
+  instructions to confirm that email. **Switch account** remains available as a
+  secondary choice. An account without an email leads with Switch account; do
+  not show phone-account terminology to someone who already has an email.
+- A failed name submission reveals and focuses the actual name field after the
+  validation content has laid out. Measure in the scroll content's coordinate
+  system; a child offset inside the form is not an absolute scroll destination.
+  The error-summary link uses the same recovery.
+- Invitation status `revoked` is presented as **cancelled**, matching the admin
+  action. Terminal links need one clear continuation; two exits invoking the
+  same handler are unnecessary. Already-accepted copy uses the present tense.
 
 Use **deep teal, warm neutral backgrounds, white surfaces and dark green ink**.
 The feel is warm and composed, without decorative church imagery, gradients,

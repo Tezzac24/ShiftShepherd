@@ -226,6 +226,15 @@ transient account-owned request/draft/target/status across the existing
 stores no session, app data or persistent state. Keep Auth actions, routing
 guards, startup gating and data-provider keys unchanged; mounted screens
 continue through the root routing hub to preserve invitation precedence.
+The same provider exposes read-only account/link generation tickets for invitation
+continuations across the expected profile remount. A newer account or opened link
+invalidates older completion navigation, including terminal links whose adoption
+and clearing batch together. It never navigates or retains invitation tokens.
+
+Invitation administration may filter the existing `list_organisation_invitations`
+RPC by an exact validated target profile and pending status to recover an item
+outside initial API results. The default read and token-free mapping are unchanged;
+this client-only presentation extension adds no backend capability or authority.
 
 ### Role-Based UI and Permissions
 

@@ -1,274 +1,218 @@
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { FlatList, StyleSheet, View } from 'react-native';
 
 import { colors, radius, spacing } from '../../../constants/theme';
+import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
-import { Card } from '../../components/Card';
 import { useConfirm } from '../../components/ConfirmDialog';
-import { EmptyState } from '../../components/EmptyState';
+import { ListGroupContext } from '../../components/ListGroup';
+import { ListRow } from '../../components/ListRow';
+import { FocusRef } from '../../components/ModalSurface';
+import { OrganisationHeader } from '../../components/OrganisationHeader';
+import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
+import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
-import { canManageOrganisationMembers } from '../../lib/permissions';
+import { listOrganisationMembers, removeOrganisationMember } from '../../lib/supabase/services/organisationMemberships';
+import { OrganisationMemberSummary, SessionUser } from '../../types';
 import {
-  listOrganisationMembers,
-  removeOrganisationMember,
-} from '../../lib/supabase/services/organisationMemberships';
-import { OrganisationMemberSummary } from '../../types';
-import {
-  filterOrganisationMembers,
-  organisationMemberAccessLabel,
-  organisationRoleLabel,
+  canInviteDirectoryMember, memberSelectionParams, organisationMemberAccessLabel,
+  organisationRoleLabel, retainedTeamMembershipLabel,
 } from './organisationMembers';
+import { organisationAdministrationKey, useOrganisationAdministration } from './useOrganisationAdministration';
 
 export default function OrganisationMembersScreen() {
-  const router = useRouter();
   const user = useRequiredUser();
-  const { authMode } = useAuth();
+  const { authMode, authIdentity } = useAuth();
+  return <Members key={organisationAdministrationKey(user, authMode, authIdentity?.id)} user={user} />;
+}
+
+function Members({ user }: { user: SessionUser }) {
+  const router = useRouter();
   const data = useAppData();
   const confirm = useConfirm();
   const toast = useToast();
+  const scope = useOrganisationAdministration(user);
+  const { capture, isCurrent, canAct } = scope;
   const [members, setMembers] = useState<OrganisationMemberSummary[]>([]);
   const [search, setSearch] = useState('');
+  const [loadedSearch, setLoadedSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [removingId, setRemovingId] = useState<string | null>(null);
-  const canManage = authMode === 'supabase' && canManageOrganisationMembers(user);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedOpener = useRef<FocusRef | undefined>(undefined);
+  const request = useRef(0);
+  const pending = useRef(false);
+  const searchRef = useRef(search);
+  searchRef.current = search;
+  const list = useRef<FlatList<OrganisationMemberSummary>>(null);
+  const latestMembers = useRef(members);
+  latestMembers.current = members;
+  const selected = members.find((member) => member.profile_id === selectedId);
+  const searchPending = loadedSearch !== search.trim();
 
-  const load = useCallback(async (quiet = false) => {
-    if (!canManage) {
-      setLoading(false);
-      return;
-    }
-    if (quiet) setRefreshing(true);
-    else setLoading(true);
-    setError(null);
+  const load = useCallback(async (query: string) => {
+    if (!canAct()) return;
+    const ticket = capture();
+    const sequence = ++request.current;
+    setLoading(true); setReadError(null);
     try {
-      setMembers(await listOrganisationMembers());
+      const next = await listOrganisationMembers(query);
+      if (!isCurrent(ticket) || sequence !== request.current || query !== searchRef.current.trim()) return;
+      setMembers(next); setLoadedSearch(query);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'We couldn’t load members.');
+      if (isCurrent(ticket) && sequence === request.current) {
+        setReadError(cause instanceof Error ? cause.message : 'We couldn’t load members.');
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isCurrent(ticket) && sequence === request.current) setLoading(false);
     }
-  }, [canManage]);
+  }, [canAct, capture, isCurrent]);
 
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load]),
-  );
+  useFocusEffect(useCallback(() => {
+    if (!pending.current) setBusy(false);
+    if (scope.ready) void load(searchRef.current.trim());
+    return () => { request.current += 1; };
+  }, [scope.ready, load]));
+  const firstSearch = useRef(true);
+  useEffect(() => {
+    if (firstSearch.current) { firstSearch.current = false; return; }
+    request.current += 1;
+    const timeout = setTimeout(() => void load(search.trim()), 300);
+    return () => clearTimeout(timeout);
+  }, [search, load]);
+  useEffect(() => { if (!scope.ready) setSelectedId(null); }, [scope.ready]);
 
-  const visibleMembers = useMemo(
-    () => filterOrganisationMembers(members, search),
-    [members, search],
-  );
-
-  const remove = async (member: OrganisationMemberSummary) => {
-    if (removingId) return;
-    const ok = await confirm({
-      title: `Remove ${member.full_name} from ${data.organisation.name}?`,
-      message:
-        'They will lose organisation and team access, their roles and registered notification devices will be removed, and they will need a new invitation to return. Their profile, messages, rota history, global account, and any other organisations will be kept.',
-      confirmLabel: 'Remove access',
-      destructive: true,
-    });
-    if (!ok || removingId) return;
-    setRemovingId(member.profile_id);
-    setError(null);
+  const close = () => {
+    scope.close();
+    if (router.canGoBack()) router.back(); else router.replace('/');
+  };
+  const invite = (member?: OrganisationMemberSummary) => {
+    if (!canAct() || pending.current) return;
+    router.push({ pathname: '/organisations/invitations', params: member
+      ? { ...memberSelectionParams(member, user.profile.organisation_id), create: member.pending_invitation_status === 'pending' ? '0' : '1' }
+      : { create: '1' } });
+  };
+  const remove = async (member: OrganisationMemberSummary, opener?: FocusRef) => {
+    if (!canAct() || pending.current || member.is_current_user || member.is_last_church_admin
+      || member.access_status !== 'active' || !member.linked) return;
+    pending.current = true; setBusy(true);
+    const ticket = capture();
     try {
+      const ok = await confirm({
+        title: 'Remove church access?',
+        message: `${member.full_name}\n${member.email.trim() || 'Email not listed'}\n${scope.churchName ?? 'This church'}\n\nThey will lose church and team access, their roles and device notifications for this church. They will need a new invitation to return. Their profile, messages, rota assignments and history, account, and other churches are kept. Future duties are not reassigned automatically.`,
+        confirmLabel: 'Remove access', destructive: true, returnFocusRef: opener,
+      });
+      const current = latestMembers.current.find((candidate) => candidate.profile_id === member.profile_id);
+      if (!ok || !isCurrent(ticket) || !canAct() || !current || current.is_last_church_admin
+        || current.is_current_user || current.access_status !== 'active' || !current.linked) return;
+      setActionError(null); setResult(null);
       await removeOrganisationMember(member.profile_id);
-      toast(`${member.full_name} no longer has access to this organisation.`);
-      await Promise.all([load(true), data.refreshTeams({ quiet: true })]);
+      if (!isCurrent(ticket)) return;
+      const message = `${member.full_name} no longer has access to this church.`;
+      setResult(message); toast(message);
+      // A confirmed removal stays confirmed even if this read fails.
+      setMembers((rows) => rows.map((row) => row.profile_id === member.profile_id
+        ? { ...row, access_status: 'removed', role: null, team_count: 0, is_last_church_admin: false } : row));
+      list.current?.scrollToOffset({ offset: 0, animated: false });
+      await Promise.all([load(searchRef.current.trim()), data.refreshTeams({ quiet: true })]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'We couldn’t remove that access.');
+      if (!isCurrent(ticket)) return;
+      setActionError(cause instanceof Error ? cause.message : 'We couldn’t confirm that access change.');
+      list.current?.scrollToOffset({ offset: 0, animated: false });
     } finally {
-      setRemovingId(null);
+      pending.current = false;
+      if (scope.isPresent()) setBusy(false);
     }
   };
 
-  return (
-    <Screen keyboard>
-      <Stack.Screen options={{ title: 'Organisation members' }} />
-      {!canManage ? (
-        <EmptyState
-          icon="lock-closed-outline"
-          title="No permission"
-          message="Only a church admin can manage organisation members and roles."
-        />
-      ) : (
-        <>
-          <View style={styles.heading}>
-            <AppText variant="heading">Members of {data.organisation.name}</AppText>
-            <AppText tone="secondary">
-              Manage app access and each person’s one organisation role. Historical records are kept when access is removed.
-            </AppText>
-          </View>
+  const header = <Stack.Screen options={{ title: 'Church members', headerLeft: () =>
+    <Button title="Back" variant="ghost" icon="chevron-back" onPress={close} disabled={busy} /> }} />;
+  if (!scope.permitted) return <Screen>{header}<PageHeading title="Church members" />
+    <StatePanel icon="lock-closed-outline" title="No permission" message="Only a church admin can manage organisation members and roles." />
+    <Button title="Back to Profile" variant="secondary" onPress={close} />
+  </Screen>;
 
-          <TextField
-            label="Search members"
-            placeholder="Name or email"
-            value={search}
-            onChangeText={setSearch}
-            autoCapitalize="none"
-            autoCorrect={false}
-            accessibilityHint="Filters this bounded organisation member list"
-          />
+  return <Screen scroll={false} keyboard>{header}
+    <FlatList ref={list} data={loading || searchPending || !scope.ready ? [] : members}
+      keyExtractor={(member) => member.profile_id} keyboardShouldPersistTaps="handled"
+      contentContainerStyle={styles.content}
+      ListHeaderComponent={<View style={styles.header}>
+        <OrganisationHeader />
+        <PageHeading title="Church members" description="Find a person, then open their access and role details."
+          action={<Button title="Invite" icon="person-add-outline" onPress={() => invite()} disabled={!scope.ready || busy} />} />
+        <TextField label="Search members" placeholder="Name or email" value={search} onChangeText={setSearch}
+          autoCapitalize="none" autoCorrect={false} maxLength={100} returnKeyType="search"
+          onSubmitEditing={() => void load(search.trim())} />
+        {result ? <StatePanel compact kind="info" title="Access removed" message={result} /> : null}
+        {actionError ? <StatePanel compact kind="error" title={result ? 'Access removed; couldn’t refresh details' : 'Couldn’t confirm access removal'}
+          message={result ? actionError : `${actionError} The change may already be saved. Refresh members before trying again.`}
+          action={{ label: 'Refresh members', onPress: () => { setActionError(null); void load(search.trim()); } }} /> : null}
+        {!scope.ready ? <StatePanel compact kind={scope.accountError ? 'error' : 'loading'} title={scope.accountError ? 'Couldn’t check church access' : 'Checking church access…'}
+          message="Your search is kept while your account is checked." action={scope.accountError ? { label: 'Check church access', onPress: () => void scope.retryAccount().catch(() => undefined) } : undefined} /> : null}
+        {readError ? <StatePanel compact kind="error" title="We couldn’t load members" message={readError}
+          action={{ label: 'Try again', onPress: () => void load(search.trim()) }} /> : null}
+        {scope.ready && (loading || (searchPending && !readError)) ? <View testID="organisation-members-loading">
+          <StatePanel kind="loading" title={search.trim() ? 'Searching members…' : 'Loading members…'} />
+        </View> : scope.ready && !readError ? <View style={styles.summary} testID="organisation-members-ready">
+          <AppText variant="small" tone="secondary">{members.length} {members.length === 1 ? 'result' : 'results'} shown. Up to 200 matching people are shown; search to narrow the results.</AppText>
+          <Button title="Refresh" variant="ghost" icon="refresh-outline" disabled={busy} onPress={() => void load(search.trim())} />
+        </View> : null}
+      </View>}
+      ListEmptyComponent={scope.ready && !loading && !searchPending && !readError ? <StatePanel
+        icon="people-outline" title={search.trim() ? 'No matching results' : 'No members in these results'}
+        message="Try a different name or email address. Search results do not confirm whether someone exists elsewhere." /> : null}
+      renderItem={({ item: member, index }) => {
+        const profile = data.users.find((candidate) => candidate.id === member.profile_id && candidate.organisation_id === user.profile.organisation_id);
+        return <MemberRow member={member} first={index === 0} last={index === members.length - 1}
+          avatarUri={data.getAvatarUri(profile)} disabled={busy || !scope.ready}
+          onOpen={(opener) => { selectedOpener.current = opener; setSelectedId(member.profile_id); }} />;
+      }} />
+    <ActionSheet visible={!!selected && scope.ready && !busy} title={selected?.full_name ?? 'Member'} onClose={() => setSelectedId(null)} returnFocusRef={selectedOpener.current}
+      description={selected ? `${selected.email}\n${organisationRoleLabel(selected.role)} · ${organisationMemberAccessLabel(selected)}\n${retainedTeamMembershipLabel(selected.team_count)}${selected.is_last_church_admin ? '\nFinal church admin. Appoint another church admin before demoting, removing, or leaving.' : ''}${selected.access_status === 'removed' ? '\nHistory is kept. A new invitation restores church membership only; previous teams and elevated roles do not return.' : !selected.linked ? '\nThis directory person has no linked app account yet.' : ''}` : undefined}
+      actions={selected ? [
+        ...(selected.access_status === 'active' && selected.linked ? [{ key: 'role', label: 'Manage role', icon: 'shield-outline' as const, onPress: () => {
+          if (canAct()) router.push({ pathname: '/organisations/members/[profileId]', params: { profileId: selected.profile_id, memberEmail: selected.email, memberName: selected.full_name, organisationId: user.profile.organisation_id } });
+        } }] : []),
+        ...(canInviteDirectoryMember(selected) ? [{ key: 'invite', label: selected.pending_invitation_status === 'pending' ? 'View pending invitation' : selected.access_status === 'removed' ? 'Invite again' : 'Invite to church', icon: 'mail-outline' as const, onPress: () => invite(selected) }] : []),
+        ...(selected.is_current_user ? [{ key: 'leave', label: 'Leave from Profile', icon: 'person-outline' as const, onPress: () => { if (canAct()) router.replace('/(tabs)/profile'); } }]
+          : selected.access_status === 'active' && selected.linked && !selected.is_last_church_admin ? [{ key: 'remove', label: 'Remove access', icon: 'person-remove-outline' as const, destructive: true, onPress: () => void remove(selected, selectedOpener.current) }] : []),
+      ] : []} />
+  </Screen>;
+}
 
-          {loading ? (
-            <View style={styles.loading} testID="organisation-members-loading">
-              <ActivityIndicator color={colors.primary} />
-              <AppText tone="secondary">Loading members…</AppText>
-            </View>
-          ) : error && members.length === 0 ? (
-            <View style={styles.error} accessibilityLiveRegion="polite">
-              <EmptyState
-                icon="cloud-offline-outline"
-                title="We couldn’t load members"
-                message={error}
-              />
-              <Button title="Try again" onPress={() => void load()} />
-            </View>
-          ) : visibleMembers.length === 0 ? (
-            <EmptyState
-              icon="people-outline"
-              title={search.trim() ? 'No matching members' : 'No members yet'}
-              message={
-                search.trim()
-                  ? 'Try a different name or email address.'
-                  : 'Organisation members will appear here.'
-              }
-            />
-          ) : (
-            <View style={styles.cards} testID="organisation-members-ready">
-              <View style={styles.countRow}>
-                <AppText variant="label" tone="secondary">
-                  {visibleMembers.length} {visibleMembers.length === 1 ? 'person' : 'people'}
-                </AppText>
-                <Button
-                  title="Refresh"
-                  variant="ghost"
-                  icon="refresh-outline"
-                  onPress={() => void load(true)}
-                  loading={refreshing}
-                  disabled={refreshing || removingId !== null}
-                />
-              </View>
-              {visibleMembers.map((member) => {
-                const profile = data.users.find((candidate) => candidate.id === member.profile_id);
-                const canEditRole = member.access_status === 'active' && member.linked;
-                const canRemove = canEditRole && !member.is_current_user && !member.is_last_church_admin;
-                return (
-                  <Card key={member.profile_id} style={styles.card}>
-                    <View style={styles.personRow}>
-                      <Avatar name={member.full_name} uri={data.getAvatarUri(profile)} />
-                      <View style={styles.flex}>
-                        <View style={styles.nameRow}>
-                          <AppText variant="bodyBold">{member.full_name}</AppText>
-                          {member.is_current_user ? <Badge label="You" tone="primary" /> : null}
-                        </View>
-                        <AppText variant="small" tone="secondary">{member.email}</AppText>
-                      </View>
-                    </View>
-                    <View style={styles.badges}>
-                      <Badge
-                        label={organisationMemberAccessLabel(member)}
-                        tone={member.access_status === 'removed' ? 'danger' : member.linked ? 'success' : 'warning'}
-                      />
-                      <Badge label={organisationRoleLabel(member.role)} tone="accent" />
-                      <Badge label={`${member.team_count} ${member.team_count === 1 ? 'team' : 'teams'}`} />
-                      {member.pending_invitation_status === 'pending' ? (
-                        <Badge label="Invitation pending" tone="warning" />
-                      ) : null}
-                    </View>
-                    {member.is_last_church_admin ? (
-                      <AppText variant="small" tone="danger">
-                        Final church admin. Appoint another church admin before demoting, removing, or leaving.
-                      </AppText>
-                    ) : member.access_status === 'removed' ? (
-                      <AppText variant="small" tone="muted">
-                        Access is removed, but directory and historical attribution are retained. They may be invited again.
-                      </AppText>
-                    ) : !member.linked ? (
-                      <AppText variant="small" tone="muted">
-                        This directory person has no linked app account yet. Use Organisation invitations to invite them.
-                      </AppText>
-                    ) : null}
-                    {canEditRole ? (
-                      <View style={styles.actions}>
-                        <Button
-                          title="Manage role"
-                          variant="secondary"
-                          icon="shield-outline"
-                          onPress={() => router.push({
-                            pathname: '/organisations/members/[profileId]',
-                            params: { profileId: member.profile_id },
-                          })}
-                          disabled={removingId !== null}
-                          style={styles.flex}
-                        />
-                        {member.is_current_user ? (
-                          <Button
-                            title="Leave from Profile"
-                            variant="ghost"
-                            onPress={() => router.replace('/(tabs)/profile')}
-                            disabled={removingId !== null}
-                            style={styles.flex}
-                          />
-                        ) : (
-                          <Button
-                            title={member.is_last_church_admin ? 'Protected' : 'Remove access'}
-                            variant="destructive"
-                            icon="person-remove-outline"
-                            onPress={() => void remove(member)}
-                            loading={removingId === member.profile_id}
-                            disabled={!canRemove || removingId !== null}
-                            accessibilityHint={
-                              member.is_last_church_admin
-                                ? 'Another church admin must be appointed first'
-                                : 'Removes current organisation access while retaining history'
-                            }
-                            style={styles.flex}
-                          />
-                        )}
-                      </View>
-                    ) : null}
-                  </Card>
-                );
-              })}
-            </View>
-          )}
-
-          {error && members.length > 0 ? (
-            <View style={styles.errorBar} accessibilityLiveRegion="polite">
-              <AppText tone="danger">{error}</AppText>
-              <Button title="Try again" variant="ghost" onPress={() => void load(true)} />
-            </View>
-          ) : null}
-        </>
-      )}
-    </Screen>
-  );
+function MemberRow({ member, first, last, avatarUri, disabled, onOpen }: {
+  member: OrganisationMemberSummary; first: boolean; last: boolean; avatarUri?: string; disabled: boolean; onOpen: (opener: FocusRef) => void;
+}) {
+  const opener = useRef<View>(null);
+  return <View style={[styles.memberRow, first && styles.first, last && styles.last]}>
+    <ListGroupContext.Provider value><ListRow ref={opener} title={member.full_name}
+      accessibilityLabel={`${member.full_name}. ${member.email.trim() || 'Email not listed'}. ${organisationRoleLabel(member.role)}. ${organisationMemberAccessLabel(member)}${member.is_current_user ? '. You' : ''}${member.is_last_church_admin ? '. Final church admin' : ''}${member.pending_invitation_status === 'pending' ? '. Invitation pending' : ''}`}
+      subtitle={`${member.email.trim() || 'Email not listed'}\n${organisationRoleLabel(member.role)} · ${organisationMemberAccessLabel(member)}${member.pending_invitation_status === 'pending' ? '\nInvitation pending' : ''}`}
+      leading={<Avatar size={40} name={member.full_name} uri={avatarUri} />}
+      right={member.is_current_user ? <Badge label="You" tone="primary" /> : undefined}
+      accessibilityHint="Opens this person’s church access and management choices"
+      disabled={disabled} onPress={() => onOpen(opener)} />
+    </ListGroupContext.Provider>
+  </View>;
 }
 
 const styles = StyleSheet.create({
-  heading: { gap: spacing.xs },
-  loading: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
-  error: { gap: spacing.md },
-  errorBar: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerSoft },
-  cards: { gap: spacing.md },
-  card: { gap: spacing.md },
-  countRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  personRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  nameRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
-  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  flex: { flex: 1 },
+  content: { padding: spacing.gutter, paddingBottom: spacing.xxxl },
+  header: { gap: spacing.lg, paddingBottom: spacing.xl },
+  summary: { gap: spacing.sm },
+  memberRow: { backgroundColor: colors.surface, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, overflow: 'hidden' },
+  first: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  last: { borderBottomWidth: 1, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
 });

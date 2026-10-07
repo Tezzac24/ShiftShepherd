@@ -12,13 +12,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { Slot, Stack } from 'expo-router';
+import { router as navigationRouter, Slot, Stack } from 'expo-router';
 import { act, fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
 import React from 'react';
 import { Pressable, Text } from 'react-native';
 
 import AuthGateScreen from '../../auth/AuthGateScreen';
 import { AuthProvider, useAuth } from '../../../lib/auth/AuthContext';
+import { fetchAccountContext, switchActiveProfile } from '../../../lib/supabase/services/accounts';
 import {
   clearPendingInvitation,
   loadPendingInvitation,
@@ -29,6 +30,7 @@ import {
   previewOrganisationInvitation,
 } from '../../../lib/supabase/services/invitations';
 import InvitationAcceptScreen from '../InvitationAcceptScreen';
+import { ChurchEntryPresentationProvider } from '../../organisations/ChurchEntryPresentation';
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('../../../lib/supabase/services/invitations', () => ({
@@ -48,6 +50,8 @@ type AuthUser = typeof mockInvited;
 let mockSignedIn: AuthUser | null = null;
 let mockInvitedOrganisations: string[] = [];
 let mockInvitedActive: string | null = null;
+let currentAuth: ReturnType<typeof useAuth>;
+function CaptureAuth() { currentAuth = useAuth(); return null; }
 
 const mockSupabase = {
   auth: {
@@ -106,6 +110,8 @@ jest.mock('../../../lib/supabase/services/accounts', () => ({
 
 const mockPreview = previewOrganisationInvitation as jest.Mock;
 const mockAccept = acceptOrganisationInvitation as jest.Mock;
+const standardFetch = (fetchAccountContext as jest.Mock).getMockImplementation()!;
+const standardSignOut = mockSupabase.auth.signOut.getMockImplementation()!;
 
 function previewAs(status: string) {
   mockPreview.mockImplementation(async () => ({
@@ -166,14 +172,21 @@ function HomeStub() {
   const { user } = useAuth();
   return <Text>{`Home for ${user?.supabaseProfileId}`}</Text>;
 }
+function ProfileStub() {
+  const { user } = useAuth();
+  return <Text>{`Profile for ${user?.supabaseProfileId}`}</Text>;
+}
 
 function routes() {
   return {
     _layout: () => (
       <AuthProvider>
-        <AccountScope>
-          <RootLayout />
-        </AccountScope>
+        <CaptureAuth />
+        <ChurchEntryPresentationProvider>
+          <AccountScope>
+            <RootLayout />
+          </AccountScope>
+        </ChurchEntryPresentationProvider>
       </AuthProvider>
     ),
     index: AuthGateScreen,
@@ -182,6 +195,7 @@ function routes() {
     'no-organisations': () => <Text>No organisations screen</Text>,
     '(tabs)/_layout': () => <Slot />,
     '(tabs)/home': HomeStub,
+    '(tabs)/profile': ProfileStub,
   };
 }
 
@@ -192,8 +206,15 @@ async function settle() {
     });
   }
 }
+async function flushAccountContinuation() {
+  await settle();
+  await act(async () => { jest.advanceTimersByTime(100); });
+  await settle();
+}
 
 beforeEach(async () => {
+  (fetchAccountContext as jest.Mock).mockReset().mockImplementation(standardFetch);
+  mockSupabase.auth.signOut.mockReset().mockImplementation(standardSignOut);
   mockSignedIn = null;
   mockInvitedOrganisations = [];
   mockInvitedActive = null;
@@ -201,14 +222,16 @@ beforeEach(async () => {
     // The server links the invited account to Gamma and makes it active.
     mockInvitedOrganisations = [...new Set([...mockInvitedOrganisations, 'gamma'])];
     mockInvitedActive = 'profile-invited-gamma';
-    return { organisationId: 'org-gamma', alreadyAccepted: false };
+    return { invitationId: 'invitation-gamma', organisationId: 'org-gamma', profileId: 'profile-invited-gamma', organisationName: 'QA Organisation gamma', globalDisplayName: 'Invited Person', alreadyAccepted: false };
   });
   previewAs('pending');
   await clearPendingInvitation();
+  (switchActiveProfile as jest.Mock).mockImplementation(async (profileId: string) => { mockInvitedActive = profileId; });
 });
 
 afterEach(() => {
   jest.useRealTimers();
+  jest.restoreAllMocks();
 });
 
 it('mirrors the route guards of the root layout', () => {
@@ -258,13 +281,16 @@ it('moves an existing member into the organisation they just joined', async () =
   await expect(loadPendingInvitation()).resolves.toBeNull();
 });
 
-it('clears an expired link for good and lets a signed-in account continue', async () => {
+it.each(['expired', 'revoked', 'superseded', 'invalid'])('clears a %s link for good with one signed-in continuation', async (status) => {
   mockSignedIn = mockOther;
-  previewAs('expired');
+  previewAs(status);
   const router = renderRouter(routes(), { initialUrl: `/invite/accept?token=${TOKEN}` });
-  await waitFor(() => expect(screen.getByText('Invitation unavailable')).toBeTruthy());
+  await screen.findByText(status === 'invalid' ? 'Invitation not found' : 'Invitation unavailable');
   await settle();
   await expect(loadPendingInvitation()).resolves.toBeNull();
+  expect(screen.queryByText('Not now')).toBeNull();
+  expect(screen.queryByText('Back to sign in')).toBeNull();
+  if (status === 'revoked') expect(screen.getByText('This invitation was cancelled by a church administrator.')).toBeTruthy();
 
   fireEvent.press(screen.getByText('Continue'));
   await waitFor(() => expect(screen.getByText('Home for profile-other-alpha')).toBeTruthy());
@@ -293,8 +319,8 @@ it('never traps an account whose acceptance is refused, now or on the next launc
     new Error('We couldn’t update that invitation right now. Please try again.'),
   );
   const first = renderRouter(routes(), { initialUrl: `/invite/accept?token=${TOKEN}` });
-  await waitFor(() => expect(screen.getByText('Open organisation')).toBeTruthy());
-  fireEvent.press(screen.getByText('Open organisation'));
+  await waitFor(() => expect(screen.getByText('Open church')).toBeTruthy());
+  fireEvent.press(screen.getByText('Open church'));
   await waitFor(() => expect(screen.getByText(/Please try again/)).toBeTruthy());
 
   fireEvent.press(screen.getByText('Not now'));
@@ -306,6 +332,134 @@ it('never traps an account whose acceptance is refused, now or on the next launc
   const nextLaunch = renderRouter(routes(), { initialUrl: '/' });
   await waitFor(() => expect(nextLaunch.getPathname()).toBe('/no-organisations'));
   expect(mockPreview).toHaveBeenCalledTimes(1);
+});
+
+it('does not redirect a replacement account after an old acceptance refresh crosses the real remount boundary', async () => {
+  mockSignedIn = mockInvited;
+  mockInvitedOrganisations = ['alpha'];
+  mockInvitedActive = 'profile-invited-alpha';
+  const rendered = renderRouter(routes(), { initialUrl: `/invite/accept?token=${TOKEN}` });
+  await screen.findByText('Accept invitation');
+  const fetch = fetchAccountContext as jest.Mock;
+  const normalFetch = fetch.getMockImplementation()!;
+  let finishOldRead!: (context: unknown) => void;
+  let readStarted = false;
+  fetch.mockImplementationOnce(() => { readStarted = true; return new Promise((done) => { finishOldRead = done; }); });
+  fireEvent.press(screen.getByText('Accept invitation'));
+  await waitFor(() => expect(readStarted).toBe(true));
+  const oldContext = await normalFetch();
+  await act(async () => { await currentAuth.signInWithEmail(mockOther.email, 'password'); });
+  await waitFor(() => expect(currentAuth.authIdentity?.id).toBe(mockOther.id));
+  act(() => navigationRouter.replace('/(tabs)/profile'));
+  await screen.findByText('Profile for profile-other-alpha');
+  await act(async () => { finishOldRead(oldContext); });
+  await flushAccountContinuation();
+  expect(rendered.getPathname()).toBe('/profile');
+  expect(screen.getByText('Profile for profile-other-alpha')).toBeTruthy();
+});
+
+it.each(['pending', 'expired'])('preserves a newer %s invitation opened after a same-account profile remount', async (status) => {
+  const newerToken = 'B'.repeat(43);
+  mockSignedIn = mockInvited; mockInvitedOrganisations = ['alpha']; mockInvitedActive = 'profile-invited-alpha';
+  const rendered = renderRouter(routes(), { initialUrl: `/invite/accept?token=${TOKEN}` });
+  await screen.findByText('Accept invitation');
+  const fetch = fetchAccountContext as jest.Mock; const normalFetch = fetch.getMockImplementation()!;
+  let finishOldRead!: (value: unknown) => void; let started = false;
+  fetch.mockImplementationOnce(() => { started = true; return new Promise((done) => { finishOldRead = done; }); });
+  fireEvent.press(screen.getByText('Accept invitation')); await waitFor(() => expect(started).toBe(true));
+  const oldContext = await normalFetch();
+  fetch.mockImplementation(async () => { const context = await normalFetch(); return { ...context, account: { ...context.account, global_display_name: null, name_confirmed_at: null } }; });
+  await act(async () => { await currentAuth.switchOrganisation('profile-invited-gamma'); });
+  await waitFor(() => expect(currentAuth.user?.profile.id).toBe('profile-invited-gamma'));
+  mockPreview.mockImplementation(async (token) => ({ organisationName: token === newerToken ? 'Newer Church' : 'QA Organisation gamma',
+    maskedEmail: 'i******@example.com', status: token === newerToken ? status : 'accepted', authenticationRequired: true,
+    accountMatches: true, verifiedEmailPresent: true, suggestedDisplayName: 'Invited Person' }));
+  act(() => navigationRouter.replace({ pathname: '/invite/accept', params: { token: newerToken } }));
+  if (status === 'pending') {
+    await screen.findByLabelText('Full name'); fireEvent.changeText(screen.getByLabelText('Full name'), 'Keep this newer invitation draft');
+  } else await screen.findByText('Invitation unavailable');
+  await settle();
+  const previewsBefore = mockPreview.mock.calls.filter(([token]) => token === newerToken).length;
+  await act(async () => { finishOldRead(oldContext); }); await flushAccountContinuation();
+  expect(rendered.getPathname()).toBe('/invite/accept');
+  expect(mockPreview.mock.calls.filter(([token]) => token === newerToken)).toHaveLength(previewsBefore);
+  if (status === 'pending') {
+    expect(screen.getByDisplayValue('Keep this newer invitation draft')).toBeTruthy(); await expect(loadPendingInvitation()).resolves.toBe(newerToken);
+  } else { expect(screen.getByText('Invitation unavailable')).toBeTruthy(); await expect(loadPendingInvitation()).resolves.toBeNull(); }
+  fetch.mockImplementation(normalFetch);
+});
+
+it('preserves an unrelated active profile chosen while an older acceptance read is held', async () => {
+  mockSignedIn = mockInvited; mockInvitedOrganisations = ['alpha', 'beta']; mockInvitedActive = 'profile-invited-alpha';
+  const rendered = renderRouter(routes(), { initialUrl: `/invite/accept?token=${TOKEN}` }); await screen.findByText('Accept invitation');
+  const fetch = fetchAccountContext as jest.Mock; const normalFetch = fetch.getMockImplementation()!;
+  let finish!: (value: unknown) => void; let started = false;
+  fetch.mockImplementationOnce(() => { started = true; return new Promise((done) => { finish = done; }); });
+  fireEvent.press(screen.getByText('Accept invitation')); await waitFor(() => expect(started).toBe(true)); const old = await normalFetch();
+  await act(async () => { await currentAuth.switchOrganisation('profile-invited-beta'); });
+  act(() => navigationRouter.replace('/(tabs)/profile')); await screen.findByText('Profile for profile-invited-beta');
+  await act(async () => { finish(old); }); await flushAccountContinuation();
+  expect(rendered.getPathname()).toBe('/profile'); expect(screen.getByText('Profile for profile-invited-beta')).toBeTruthy();
+});
+
+it('does not replace a new Profile visit in the accepted church after the old invitation screen remounts', async () => {
+  mockSignedIn = mockInvited; mockInvitedOrganisations = ['alpha']; mockInvitedActive = 'profile-invited-alpha';
+  const rendered = renderRouter(routes(), { initialUrl: `/invite/accept?token=${TOKEN}` }); await screen.findByText('Accept invitation');
+  const fetch = fetchAccountContext as jest.Mock; const normalFetch = fetch.getMockImplementation()!;
+  let finish!: (value: unknown) => void; let started = false;
+  fetch.mockImplementationOnce(() => { started = true; return new Promise((done) => { finish = done; }); });
+  fireEvent.press(screen.getByText('Accept invitation')); await waitFor(() => expect(started).toBe(true)); const old = await normalFetch();
+  await act(async () => { await currentAuth.switchOrganisation('profile-invited-gamma'); });
+  act(() => navigationRouter.replace('/(tabs)/profile')); await screen.findByText('Profile for profile-invited-gamma');
+  await act(async () => { finish(old); }); await flushAccountContinuation();
+  expect(rendered.getPathname()).toBe('/profile'); expect(screen.getByText('Profile for profile-invited-gamma')).toBeTruthy();
+});
+
+it.each([
+  ['reopened', TOKEN, 'Already accepted'],
+  ['malformed', 'incomplete-link', 'Invitation not found'],
+])('preserves a newer %s link explanation after route-token clearing', async (_kind, openedToken, marker) => {
+  mockSignedIn = mockInvited; mockInvitedOrganisations = ['alpha']; mockInvitedActive = 'profile-invited-alpha';
+  const rendered = renderRouter(routes(), { initialUrl: `/invite/accept?token=${TOKEN}` }); await screen.findByText('Accept invitation');
+  const fetch = fetchAccountContext as jest.Mock; const normalFetch = fetch.getMockImplementation()!;
+  let finish!: (value: unknown) => void; let started = false;
+  fetch.mockImplementationOnce(() => { started = true; return new Promise((done) => { finish = done; }); });
+  fireEvent.press(screen.getByText('Accept invitation')); await waitFor(() => expect(started).toBe(true)); const old = await normalFetch();
+  await act(async () => { await currentAuth.switchOrganisation('profile-invited-gamma'); });
+  previewAs('accepted');
+  act(() => navigationRouter.replace({ pathname: '/invite/accept', params: { token: openedToken } }));
+  await screen.findByText(marker); await settle();
+  await act(async () => { finish(old); }); await flushAccountContinuation();
+  expect(rendered.getPathname()).toBe('/invite/accept'); expect(screen.getByText(marker)).toBeTruthy();
+});
+
+it('fences a held accepted-account retry after a different account remounts the stack', async () => {
+  mockSignedIn = mockInvited; mockInvitedOrganisations = ['alpha']; mockInvitedActive = 'profile-invited-alpha';
+  const rendered = renderRouter(routes(), { initialUrl: `/invite/accept?token=${TOKEN}` }); await screen.findByText('Accept invitation');
+  const fetch = fetchAccountContext as jest.Mock; const normalFetch = fetch.getMockImplementation()!;
+  fetch.mockRejectedValueOnce(new Error('offline account read'));
+  fireEvent.press(screen.getByText('Accept invitation')); await screen.findByText(/Your church membership is saved. We couldn’t refresh/);
+  let finish!: (value: unknown) => void; let started = false;
+  fetch.mockImplementationOnce(() => { started = true; return new Promise((done) => { finish = done; }); });
+  fireEvent.press(screen.getByText('Check my churches')); await waitFor(() => expect(started).toBe(true)); const old = await normalFetch();
+  await act(async () => { await currentAuth.signInWithEmail(mockOther.email, 'password'); });
+  act(() => navigationRouter.replace('/(tabs)/profile')); await screen.findByText('Profile for profile-other-alpha');
+  await act(async () => { finish(old); }); await flushAccountContinuation();
+  expect(rendered.getPathname()).toBe('/profile');
+});
+
+it('does not send a replacement account to login after the old account’s held sign-out finishes', async () => {
+  mockSignedIn = mockOther; const replace = jest.spyOn(navigationRouter, 'replace');
+  const rendered = renderRouter(routes(), { initialUrl: `/invite/accept?token=${TOKEN}` }); await screen.findByText('Switch account');
+  let finish!: () => void; let started = false;
+  const originalSignOut = mockSupabase.auth.signOut.getMockImplementation()!;
+  mockSupabase.auth.signOut.mockImplementationOnce(async () => { mockSignedIn = null; started = true; await new Promise<void>((done) => { finish = done; }); return { error: null }; });
+  fireEvent.press(screen.getByText('Switch account')); await waitFor(() => expect(started).toBe(true));
+  await act(async () => { await currentAuth.signInWithEmail(mockOther.email, 'password'); });
+  act(() => navigationRouter.replace('/(tabs)/profile')); await screen.findByText('Profile for profile-other-alpha'); replace.mockClear();
+  await act(async () => { finish(); }); await flushAccountContinuation();
+  expect(rendered.getPathname()).toBe('/profile'); expect(replace.mock.calls.some(([href]) => href === '/login')).toBe(false);
+  mockSupabase.auth.signOut.mockImplementation(originalSignOut); replace.mockRestore();
 });
 
 it('resumes an invitation opened while signed out once the invited account signs in', async () => {
