@@ -9,13 +9,19 @@ rendered evidence. Read this, repository instructions and next-slice files only.
 
 - One coherent mobile redesign, one feature branch, one final PR; required CI
   green and actionable findings resolved. **DO NOT MERGE.**
-- Branch `feat/mobile-ui-ux-reimagination`; checkpoint implementation HEAD
-  `078ca2681bb3cd30c273f559ebdbd2eddb34595e`, 15 commits ahead. The documentation
-  receipt follows this source commit; use actual Git HEAD for delivery.
+- Branch `feat/mobile-ui-ux-reimagination`; checkpoint delivery HEAD
+  `1d31fc1e5ca701d3fbf7dfecc3aa143a373a151e`, 16 commits ahead. Final application
+  source is `078ca2681bb3cd30c273f559ebdbd2eddb34595e`; subsequent commits are
+  documentation only. This receipt follows the recorded HEAD; actual Git HEAD
+  and the PR's current head/checks are authoritative for delivery.
 - Base/origin main `ecde4334b0fc9d27752f162603d7920ac0225e49`, fetched unchanged
   8 October. Repository Tezzac24/ShiftShepherd.
-- No redesign push/PR yet. Only open PR last checked: #19, unrelated SDK57/Node24
-  upgrade, excluded. This branch SDK54, CI Node20, local Node24.19.
+- Branch pushed; ONE redesign [PR #20](https://github.com/Tezzac24/ShiftShepherd/pull/20)
+  is open, non-draft and unmerged, titled feat: reimagine mobile user experience.
+  Current-head CI is published in its Checks tab; require green before completion.
+  No GitHub comments/reviews/threads at the delivery check. Independent reviews
+  are closed below. #19 is the unrelated SDK57/Node24 upgrade, excluded.
+  This branch SDK54, CI Node20, local Node24.19.
 - Parent owns design, integration, final visual acceptance and progress; fresh
   bounded sequential workers for any substantial follow-up. Compact handoffs only.
 
@@ -38,6 +44,7 @@ rendered evidence. Read this, repository instructions and next-slice files only.
 | Members/roles/invitations/acceptance | e2f3d58 | 1507/97 |
 | Shared states/accessibility/current day/unknown route | b4a6f89 | 1529/99 |
 | Final independent review fixes | 078ca26 | 1536/100 |
+| Final experience review/guidance/handoff | 1d31fc1 | Documentation |
 
 Each phase had parent phone-size rendered acceptance and automated checks.
 All significant screen families are implemented and accepted; none remains.
@@ -155,9 +162,9 @@ invitations/fixture, shared-states and large-text-clock. Read relevant README
 before use, never validate/export/commit active fixtures. Screenshots end.png;
 sidecars give actual viewport/time. Temporary evidence stays ignored.
 
-**Next:** commit final review/docs/count sync after diff check; push this branch;
-open ONE PR feat: reimagine mobile user experience; verify required CI on final
-head, inspect discussion/review threads and address actionable findings. No merge.
-Then deliver18-topic report/native checklist/release-hardening handoff and mark
-actual goal complete. Do not rerun whole audit or repeat passing source checks
-unless new changes/failures justify it. Existing native/live rollout gates persist.
+**Delivery gate:** verify PR20 required CI on its final head and recheck discussion/
+review threads; address any actionable finding. Then deliver the18-topic report,
+native checklist and hardening handoff; only then mark the actual goal complete.
+**After green CI:** final user review and separate native/live release QA; no
+further implementation is planned. Do not merge. Do not repeat the audit or
+passing source checks without new changes/failures. Existing rollout gates persist.

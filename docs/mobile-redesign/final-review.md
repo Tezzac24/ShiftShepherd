@@ -217,10 +217,12 @@ independent finding remains.
 
 ## 15. PR delivery
 
-One feature branch, logical commits, one final PR titled
-`feat: reimagine mobile user experience`. Final PR URL/head/checks/discussion are
-recorded in the delivery checkpoint and GitHub. Require green CI and no unresolved
-actionable review threads. The unrelated SDK upgrade PR remains separate.
+One feature branch, logical commits, one final
+[PR #20](https://github.com/Tezzac24/ShiftShepherd/pull/20) titled
+`feat: reimagine mobile user experience`, open and unmerged. The current head,
+CI results and discussion are published on that PR. Require green CI and no
+unresolved actionable review threads; all independent findings are closed.
+The unrelated SDK upgrade PR remains separate.
 **Do not merge this PR automatically.**
 
 ## 16. Native QA
