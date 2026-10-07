@@ -57,15 +57,15 @@ During representative integration, the installed React Native Web adapter was
 found to use direct ARIA state props rather than the native `accessibilityState`
 object. Check rendered selected/checked/expanded/busy states as well as RNTL
 props. Prefer React Native's supported ARIA aliases alongside equivalent native
-state; use the state appropriate to the control's role. Schedule segments,
-preference switches, shared buttons and loading panels have been corrected and
-rendered. Remaining selectors, date controls, sheets and feature-owned radios
-still need the cross-app alias review. These checks are not native screen-reader
+state; use the state appropriate to the control's role. The final shared pass
+reviewed segments, preference switches, buttons, loading panels, selectors, date
+controls, sheets and feature radios. These checks are not native screen-reader
 certification.
 
 Check decorative icons and spinners too: native `accessible={false}` alone may
 leave unnamed children in the web accessibility tree. StatePanel now hides its
-decorative spinner explicitly; review the remaining controls for the same issue.
+decorative spinner explicitly; the final shared pass applied the same review to
+remaining controls.
 
 The announcement image-post fixture exposed one extra unnamed `img` in the web
 accessibility snapshot alongside the correctly labelled selected image. The
@@ -76,9 +76,9 @@ The same unnamed image role appeared on fresh Login/Home after 1 October runtime
 recovery, before any fixture, with zero page errors; a literal `img` element query
 was empty. Its provenance is still unconfirmed, so it is not attributed to the
 announcement component without further evidence.
-The fresh primary-tab snapshot also includes decorative icon glyphs in Home,
-Schedule, Teams and Profile names; Messages has a clean explicit label. Review
-explicit native tab labels and decorative-child hiding across all five tabs.
+The earlier primary-tab snapshot included decorative icon glyphs in Home,
+Schedule, Teams and Profile names. The final pass supplies clean explicit labels
+and decorative-child hiding across all five tabs.
 If the running controller cannot inspect DOM metadata directly, use an ignored,
 demo-guarded inspection fixture to report only image alt/role/hidden state and
 parent tags (never source URLs/base64). Restore it exactly afterward; do not

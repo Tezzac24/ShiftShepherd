@@ -34,3 +34,12 @@ replacing selected form dates or changing data; controlled scheduling and picker
 retention were personally inspected. Unknown routes previously displayed the
 generated black developer page, raw URL and Sitemap. A shared unavailable screen
 now provides one safe Continue through the established auth/invitation hub.
+
+Final independent review found two recovery/visibility defects and one wording
+inconsistency. A confirmed church-role save now observes the existing directory
+action's published loading/error state and offers a guarded retry, rather than
+assuming a swallowed read error rejects its promise. Home uses the same existing
+accessible-notice filter as listing/detail, excluding retained archived-team
+notices. Profile now says Cancel invitation consistently with its destination.
+All findings were closed after targeted tests and director acceptance; no product
+rule, provider action or backend contract changed.

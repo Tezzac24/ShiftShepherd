@@ -1,7 +1,8 @@
 # Navigation flow review
 
-Status: in progress after member/invitation visual acceptance on 7 October.
-The complete redesign, final visual review and PR gates are still outstanding.
+Status: final common-flow review accepted on 8 October 2026. The shared-state
+pass, independent UX/technical reviews and director's integrated visual pass are
+complete. PR/CI status is recorded in progress.md and the final review record.
 
 ## Counting and evidence
 
@@ -66,14 +67,16 @@ creator's My teams remained unchanged. These are actual local demo flows,
 not hosted membership tests. Same-ID restoration and archived deep-link
 exclusion were checked directly.
 
-## Remaining flow verification
+## Final flow verification
 
 The screen families above have been personally inspected. Guarded church fixtures
 do not certify live email, Auth persistence, Root remounts or server mutations;
 actual-router tests cover account replacement, expected refresh remounts and
-newer/terminal invitation precedence. Native/live QA remains separate. The final
-independent review and shared-state pass still need the team role/removal dialogs,
-cross-app control semantics and final integrated common-flow check.
+newer/terminal invitation precedence. Native/live QA remains separate. The
+shared-state pass covered team role/removal dialogs, cross-app control semantics,
+large text and current-day rollover. The independent UX review checked the common
+paths and accepted the recorded exceptions. The director inspected the final
+integrated member experience and the corrected role-refresh recovery.
 
 ## Exceptions and trade-offs
 
@@ -87,8 +90,8 @@ cross-app control semantics and final integrated common-flow check.
   for an arbitrary date one is not serving can also take four from Teams. From
   the already-open choir hub each takes three. These retain useful reading/date
   context and avoid filling Home with specialist shortcuts.
-- Menus and confirmations are not claimed as zero effort. The final independent
-  UX review must check their discoverability and whether they create excessive
-  drilling despite an acceptable route count.
+- Menus and confirmations are not claimed as zero effort. The independent UX
+  review accepted their labelled, contextual presentation without identifying
+  excessive drilling in the reviewed common flows.
 
 Final reporting must use these completed paths with their stated evidence limits.
