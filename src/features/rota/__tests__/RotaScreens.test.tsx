@@ -70,7 +70,7 @@ function editDates(screen: ReturnType<typeof render>) {
   fireEvent.press(screen.getByRole('button', { name: /^Edit dates/ }));
 }
 function editDateCallback(screen: ReturnType<typeof render>): () => void {
-  return screen.UNSAFE_root.findAll((row: { props: { accessibilityLabel?: string; onPress?: unknown } }) => row.props.accessibilityLabel?.startsWith('Edit Sunday morning service')
+  return screen.UNSAFE_root.findAll((row: { props: { accessibilityLabel?: string; onPress?: unknown } }) => row.props.accessibilityLabel?.startsWith('Edit Sunday morning service') === true
     && typeof row.props.onPress === 'function')[0].props.onPress;
 }
 

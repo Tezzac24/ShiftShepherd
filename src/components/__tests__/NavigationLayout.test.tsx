@@ -1,5 +1,5 @@
 import type { BottomTabNavigationOptions } from '@react-navigation/bottom-tabs';
-import type { NativeStackNavigationOptions } from '@react-navigation/native-stack';
+import type { NativeStackNavigationOptions } from 'expo-router/native-stack';
 import { fireEvent, render } from '@testing-library/react-native';
 import React from 'react';
 import { StyleSheet, ViewStyle } from 'react-native';
