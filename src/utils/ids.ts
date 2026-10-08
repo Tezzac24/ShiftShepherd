@@ -1,4 +1,4 @@
-import { uuid } from 'expo-modules-core';
+import { randomUUID } from 'expo-crypto';
 
 /** Simple unique id generator for locally created mock records. */
 let counter = 0;
@@ -14,7 +14,7 @@ export const REQUEST_ID_UNAVAILABLE_ERROR =
 /**
  * One random UUID (v4) for a logical server request. Web and Node runtimes
  * provide `crypto.randomUUID`; native Expo runtimes provide the same
- * generator through expo-modules-core. Nothing here is persisted or logged.
+ * generator through expo-crypto. Nothing here is persisted or logged.
  */
 export function newRequestId(): string {
   const webCrypto = globalThis.crypto;
@@ -22,7 +22,7 @@ export function newRequestId(): string {
     return webCrypto.randomUUID();
   }
   try {
-    return uuid.v4();
+    return randomUUID();
   } catch {
     throw new Error(REQUEST_ID_UNAVAILABLE_ERROR);
   }

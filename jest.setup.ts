@@ -13,10 +13,16 @@
 delete process.env.EXPO_PUBLIC_SUPABASE_URL;
 delete process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
+// Expo's runtime installs `fetch` as a lazy global getter. Jest's per-file
+// teardown reads every global, so an unread getter would first load Expo's
+// fetch module after the file's console is frozen ("Cannot log after tests
+// are done"), failing the run. Resolve it now, while the environment is live.
+void globalThis.fetch;
+
 // Official in-memory AsyncStorage mock — persistence code works without a
 // device and every test file starts from empty storage.
 jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
 // In-memory SecureStore. It enforces the same key rule as the native module
