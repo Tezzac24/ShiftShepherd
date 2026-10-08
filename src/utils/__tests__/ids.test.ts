@@ -1,12 +1,12 @@
-import { uuid } from 'expo-modules-core';
+import { randomUUID } from 'expo-crypto';
 
 import { makeId, newRequestId, REQUEST_ID_UNAVAILABLE_ERROR } from '../ids';
 
-jest.mock('expo-modules-core', () => ({ uuid: { v4: jest.fn() } }));
+jest.mock('expo-crypto', () => ({ randomUUID: jest.fn() }));
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const NATIVE_ID = 'a2f7c8d0-3b4e-4f5a-9b6c-7d8e9f0a1b2c';
-const mockNativeV4 = uuid.v4 as jest.Mock;
+const mockNativeV4 = randomUUID as jest.Mock;
 
 describe('newRequestId', () => {
   const originalCrypto = globalThis.crypto;

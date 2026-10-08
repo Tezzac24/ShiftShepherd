@@ -1,6 +1,6 @@
 // Jest runs the automated regression suite (unit tests over pure helpers,
 // services, and hooks). jest-expo supplies the Babel transform and React
-// Native environment for Expo SDK 54. Tests are deterministic: no network,
+// Native environment for Expo SDK 57. Tests are deterministic: no network,
 // no real Supabase credentials, no device APIs (see jest.setup.ts).
 module.exports = {
   preset: 'jest-expo',

@@ -23,11 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No .nvmrc/engines is declared; Node 20 matches the LTS line the app
-      # is developed on (Expo SDK 54 / Node 20).
+      # .nvmrc pins the Node LTS line the app is developed on (Expo SDK 57 /
+      # Node 24); Metro and React Native 0.86 require Node >= 22.13.
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies

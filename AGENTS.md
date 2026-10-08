@@ -101,7 +101,7 @@ secure invitation continuation across account changes, foreground/day freshness,
 and native/web control semantics. Phone-size web and guarded synthetic inspection
 remain distinct from the native and live release QA still required.
 
-CI is `.github/workflows/ci.yml`, triggered on push to `main`, pull requests to `main`, and workflow_dispatch. It runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run check:migrations`, and `npx expo export` on Node 20. It is **check-only**: no secrets, no `.env` (the export intentionally exercises demo mode), and no deployments. Supabase migration pushes, Edge Function deploys, and EAS builds remain explicit, manually approved steps — do not add CD workflows without being asked. Future candidates (documented, not implemented): Maestro E2E smoke tests, a manually approved workflow_dispatch CD lane for Supabase migrations / Edge Function deploys, and EAS build automation.
+CI is `.github/workflows/ci.yml`, triggered on push to `main`, pull requests to `main`, and workflow_dispatch. It runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run check:migrations`, and `npx expo export` on Node 24 (from `.nvmrc`). It is **check-only**: no secrets, no `.env` (the export intentionally exercises demo mode), and no deployments. Supabase migration pushes, Edge Function deploys, and EAS builds remain explicit, manually approved steps — do not add CD workflows without being asked. Future candidates (documented, not implemented): Maestro E2E smoke tests, a manually approved workflow_dispatch CD lane for Supabase migrations / Edge Function deploys, and EAS build automation.
 
 ---
 

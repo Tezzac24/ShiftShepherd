@@ -67,7 +67,7 @@ phone-size web inspection from the native QA still required.
 
 ## Tech Stack
 
-- React Native + Expo (SDK 54) + TypeScript (strict)
+- React Native + Expo (SDK 57) + TypeScript (strict), on Node 24 (`.nvmrc`)
 - Expo Router (file-based routing, `app/` directory)
 - React context + local state with session-only Supabase live slices
 - Production backend path: Supabase + Expo Notifications
