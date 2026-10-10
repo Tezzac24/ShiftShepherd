@@ -8,7 +8,7 @@ import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { FormErrorSummary } from '../../components/FormErrorSummary';
 import { ListGroup } from '../../components/ListGroup';
-import { ListRow, SwitchRow } from '../../components/ListRow';
+import { SwitchRow } from '../../components/ListRow';
 import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
 import { SelectField } from '../../components/SelectField';
@@ -23,6 +23,7 @@ import { isAnnouncementImagePath } from '../../lib/supabase/services/announcemen
 import { Announcement, SessionUser } from '../../types';
 import { accessibleAnnouncements, announcementAudienceOptions, announcementAuthorityKey, announcementEventOptions, CHURCH_AUDIENCE } from './announcementPresentation';
 import { AnnouncementImageDraft, useAnnouncementImageDraft } from './useAnnouncementImageDraft';
+import { AnnouncementOptions } from './AnnouncementOptions';
 
 type Params = { id?: string | string[]; teamId?: string | string[]; presetTitle?: string | string[]; presetBody?: string | string[] };
 type Draft = { title: string; body: string; audience: string | null; pinned: boolean; linkedEventId: string | null };
@@ -57,7 +58,6 @@ function AnnouncementForm({ params, user, authorityResolved }: { params: Params;
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
-  const [optionalOpen, setOptionalOpen] = useState(false);
   const [step, setStep] = useState<Step>('draft');
   const [saved, setSaved] = useState<Announcement | null>(null);
   const image = useAnnouncementImageDraft();
@@ -244,10 +244,7 @@ function AnnouncementForm({ params, user, authorityResolved }: { params: Params;
         onChange={(value) => { change('audience', value); setFieldErrors((errors) => ({ ...errors, audience: undefined })); }} error={fieldErrors.audience}
         helper={params.teamId !== undefined && !draft.audience ? 'The requested team is unavailable. Choose an audience before posting.' : undefined} />
     </View>
-    <ListRow title="More options" subtitle={optionalSummary || (data.announcementsLive ? 'Image, linked event and pinning' : 'Linked event and pinning')}
-      icon={optionalOpen ? 'remove-outline' : 'add-outline'} showChevron={false} disabled={busy}
-      accessibilityState={{ expanded: optionalOpen }} onPress={() => setOptionalOpen((value) => !value)} />
-    {optionalOpen ? <View style={styles.optional}>
+    <AnnouncementOptions summary={optionalSummary} disabled={busy}>
       <SelectField label="Linked event (optional)" value={draft.linkedEventId ?? 'none'}
         options={announcementEventOptions(data.events, user.profile.organisation_id, draft.linkedEventId)} disabled={busy} searchable searchPlaceholder="Event title"
         onChange={(value) => change('linkedEventId', value === 'none' ? null : value)} />
@@ -263,7 +260,7 @@ function AnnouncementForm({ params, user, authorityResolved }: { params: Params;
         <Button title={showsImage ? 'Change image' : 'Add image'} variant="secondary" icon="image-outline" loading={image.picking} disabled={busy} onPress={() => void image.pickImage()} />
         {showsImage ? <Button title="Remove image" variant="ghost" icon="trash-outline" disabled={busy || image.picking} onPress={image.markRemoved} /> : null}
       </View> : null}
-    </View> : null}
+    </AnnouncementOptions>
   </Screen>;
 }
 
