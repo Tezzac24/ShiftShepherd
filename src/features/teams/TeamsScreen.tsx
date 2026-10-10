@@ -7,6 +7,7 @@ import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
+import { CollectionGuide } from '../../components/CollectionGuide';
 import { OrganisationHeader } from '../../components/OrganisationHeader';
 import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
@@ -40,6 +41,7 @@ export default function TeamsScreen() {
   const showSearch = teams.length > 5 || search.length > 0;
   const showLoading = data.teamsLoading && teams.length === 0;
   const showError = !!data.teamsError;
+  const shortCollection = teams.length > 0 && teams.length <= 3 && !query;
   const archivedCount = data.archivedTeams.filter((team) =>
     team.organisation_id === user.profile.organisation_id && team.archived_at !== null).length;
 
@@ -82,7 +84,7 @@ export default function TeamsScreen() {
           return <Pressable accessibilityRole="button" accessibilityLabel={`${team.name}. ${membership}. ${context}`}
             accessibilityHint="Opens the team" onPress={() => router.push({ pathname: '/teams/[teamId]', params: { teamId: team.id } })}
             style={({ pressed }) => [styles.team, pressed && styles.pressed]}>
-            <Avatar name={team.name} uri={data.getTeamAvatarUri(team)} size={48} />
+            <Avatar name={team.name} uri={data.getTeamAvatarUri(team)} size={48} decorative />
             <View style={styles.teamCopy}>
               <AppText variant="subheading">{team.name}</AppText>
               <AppText variant="small" tone="primary">{membership}</AppText>
@@ -91,6 +93,11 @@ export default function TeamsScreen() {
             <Ionicons name="chevron-forward" size={22} color={colors.textMuted} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           </Pressable>;
         }}
+        ListFooterComponent={shortCollection && !data.teamsLoading && !showError ? <CollectionGuide title="Your team space"
+          items={[
+            { icon: 'calendar-outline', title: 'Plan together', description: 'Open a team to see its rota and upcoming dates.' },
+            { icon: 'chatbubbles-outline', title: 'Stay connected', description: 'Find team conversations and the people you serve with, all in one place.' },
+          ]} /> : null}
         ListEmptyComponent={showLoading ? <StatePanel kind="loading" title="Loading your teams…" />
           : showError ? null : query ? <StatePanel title="No matching teams" message="Try a different team name." />
             : <StatePanel icon="people-outline" title={effectiveView === 'all' ? 'No teams yet' : 'No teams to show'}
@@ -111,7 +118,8 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.gutter, paddingBottom: spacing.lg },
   header: { gap: spacing.md, marginBottom: spacing.md },
   manage: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md },
-  team: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  team: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
   teamCopy: { flex: 1, minWidth: 0, gap: spacing.xs },
   pressed: { backgroundColor: colors.primarySoft },
 });

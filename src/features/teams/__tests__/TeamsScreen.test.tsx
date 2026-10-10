@@ -110,6 +110,27 @@ describe('TeamsScreen lifecycle entry points', () => {
 });
 
 describe('Teams directory presentation', () => {
+  it('adds useful context for small collections, without showing it during refresh failure or for a long directory', () => {
+    const data = mockUseAppData();
+    data.teams = [TEAM];
+    mockUseRequiredUser.mockReturnValue({ ...session('general_member'), memberships: [OWN_MEMBERSHIP] });
+    const screen = render(<TeamsScreen />);
+    expect(screen.queryByText('Singing together')).toBeNull();
+    expect(screen.getByRole('header', { name: 'Your team space' })).toBeTruthy();
+    data.teamsError = 'Reconnect';
+    screen.rerender(<TeamsScreen />);
+    expect(screen.queryByText('Your team space')).toBeNull();
+    data.teamsError = null;
+    data.teams = Array.from({ length: 6 }, (_, i) => ({ ...TEAM, id: `team-${i}`, name: `Team ${i}` }));
+    mockUseRequiredUser.mockReturnValue(session('church_admin'));
+    screen.rerender(<TeamsScreen />);
+    fireEvent.press(screen.getByLabelText('All teams'));
+    fireEvent.changeText(screen.getByLabelText('Search teams'), 'Team 1');
+    expect(screen.getByText('Team 1')).toBeTruthy();
+    expect(screen.queryByText('Your team space')).toBeNull();
+    expect(screen.queryByText('Singing together')).toBeNull();
+  });
+
   it('separates an admin’s real memberships from accessible teams and excludes archived/other-church rows', () => {
     mockUseRequiredUser.mockReturnValue({ ...session('church_admin'), memberships: [OWN_MEMBERSHIP] });
     const data = mockUseAppData();

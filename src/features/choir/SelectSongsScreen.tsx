@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { SectionList, StyleSheet, View } from 'react-native';
+import { Pressable, SectionList, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { ListGroup, ListGroupContext } from '../../components/ListGroup';
@@ -26,6 +26,19 @@ import { moveSong, songsForChoir, songSummary } from './choirPresentation';
 type SelectionRow = { kind: 'selected'; id: string } | { kind: 'song'; song: Song };
 type SelectionView = 'choose' | 'order';
 interface SelectionSection { key: SelectionView; data: SelectionRow[] }
+
+function OrderArrow({ direction, label, disabled, onPress }: {
+  direction: 'up' | 'down'; label: string; disabled: boolean; onPress: () => void;
+}) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label}
+    accessibilityState={{ disabled }} aria-disabled={disabled} disabled={disabled}
+    onPress={disabled ? undefined : onPress}
+    style={({ pressed }) => [styles.orderArrow, disabled && styles.disabledArrow, pressed && !disabled && styles.pressedArrow]}>
+    <Ionicons name={direction === 'up' ? 'arrow-up' : 'arrow-down'} size={22}
+      color={disabled ? colors.textMuted : colors.primary} accessible={false} aria-hidden
+      accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+  </Pressable>;
+}
 
 export default function SelectSongsScreen() {
   const { teamId, entryId, section: sectionParam } = useLocalSearchParams<{
@@ -167,9 +180,11 @@ function SongSelection({ scope, entry, section, permitted }: {
         {!song ? <AppText tone="danger">Remove this song before saving. It is no longer in this team’s library.</AppText>
           : otherIds.has(item.id) ? <AppText tone="danger">Now selected for {otherLabel.toLowerCase()}. Remove it here before saving.</AppText> : null}
         <View style={styles.orderActions}>
-          <Button title="Up" accessibilityLabel={`Move ${title} up`} variant="secondary" disabled={saving || index === 0} style={styles.orderAction} onPress={() => move(item.id, -1)} />
-          <Button title="Down" accessibilityLabel={`Move ${title} down`} variant="secondary" disabled={saving || index === selectedIds!.length - 1} style={styles.orderAction} onPress={() => move(item.id, 1)} />
-          <Button title="Remove" accessibilityLabel={`Remove ${title} from ${label.toLowerCase()} songs`} variant="ghost" disabled={saving} style={styles.orderAction} onPress={() => toggle(item.id)} />
+          <View style={styles.orderArrows}>
+            <OrderArrow direction="up" label={`Move ${title} up`} disabled={saving || index === 0} onPress={() => move(item.id, -1)} />
+            <OrderArrow direction="down" label={`Move ${title} down`} disabled={saving || index === selectedIds!.length - 1} onPress={() => move(item.id, 1)} />
+          </View>
+          <Button title="Remove" icon="close-outline" accessibilityLabel={`Remove ${title} from ${label.toLowerCase()} songs`} variant="ghost" disabled={saving} style={styles.removeAction} onPress={() => toggle(item.id)} />
         </View>
       </View></ListGroup></View>;
     }
@@ -239,8 +254,12 @@ const styles = StyleSheet.create({
   firstSong: { borderTopWidth: 1, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
   lastSong: { borderBottomWidth: 1, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
   selected: { padding: spacing.lg, gap: spacing.sm },
-  orderActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
-  orderAction: { flexGrow: 1, flexBasis: 72, paddingHorizontal: spacing.sm },
+  orderActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginTop: spacing.xs },
+  orderArrows: { flexDirection: 'row', gap: spacing.sm },
+  orderArrow: { width: touchTarget, height: touchTarget, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft, borderRadius: radius.md, borderWidth: 1, borderColor: 'transparent' },
+  disabledArrow: { backgroundColor: colors.surfaceRaised },
+  pressedArrow: { backgroundColor: colors.surfaceRaised, borderColor: colors.primary },
+  removeAction: { paddingHorizontal: spacing.sm, flexShrink: 1 },
   footer: { gap: spacing.sm },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   cancel: { flexGrow: 1, flexBasis: 88 },

@@ -6,6 +6,7 @@ import { colors, spacing, touchTarget } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { CountBadge } from '../../components/Badge';
+import { CollectionGuide } from '../../components/CollectionGuide';
 import { OrganisationHeader } from '../../components/OrganisationHeader';
 import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
@@ -52,6 +53,7 @@ export default function MessagesScreen() {
   const filtered = conversations.filter(({ team }) => team.name.toLocaleLowerCase().includes(query));
   const showSearch = conversations.length > 5 || search.length > 0;
   const showLoading = data.teamsLoading && conversations.length === 0;
+  const shortCollection = conversations.length > 0 && conversations.length <= 3 && !query;
   const canManageTeams = canManageTeamLifecycle(user);
 
   return (
@@ -96,6 +98,11 @@ export default function MessagesScreen() {
             </View> : null}
           </Pressable>;
         }}
+        ListFooterComponent={shortCollection && !data.teamsLoading && !data.teamsError && !data.chatLoading && !data.chatError
+          ? <CollectionGuide title="Good conversations start here" items={[
+            { icon: 'chatbubble-ellipses-outline', title: 'Check in with your team', description: 'Open a conversation to ask a question or share an update.' },
+            { icon: 'image-outline', title: 'Share a moment', description: 'You can add a photo to a message when a picture says it better.' },
+          ]} /> : null}
         ListEmptyComponent={showLoading ? <StatePanel kind="loading" title="Loading your teams…"/>
           : data.teamsError ? null : query ? <StatePanel title="No matching conversations" message="Try a different team name." />
             : <StatePanel icon="chatbubbles-outline" title="No team chats yet"

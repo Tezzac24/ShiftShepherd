@@ -39,6 +39,25 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
+it('offers conversation guidance only for a healthy small collection and never changes unread state', () => {
+  const screen = render(<MessagesScreen />);
+  expect(screen.getByRole('header', { name: 'Good conversations start here' })).toBeTruthy();
+  data.chatLoading = true;
+  screen.rerender(<MessagesScreen />);
+  expect(screen.queryByText('Good conversations start here')).toBeNull();
+  data.chatLoading = false;
+  data.chatError = 'Reconnect';
+  screen.rerender(<MessagesScreen />);
+  expect(screen.queryByText('Good conversations start here')).toBeNull();
+  data.chatError = null;
+  data.teams = Array.from({ length: 6 }, (_, i) => ({ ...TEAM, id: `team-${i}`, name: `Team ${i}` }));
+  screen.rerender(<MessagesScreen />);
+  fireEvent.changeText(screen.getByLabelText('Search conversations'), 'Team 1');
+  expect(screen.getByText('Team 1')).toBeTruthy();
+  expect(screen.queryByText('Good conversations start here')).toBeNull();
+  expect(data.markTeamChatRead).not.toHaveBeenCalled();
+});
+
 it('refreshes on focus/foreground without ever marking a conversation read', () => {
   const screen = render(<MessagesScreen />);
   expect(screen.getByLabelText('Current church: Community Church')).toBeTruthy();
