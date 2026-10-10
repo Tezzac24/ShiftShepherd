@@ -52,8 +52,48 @@ describe('organisation invitation service', () => {
       error: null,
     });
     const [invitation] = await listOrganisationInvitations();
+    expect(rpc).toHaveBeenCalledWith('list_organisation_invitations');
     expect(invitation).not.toHaveProperty('token_hash');
     expect(invitation.invited_email).toBe('person@example.com');
+  });
+
+  it('filters the existing authenticated list RPC by exact target and pending status without exposing token fields', async () => {
+    const { rpc } = client();
+    const row = { invitation_id: INVITE, invited_email: 'person@example.com', target_profile_id: PROFILE, status: 'pending', token_hash: 'must-not-map' };
+    const request = Object.assign(Promise.resolve({ data: [row], error: null }), { eq: jest.fn() });
+    request.eq.mockReturnValue(request); rpc.mockReturnValue(request);
+    const [invitation] = await listOrganisationInvitations({ targetProfileId: PROFILE });
+    expect(rpc).toHaveBeenCalledWith('list_organisation_invitations');
+    expect(request.eq.mock.calls).toEqual([['target_profile_id', PROFILE], ['status', 'pending']]);
+    expect(invitation).toMatchObject({ id: INVITE, target_profile_id: PROFILE, status: 'pending' });
+    expect(invitation).not.toHaveProperty('token_hash');
+  });
+
+  it('normalizes a valid uppercase target UUID to match PostgreSQL’s canonical returned ID', async () => {
+    const { rpc } = client();
+    const target = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const request = Object.assign(Promise.resolve({ data: [{ invitation_id: INVITE, invited_email: 'person@example.com', target_profile_id: target, status: 'pending' }], error: null }), { eq: jest.fn() });
+    request.eq.mockReturnValue(request); rpc.mockReturnValue(request);
+    const [invitation] = await listOrganisationInvitations({ targetProfileId: target.toUpperCase() });
+    expect(request.eq.mock.calls).toEqual([['target_profile_id', target], ['status', 'pending']]);
+    expect(invitation.target_profile_id).toBe(target);
+  });
+
+  it.each(['', 'demo-person', 'not-a-uuid'])('rejects a malformed filtered target %s before a network call', async (targetProfileId) => {
+    const { rpc } = client();
+    await expect(listOrganisationInvitations({ targetProfileId })).rejects.toThrow('We couldn’t load invitations right now. Please try again.');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { target_profile_id: null, status: 'pending' },
+    { target_profile_id: INVITE, status: 'pending' },
+    { target_profile_id: PROFILE, status: 'accepted' },
+  ])('rejects a mismatched filtered result rather than substituting a same-email row: %o', async (returned) => {
+    const { rpc } = client();
+    const request = Object.assign(Promise.resolve({ data: [{ invitation_id: INVITE, invited_email: 'person@example.com', ...returned }], error: null }), { eq: jest.fn() });
+    request.eq.mockReturnValue(request); rpc.mockReturnValue(request);
+    await expect(listOrganisationInvitations({ targetProfileId: PROFILE })).rejects.toThrow('We couldn’t load invitations right now. Please try again.');
   });
 
   it('sends only minimal new-person and existing-person requests', async () => {

@@ -182,7 +182,7 @@ describe('account bootstrap race', () => {
   it('waits instead of guessing while the account context is unresolved', () => {
     expect(routeFor(RESOLVING)).toBeNull();
     expect(redirects).not.toContain('/no-organisations');
-    expect(screen.getByText('Loading your organisation...')).toBeTruthy();
+    expect(screen.getByText('Loading your churches…')).toBeTruthy();
   });
 
   it('never treats an unresolved context as an empty one, whatever the status', () => {
@@ -231,6 +231,7 @@ describe('account bootstrap failure', () => {
     expect(routeFor({ ...RESOLVING, accountStatus: 'error' })).toBeNull();
     expect(redirects).not.toContain('/no-organisations');
     expect(screen.getByText('We couldn’t load your account')).toBeTruthy();
+    expect(screen.getByText('You are still signed in, but we couldn’t confirm your church access. Check your connection and try again.')).toBeTruthy();
   });
 
   it('retries the account bootstrap rather than re-authenticating', async () => {

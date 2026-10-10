@@ -1,154 +1,229 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { useConfirm } from '../../../components/ConfirmDialog';
 import { useToast } from '../../../components/Toast';
 import { useAppData } from '../../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../../lib/auth/AuthContext';
-import {
-  listOrganisationMembers,
-  setOrganisationMemberRole,
-} from '../../../lib/supabase/services/organisationMemberships';
-import { OrganisationMemberSummary, SessionUser } from '../../../types';
+import { listOrganisationMembers, setOrganisationMemberRole } from '../../../lib/supabase/services/organisationMemberships';
 import OrganisationMemberRoleScreen from '../OrganisationMemberRoleScreen';
+import { ADMIN, adminAuth, CURRENT, deferred, DIRECTORY, MEMBER, memberProfile, ORGANISATION_ID, REMOVED } from './organisationAdminFixtures';
 
+const mockBack = jest.fn(); const mockReplace = jest.fn(); const mockPush = jest.fn();
+let mockParams: Record<string, string> = {};
+let mockFocused = true;
+jest.mock('expo-router', () => {
+  const React = jest.requireActual('react');
+  return { Stack: { Screen: () => null }, useLocalSearchParams: () => mockParams,
+    useRouter: () => ({ back: mockBack, replace: mockReplace, push: mockPush, canGoBack: () => true }),
+    useFocusEffect: (callback: () => void) => { const focused = mockFocused; return React.useEffect(() => focused ? callback() : undefined, [callback, focused]); } };
+});
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
-const mockBack = jest.fn();
-jest.mock('expo-router', () => ({
-  Stack: { Screen: () => null },
-  useLocalSearchParams: () => ({ profileId: '20000000-0000-4000-a000-000000000002' }),
-  useRouter: () => ({ back: mockBack }),
-}));
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
-jest.mock('../../../lib/auth/AuthContext', () => ({
-  useAuth: jest.fn(),
-  useRequiredUser: jest.fn(),
-}));
+jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn(), useRequiredUser: jest.fn() }));
 jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: jest.fn() }));
 jest.mock('../../../components/Toast', () => ({ useToast: jest.fn() }));
-jest.mock('../../../lib/supabase/services/organisationMemberships', () => ({
-  listOrganisationMembers: jest.fn(),
-  setOrganisationMemberRole: jest.fn(),
-}));
-jest.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
-}));
+jest.mock('../../../lib/supabase/services/organisationMemberships', () => ({ listOrganisationMembers: jest.fn(), setOrganisationMemberRole: jest.fn() }));
+jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }));
 
-const mockUseAppData = useAppData as jest.Mock;
-const mockUseAuth = useAuth as jest.Mock;
-const mockUseRequiredUser = useRequiredUser as jest.Mock;
-const mockUseConfirm = useConfirm as jest.Mock;
-const mockUseToast = useToast as jest.Mock;
-const mockList = listOrganisationMembers as jest.Mock;
-const mockSetRole = setOrganisationMemberRole as jest.Mock;
-
-const PROFILE_ID = '20000000-0000-4000-a000-000000000002';
-const MEMBER: OrganisationMemberSummary = {
-  profile_id: PROFILE_ID,
-  full_name: 'Ruth Johnson',
-  email: 'ruth@example.church',
-  avatar_url: null,
-  access_status: 'active',
-  access_removed_at: null,
-  access_removal_reason: null,
-  linked: true,
-  role: 'general_member',
-  team_count: 0,
-  pending_invitation_status: null,
-  is_current_user: false,
-  is_last_church_admin: false,
-};
-const ADMIN = {
-  profile: {
-    id: '20000000-0000-4000-a000-000000000001',
-    auth_user_id: '90000000-0000-4000-a000-000000000001',
-    organisation_id: '10000000-0000-4000-a000-000000000001',
-    full_name: 'Daniel Okafor',
-    email: 'daniel@example.church',
-    phone: null,
-    avatar_url: null,
-    access_status: 'active',
-    access_removed_at: null,
-    access_removed_by: null,
-    access_removal_reason: null,
-    created_at: '',
-  },
-  orgRole: 'church_admin',
-  memberships: [],
-  supabaseProfileId: '20000000-0000-4000-a000-000000000001',
-} satisfies SessionUser;
-
-function setup(member = MEMBER, role: SessionUser['orgRole'] = 'church_admin') {
-  const refreshTeams = jest.fn().mockResolvedValue(undefined);
-  mockUseAuth.mockReturnValue({ authMode: 'supabase' });
-  mockUseRequiredUser.mockReturnValue({ ...ADMIN, orgRole: role });
-  mockUseAppData.mockReturnValue({ refreshTeams });
-  mockUseConfirm.mockReturnValue(jest.fn().mockResolvedValue(true));
-  mockUseToast.mockReturnValue(jest.fn());
-  mockList.mockResolvedValue([member]);
-  mockSetRole.mockResolvedValue({ profile_id: PROFILE_ID, role: 'event_manager' });
-  return { refreshTeams };
+const list = listOrganisationMembers as jest.Mock;
+const setRole = setOrganisationMemberRole as jest.Mock;
+const auth = useAuth as jest.Mock;
+const requiredUser = useRequiredUser as jest.Mock;
+const confirm = jest.fn(); const toast = jest.fn(); const refreshTeams = jest.fn();
+function ariaRole(view: ReturnType<typeof render>, role: string) {
+  return view.UNSAFE_root.findAll((node: { props: Record<string, unknown> }) => node.props.testID === `organisation-role-${role}` && node.props['aria-checked'] !== undefined)[0];
 }
-
 beforeEach(() => {
-  jest.clearAllMocks();
-  setup();
+  jest.clearAllMocks(); mockParams = { profileId: MEMBER.profile_id }; mockFocused = true;
+  auth.mockReturnValue(adminAuth()); requiredUser.mockReturnValue(ADMIN);
+  (useAppData as jest.Mock).mockReturnValue({ users: [memberProfile(MEMBER)], refreshTeams });
+  (useConfirm as jest.Mock).mockReturnValue(confirm); (useToast as jest.Mock).mockReturnValue(toast);
+  confirm.mockResolvedValue(true); refreshTeams.mockResolvedValue(undefined); list.mockResolvedValue([MEMBER]);
+  setRole.mockImplementation(async (profile_id, role) => ({ profile_id, role }));
 });
 
-it('renders only the supported roles with clear baseline and privilege descriptions', async () => {
-  const screen = render(<OrganisationMemberRoleScreen />);
-  await waitFor(() => expect(screen.getByText('Role for Ruth Johnson')).toBeTruthy());
-  for (const label of ['Church Member', 'Announcement Manager', 'Event Manager', 'Church Admin']) {
-    expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+it('renders exactly the four exclusive roles with readable capabilities and native/ARIA state', async () => {
+  const view = render(<OrganisationMemberRoleScreen />);
+  await view.findByText('Ruth Johnson');
+  for (const label of ['Church Member', 'Announcement Manager', 'Event Manager', 'Church Admin']) expect(view.getByText(label)).toBeTruthy();
+  expect(view.getByText('Church role')).toBeTruthy();
+  expect(view.queryByText('High privilege')).toBeNull();
+  expect(view.getByText('Can create and manage church events.')).toBeTruthy();
+  expect(view.queryByText(/events and categories/)).toBeNull();
+  const radio = view.getByTestId('organisation-role-general_member');
+  expect(radio.props.accessibilityState.checked).toBe(true); expect(ariaRole(view, 'general_member').props['aria-checked']).toBe(true);
+  expect(view.getByText(/Changing it keeps their church membership and assigned team roles/)).toBeTruthy();
+});
+
+it('resolves a selected person beyond the first page using the email hint and exact ID', async () => {
+  mockParams = { profileId: MEMBER.profile_id, memberEmail: MEMBER.email, organisationId: ORGANISATION_ID };
+  list.mockImplementation(async (query) => query === MEMBER.email ? [MEMBER] : [CURRENT]);
+  const view = render(<OrganisationMemberRoleScreen />);
+  await view.findByText('Ruth Johnson'); expect(list).toHaveBeenCalledWith(MEMBER.email);
+});
+
+it('keeps old ID-only links by using the scoped directory email as a hint', async () => {
+  const view = render(<OrganisationMemberRoleScreen />);
+  await view.findByText('Ruth Johnson'); expect(list).toHaveBeenCalledWith(MEMBER.email);
+});
+
+it.each(['name hint', 'ID-only directory name'])('opens a linked no-email person beyond the initial 200 through %s without substituting a namesake', async (kind) => {
+  const noEmail = { ...MEMBER, email: '   ' };
+  mockParams = { profileId: MEMBER.profile_id, ...(kind === 'name hint' ? { memberName: MEMBER.full_name, organisationId: ORGANISATION_ID } : {}) };
+  (useAppData as jest.Mock).mockReturnValue({ users: kind === 'name hint' ? [] : [memberProfile(noEmail)], refreshTeams });
+  list.mockImplementation(async (query) => query === MEMBER.full_name ? [{ ...noEmail, profile_id: CURRENT.profile_id }, noEmail] : [CURRENT]);
+  const view = render(<OrganisationMemberRoleScreen />);
+  await view.findByText('Ruth Johnson');
+  expect(list).toHaveBeenCalledWith(MEMBER.full_name); expect(view.getByText('Email not listed')).toBeTruthy();
+  fireEvent.press(view.getByTestId('organisation-role-event_manager')); fireEvent.press(view.getByText('Save role'));
+  await waitFor(() => expect(setRole).toHaveBeenCalledWith(MEMBER.profile_id, 'event_manager'));
+});
+
+it('never substitutes a same-email person when the exact ID is absent', async () => {
+  list.mockResolvedValue([{ ...MEMBER, profile_id: CURRENT.profile_id }]);
+  const view = render(<OrganisationMemberRoleScreen />);
+  await view.findByText('Couldn’t confirm this person');
+  expect(view.getByText(/bounded results/)).toBeTruthy(); expect(view.queryByText('Save role')).toBeNull();
+  expect(setRole).not.toHaveBeenCalled();
+});
+
+it('denies an old church selection before any lookup or mutation', () => {
+  mockParams = { profileId: MEMBER.profile_id, organisationId: 'another-church' };
+  const view = render(<OrganisationMemberRoleScreen />); expect(view.getByText('Different church')).toBeTruthy(); expect(list).not.toHaveBeenCalled();
+});
+
+it('blocks every final-effective-admin demotion option with matching accessible state', async () => {
+  list.mockResolvedValue([{ ...MEMBER, role: 'church_admin', is_last_church_admin: true }]);
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Final church admin');
+  for (const role of ['general_member', 'event_manager', 'announcement_manager']) {
+    const radio = view.getByTestId(`organisation-role-${role}`);
+    expect(radio.props.accessibilityState.disabled).toBe(true); expect(ariaRole(view, role).props['aria-disabled']).toBe(true);
+    fireEvent.press(radio);
   }
-  expect(screen.getByText('High privilege')).toBeTruthy();
-  expect(screen.getByText(/baseline role and cannot be removed/i)).toBeTruthy();
+  expect(view.queryByText('Save role')).toBeNull(); expect(setRole).not.toHaveBeenCalled();
+  fireEvent.press(view.getByRole('button', { name: 'Open Members to appoint another church admin' }));
+  expect(mockReplace).toHaveBeenCalledWith('/organisations/members');
 });
 
-it('blocks every final-admin demotion option with an accessible explanation', async () => {
-  setup({ ...MEMBER, role: 'church_admin', is_last_church_admin: true });
-  const screen = render(<OrganisationMemberRoleScreen />);
-  await waitFor(() => expect(screen.getAllByText(/final church admin/i).length).toBeGreaterThan(0));
-  expect(screen.getByTestId('organisation-role-general_member').props.accessibilityState.disabled).toBe(true);
-  expect(screen.getByTestId('organisation-role-church_admin').props.accessibilityState.checked).toBe(true);
+it('keeps a full long identity in body text and a short role heading and promotion title', async () => {
+  const name = 'Ruth Alexandra Johnson Adeyemi Thompson of the Northside Community';
+  const email = 'ruth.alexandra.johnson.adeyemi.thompson@example.church';
+  list.mockResolvedValue([{ ...MEMBER, full_name: name, email }]);
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText(name);
+  expect(view.getByText(name).props.accessibilityRole).not.toBe('header');
+  expect(view.getByText(email)).toBeTruthy(); expect(view.getByText('Church role').props.accessibilityRole).toBe('header');
+  fireEvent.press(view.getByTestId('organisation-role-church_admin')); fireEvent.press(view.getByText('Save role'));
+  await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+    title: 'Make church admin?', message: expect.stringContaining(`${name}\n${email}\nGrace Church`), returnFocusRef: expect.any(Object),
+  })));
 });
 
-it('prevents duplicate submission and refreshes the canonical directory after a role change', async () => {
-  const { refreshTeams } = setup();
-  let resolve!: (value: unknown) => void;
-  mockSetRole.mockReturnValue(new Promise((done) => { resolve = done; }));
-  const screen = render(<OrganisationMemberRoleScreen />);
-  await waitFor(() => expect(screen.getByText('Role for Ruth Johnson')).toBeTruthy());
-  fireEvent.press(screen.getByTestId('organisation-role-event_manager'));
-  fireEvent.press(screen.getByText('Save role'));
-  fireEvent.press(screen.getByText('Save role'));
-  expect(mockSetRole).toHaveBeenCalledTimes(1);
-  resolve({ profile_id: PROFILE_ID, role: 'event_manager' });
-  await waitFor(() => expect(refreshTeams).toHaveBeenCalledWith({ quiet: true }));
-  expect(mockBack).toHaveBeenCalled();
+it('guards duplicate submits and offers Done after a confirmed save', async () => {
+  const save = deferred<{ profile_id: string; role: 'event_manager' }>(); setRole.mockReturnValue(save.promise);
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-event_manager'));
+  fireEvent.press(view.getByText('Save role')); fireEvent.press(view.getByText('Save role'));
+  expect(setRole).toHaveBeenCalledTimes(1);
+  await act(async () => save.resolve({ profile_id: MEMBER.profile_id, role: 'event_manager' }));
+  await view.findByText('Role saved'); expect(refreshTeams).toHaveBeenCalledWith();
+  fireEvent.press(view.getByText('Done')); expect(mockBack).toHaveBeenCalled();
 });
 
-it('requires deliberate confirmation for church-admin promotion', async () => {
-  setup();
-  const screen = render(<OrganisationMemberRoleScreen />);
-  await waitFor(() => expect(screen.getByText('Role for Ruth Johnson')).toBeTruthy());
-  fireEvent.press(screen.getByTestId('organisation-role-church_admin'));
-  fireEvent.press(screen.getByText('Save role'));
-  await waitFor(() => expect(mockSetRole).toHaveBeenCalledWith(PROFILE_ID, 'church_admin'));
-  expect(mockUseConfirm()).toHaveBeenCalledWith(expect.objectContaining({
-    title: 'Make Ruth Johnson a church admin?',
-    confirmLabel: 'Make church admin',
-  }));
+it('confirms high-privilege promotion and describes self-demotion accurately', async () => {
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-church_admin')); fireEvent.press(view.getByText('Save role'));
+  await waitFor(() => expect(setRole).toHaveBeenCalledWith(MEMBER.profile_id, 'church_admin'));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Make church admin?', message: expect.stringContaining('Ruth Johnson\nruth@example.church\nGrace Church') }));
+  view.unmount(); jest.clearAllMocks(); mockParams = { profileId: CURRENT.profile_id }; list.mockResolvedValue([CURRENT]);
+  const own = render(<OrganisationMemberRoleScreen />); await own.findByText('Daniel Okafor');
+  fireEvent.press(own.getByTestId('organisation-role-general_member')); fireEvent.press(own.getByText('Save role'));
+  await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('You will no longer be able to manage members') })));
 });
 
-it('locks non-admin direct routes and removed/unlinked targets', async () => {
-  setup(MEMBER, 'general_member');
-  const locked = render(<OrganisationMemberRoleScreen />);
-  expect(locked.getByText('No permission')).toBeTruthy();
-  locked.unmount();
-
-  setup({ ...MEMBER, access_status: 'removed', role: null });
-  const removed = render(<OrganisationMemberRoleScreen />);
-  await waitFor(() => expect(removed.getByText('Role cannot be changed')).toBeTruthy());
-  expect(removed.getByText(/Invite them again/i)).toBeTruthy();
+it('retains the draft across same-account refresh and checks a changed final-admin flag', async () => {
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-event_manager'));
+  auth.mockReturnValue(adminAuth(ADMIN, { accountStatus: 'loading' })); view.rerender(<OrganisationMemberRoleScreen />);
+  expect(ariaRole(view, 'event_manager').props['aria-checked']).toBe(true);
+  expect(view.getByRole('button', { name: 'Save role' }).props.accessibilityState.disabled).toBe(true);
+  list.mockResolvedValue([{ ...MEMBER, role: 'church_admin', is_last_church_admin: true }]);
+  auth.mockReturnValue(adminAuth()); view.rerender(<OrganisationMemberRoleScreen />); await view.findByText('Final church admin');
+  expect(view.queryByText('Save role')).toBeNull(); expect(setRole).not.toHaveBeenCalled();
 });
 
+it('keeps a confirmed save after an unexpected refresh rejection or self-demotion removes management', async () => {
+  refreshTeams.mockRejectedValue(new Error('read failed'));
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-event_manager')); fireEvent.press(view.getByText('Save role'));
+  await view.findByText('Couldn’t refresh church access'); expect(view.getByText('Role saved')).toBeTruthy();
+  const demoted = { ...ADMIN, orgRole: 'general_member' as const };
+  requiredUser.mockReturnValue(demoted); auth.mockReturnValue(adminAuth(demoted)); view.rerender(<OrganisationMemberRoleScreen />);
+  expect(view.getByText('Role saved')).toBeTruthy(); expect(view.queryByText('No permission')).toBeNull();
+  fireEvent.press(view.getByText('Done')); expect(mockReplace).toHaveBeenCalledWith('/(tabs)/profile');
+});
+
+it('guards a stale read retry after blur and ignores its unexpected rejection after refocus', async () => {
+  const data = { users: [memberProfile(MEMBER)], refreshTeams, teamsLoading: false, teamsError: null as string | null };
+  (useAppData as jest.Mock).mockReturnValue(data);
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-event_manager')); fireEvent.press(view.getByText('Save role'));
+  await view.findByText('Role saved');
+  data.teamsError = 'Directory unavailable.'; view.rerender(<OrganisationMemberRoleScreen />);
+  const staleRetry = view.getByRole('button', { name: 'Check church access' });
+  mockFocused = false; view.rerender(<OrganisationMemberRoleScreen />);
+  fireEvent.press(staleRetry); expect(refreshTeams).toHaveBeenCalledTimes(1);
+
+  mockFocused = true; view.rerender(<OrganisationMemberRoleScreen />);
+  const read = deferred<void>();
+  refreshTeams.mockImplementationOnce(() => { data.teamsError = null; return read.promise; });
+  fireEvent.press(view.getByText('Check church access'));
+  mockFocused = false; view.rerender(<OrganisationMemberRoleScreen />);
+  mockFocused = true; view.rerender(<OrganisationMemberRoleScreen />);
+  await act(async () => read.reject(new Error('Late unexpected rejection.')));
+  expect(view.getByText('Role saved')).toBeTruthy();
+  expect(view.queryByText('Couldn’t refresh church access')).toBeNull();
+  expect(refreshTeams).toHaveBeenCalledTimes(2); expect(setRole).toHaveBeenCalledTimes(1);
+});
+
+it('uses outcome-uncertain recovery and keeps the role choice after an unknown save failure', async () => {
+  setRole.mockRejectedValue(new Error('We couldn’t reach the server.'));
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-event_manager')); fireEvent.press(view.getByText('Save role'));
+  await view.findByText('Couldn’t confirm role change'); expect(view.getByText(/may already be saved/)).toBeTruthy();
+  expect(ariaRole(view, 'event_manager').props['aria-checked']).toBe(true);
+});
+
+it('fences confirmation after authority loss and ignores late saves after blur', async () => {
+  const approval = deferred<boolean>(); confirm.mockReturnValue(approval.promise);
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-church_admin')); fireEvent.press(view.getByText('Save role'));
+  const demoted = { ...ADMIN, orgRole: 'general_member' as const }; requiredUser.mockReturnValue(demoted); auth.mockReturnValue(adminAuth(demoted));
+  view.rerender(<OrganisationMemberRoleScreen />); await act(async () => approval.resolve(true)); expect(setRole).not.toHaveBeenCalled();
+});
+
+it('ignores a role result after the screen loses focus', async () => {
+  const save = deferred<{ profile_id: string; role: 'event_manager' }>(); setRole.mockReturnValue(save.promise);
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-event_manager')); fireEvent.press(view.getByText('Save role'));
+  mockFocused = false; view.rerender(<OrganisationMemberRoleScreen />);
+  await act(async () => save.resolve({ profile_id: MEMBER.profile_id, role: 'event_manager' }));
+  expect(toast).not.toHaveBeenCalled(); expect(refreshTeams).not.toHaveBeenCalled(); expect(mockBack).not.toHaveBeenCalled();
+});
+
+it.each([REMOVED, DIRECTORY])('offers the exact $full_name invitation path instead of role writes', async (member) => {
+  mockParams = { profileId: member.profile_id }; list.mockResolvedValue([member]);
+  (useAppData as jest.Mock).mockReturnValue({ users: [memberProfile(member)], refreshTeams });
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Role cannot be changed');
+  fireEvent.press(view.getByText('Invite to church')); expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({ params: expect.objectContaining({ targetProfileId: member.profile_id }) }));
+  expect(setRole).not.toHaveBeenCalled();
+});
+
+it('keeps an unsaved church role choice when discard is dismissed', async () => {
+  confirm.mockResolvedValue(false);
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-event_manager'));
+  await act(async () => fireEvent.press(view.getByLabelText('Cancel')));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your church role choice will not be saved.' }));
+  expect(mockBack).not.toHaveBeenCalled(); expect(setRole).not.toHaveBeenCalled();
+  expect(view.getByTestId('organisation-role-event_manager').props.accessibilityState.checked).toBe(true);
+});

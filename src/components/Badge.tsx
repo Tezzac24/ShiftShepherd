@@ -1,20 +1,21 @@
 import React from 'react';
-import { StyleSheet, View, ViewStyle } from 'react-native';
+import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AvailabilityStatus } from '../types';
 import { AppText } from './AppText';
 
 export type BadgeTone = 'primary' | 'accent' | 'danger' | 'success' | 'warning' | 'neutral';
 
-const tones: Record<BadgeTone, { bg: string; fg: string }> = {
+const createTones = (colors: ThemeColors) => ({
   primary: { bg: colors.primarySoft, fg: colors.primary },
   accent: { bg: colors.accentSoft, fg: colors.accent },
   danger: { bg: colors.dangerSoft, fg: colors.danger },
   success: { bg: colors.successSoft, fg: colors.success },
   warning: { bg: colors.warningSoft, fg: colors.warning },
-  neutral: { bg: '#EEF0F5', fg: colors.textSecondary },
-};
+  neutral: { bg: colors.surfaceRaised, fg: colors.textSecondary },
+});
 
 interface BadgeProps {
   label: string;
@@ -22,14 +23,16 @@ interface BadgeProps {
   /** Custom colours (e.g. from categoryColors) override tone. */
   bg?: string;
   fg?: string;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function Badge({ label, tone = 'neutral', bg, fg, style }: BadgeProps) {
+  const tones = useThemedStyles(createTones);
+  const styles = useThemedStyles(createStyles);
   const t = tones[tone];
   return (
     <View style={[styles.badge, { backgroundColor: bg ?? t.bg }, style]}>
-      <AppText variant="label" style={{ color: fg ?? t.fg }}>
+      <AppText variant="small" style={{ color: fg ?? t.fg, fontWeight: '600' }}>
         {label}
       </AppText>
     </View>
@@ -54,32 +57,36 @@ export function AvailabilityBadge({ status }: { status: AvailabilityStatus }) {
   return <Badge label={availabilityLabels[status]} tone={availabilityTones[status]} />;
 }
 
-/** Small red dot with a count, for unread indicators. */
+/** Unread is information, so its count uses the primary colour. */
 export function CountBadge({ count }: { count: number }) {
+  const styles = useThemedStyles(createStyles);
   if (!count) return null;
   return (
-    <View style={styles.count} accessibilityLabel={`${count} unread`}>
-      <AppText variant="label" tone="inverse">
+    <View style={styles.count} accessible accessibilityRole="text" accessibilityLabel={`${count} unread`}>
+      <AppText variant="small" tone="onPrimary" style={{ fontWeight: '600' }}>
         {count > 9 ? '9+' : String(count)}
       </AppText>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   badge: {
     borderRadius: radius.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     alignSelf: 'flex-start',
+    flexShrink: 1,
+    maxWidth: '100%',
   },
   count: {
     minWidth: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: colors.danger,
+    minHeight: 26,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
 });

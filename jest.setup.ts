@@ -19,6 +19,19 @@ delete process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 // are done"), failing the run. Resolve it now, while the environment is live.
 void globalThis.fetch;
 
+// Use React Native's official immediate-animation mock. The test renderer has
+// no native view handles for the animation driver, especially after a modal
+// closes and reopens. Keep the real animated components and animation options
+// available to the drawer motion tests while completing transitions offline.
+jest.mock('react-native/Libraries/Animated/AnimatedExports', () => {
+  const animated = jest.requireActual('react-native/Libraries/Animated/AnimatedExports');
+  const mock = jest.requireActual('react-native/Libraries/Animated/AnimatedMock');
+  return { ...animated, default: Object.defineProperties({}, {
+    ...Object.getOwnPropertyDescriptors(animated.default),
+    ...Object.getOwnPropertyDescriptors(mock.default),
+  }) };
+});
+
 // Official in-memory AsyncStorage mock — persistence code works without a
 // device and every test file starts from empty storage.
 jest.mock('@react-native-async-storage/async-storage', () =>

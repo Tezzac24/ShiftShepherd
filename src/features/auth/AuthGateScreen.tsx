@@ -1,12 +1,11 @@
 import { Redirect } from 'expo-router';
 import React, { useState } from 'react';
 
-import { AppText } from '../../components/AppText';
-import { Button } from '../../components/Button';
-import { EmptyState } from '../../components/EmptyState';
+import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
 import { StartupScreen } from '../../components/StartupScreen';
 import { useAuth } from '../../lib/auth/AuthContext';
+import { AccountIdentity, AccountReadState, AccountSignOut } from './AccountEntrySupport';
 
 /**
  * The single routing hub. Every authenticated destination is decided here, from
@@ -29,7 +28,6 @@ export default function AuthGateScreen() {
     accountContext,
     pendingInvitationToken,
     refreshAccountContext,
-    signOut,
   } = useAuth();
   const [retrying, setRetrying] = useState(false);
 
@@ -64,29 +62,14 @@ export default function AuthGateScreen() {
     if (accountStatus === 'error') {
       return (
         <Screen safeTop>
-          <EmptyState
-            icon="cloud-offline-outline"
-            title="We couldn’t load your account"
-            message="We reached Shift Shepherd but couldn’t load your organisations. Please check your connection and try again."
-          />
-          <AppText variant="small" tone="muted">
-            You have not been signed out, and nothing about your account has changed.
-          </AppText>
-          <Button
-            title="Try again"
-            icon="refresh-outline"
-            onPress={() => void retry()}
-            loading={retrying}
-          />
-          <Button
-            title="Sign out"
-            variant="ghost"
-            onPress={() => void signOut().catch(() => undefined)}
-          />
+          <PageHeading eyebrow="Shift Shepherd" title="Your account" />
+          <AccountIdentity />
+          <AccountReadState error retrying={retrying} onRetry={() => void retry()} />
+          <AccountSignOut disabled={retrying} />
         </Screen>
       );
     }
-    return <StartupScreen message="Loading your organisation..." />;
+    return <StartupScreen message="Loading your churches…" />;
   }
 
   // 6. Resolved, and this account genuinely belongs to no organisation.

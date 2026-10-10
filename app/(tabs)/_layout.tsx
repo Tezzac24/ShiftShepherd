@@ -1,8 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors } from '@/constants/theme';
+import { spacing, touchTarget, type } from '@/constants/theme';
+import { useThemeColors } from '@/src/lib/theme/AppearanceContext';
+import { AppText } from '@/src/components/AppText';
 import { useAppData } from '@/src/lib/appData/AppDataContext';
 import { sumUnread } from '@/src/lib/appData/chatUnread';
 import { visibleTeams } from '@/src/lib/appData/selectors';
@@ -12,8 +16,15 @@ import { useAuth } from '@/src/lib/auth/AuthContext';
  * Five labelled tabs — no icon-only navigation.
  */
 export default function TabsLayout() {
+  const colors = useThemeColors();
   const { user } = useAuth();
   const data = useAppData();
+  const insets = useSafeAreaInsets();
+  const { width, fontScale } = useWindowDimensions();
+  const layoutKey = `${width}:${fontScale}`;
+  const [labelHeights, setLabelHeights] = React.useState<Record<string, number>>({});
+  const labelHeight = labelHeights[layoutKey] ?? Math.ceil(type.navigation.lineHeight * fontScale);
+  const bottomPadding = Math.max(insets.bottom, spacing.sm);
 
   // Total unread across the teams this user can see. Driven by central state,
   // so it updates from anywhere in the app — not only on the Messages screen.
@@ -32,12 +43,30 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+        tabBarLabelPosition: 'below-icon',
+        tabBarAllowFontScaling: true,
+        tabBarLabel: ({ color, children, focused }) => (
+          <AppText variant="navigation" accessible={false}
+            accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden
+            style={{ color, textAlign: 'center', maxWidth: '100%', fontWeight: focused ? '700' : '600' }}
+            onLayout={(event) => {
+              const height = Math.ceil(event.nativeEvent.layout.height);
+              setLabelHeights((current) => height <= (current[layoutKey] ?? 0)
+                ? current : { ...current, [layoutKey]: height });
+            }}>
+            {children}
+          </AppText>
+        ),
+        tabBarItemStyle: { minHeight: touchTarget, paddingHorizontal: 0 },
+        tabBarBadgeStyle: { backgroundColor: colors.primary, color: colors.onPrimary },
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
-          height: 84,
-          paddingTop: 6,
+          // Measured labels can wrap at larger system text sizes. The native
+          // navigator retains press/back behavior and the bottom safe area.
+          height: Math.max(touchTarget, 28 + labelHeight) + spacing.md + bottomPadding,
+          paddingTop: spacing.md,
+          paddingBottom: bottomPadding,
         },
       }}
     >
@@ -45,15 +74,17 @@ export default function TabsLayout() {
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
+          tabBarAccessibilityLabel: 'Home',
+          tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'home' : 'home-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />,
         }}
       />
       <Tabs.Screen
         name="calendar"
         options={{
-          title: 'Calendar',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar-outline" size={size} color={color} />
+          title: 'Schedule',
+          tabBarAccessibilityLabel: 'Schedule',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'calendar' : 'calendar-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
@@ -61,8 +92,9 @@ export default function TabsLayout() {
         name="teams"
         options={{
           title: 'Teams',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people-outline" size={size} color={color} />
+          tabBarAccessibilityLabel: 'Teams',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'people' : 'people-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
@@ -75,8 +107,8 @@ export default function TabsLayout() {
             unreadTotal > 0
               ? `Messages, ${unreadTotal} unread`
               : 'Messages',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubbles-outline" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'chatbubbles' : 'chatbubbles-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
@@ -84,8 +116,9 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-circle-outline" size={size} color={color} />
+          tabBarAccessibilityLabel: 'Profile',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'person-circle' : 'person-circle-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />

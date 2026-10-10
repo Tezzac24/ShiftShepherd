@@ -31,6 +31,8 @@ Always read:
 - `CLAUDE.md`
 - `docs/shift_shepherd_design_doc.md`
 - `docs/one-shot-build-prompt.md`
+- `docs/mobile-redesign/design-brief.md` (current mobile presentation and navigation authority)
+- `docs/mobile-redesign/product-contract.md` (existing behavior and API boundaries)
 
 For Supabase/backend work, also read:
 
@@ -91,7 +93,13 @@ Jest runs via **jest-expo** (config in `jest.config.js`, global setup in `jest.s
 - Prefer pure helpers (`src/lib/appData/selectors.ts`), services, and hooks over full-screen renders; extract small pure helpers when logic is buried in a context/component rather than rendering the whole provider tree.
 - `supabase/functions/` is Deno code and stays outside the Jest run (tsconfig/ESLint/Jest all exclude it); a separate Deno test lane is a documented future addition.
 
-The deployed Broadcast baseline was 211 tests across 31 suites and the pre-membership identity/auth-routing baseline was 296 tests across 43 suites. The current local implementation passes 856 tests across 76 suites, including production email readiness (invitation email secrets validated before issuing, app-scheme and https invitation links accepted by the app router, Resend rejected/unavailable/timeout mapping with code-only logs, saved-but-unsent invitation history, and Auth email-confirmation and email-service messages), rota push delivery (rota event selection, added-versus-changed recipients, freshness, per-device coalescing, Plan the Month batching, change-marker migration contract), announcement push delivery (kind-aware dispatch rules, recipient resolution, preference suppression, dedupe, self-exclusion, generic content, migration contract), team creation request idempotency, deterministic membership lifecycle, last-admin and cleanup-write concurrency, re-invitation, team creation/edit/archive/restore, zero-admin and optional-initial-admin contracts, church-admin-only team role management (promotion/demotion, final-leader demotion, zero-leader recovery, self-role change, archived rejection), AppData scope fencing, admin UI, and existing auth/chat/push regressions.
+The deployed Broadcast baseline was 211 tests across 31 suites and the pre-membership identity/auth-routing baseline was 296 tests across 43 suites. The pre-redesign local implementation passed 856 tests across 76 suites; the mobile redesign now passes 1,536 tests across 100 suites, including production email readiness (invitation email secrets validated before issuing, app-scheme and https invitation links accepted by the app router, Resend rejected/unavailable/timeout mapping with code-only logs, saved-but-unsent invitation history, and Auth email-confirmation and email-service messages), rota push delivery (rota event selection, added-versus-changed recipients, freshness, per-device coalescing, Plan the Month batching, change-marker migration contract), announcement push delivery (kind-aware dispatch rules, recipient resolution, preference suppression, dedupe, self-exclusion, generic content, migration contract), team creation request idempotency, deterministic membership lifecycle, last-admin and cleanup-write concurrency, re-invitation, team creation/edit/archive/restore, zero-admin and optional-initial-admin contracts, church-admin-only team role management (promotion/demotion, final-leader demotion, zero-leader recovery, self-role change, archived rejection), AppData scope fencing, admin UI, and existing auth/chat/push regressions.
+
+Mobile experience coverage includes role-aware navigation and actions, retained
+form drafts and confirmed outcomes, archive/read recovery, church switching,
+secure invitation continuation across account changes, foreground/day freshness,
+and native/web control semantics. Phone-size web and guarded synthetic inspection
+remain distinct from the native and live release QA still required.
 
 CI is `.github/workflows/ci.yml`, triggered on push to `main`, pull requests to `main`, and workflow_dispatch. It runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run check:migrations`, and `npx expo export` on Node 24 (from `.nvmrc`). It is **check-only**: no secrets, no `.env` (the export intentionally exercises demo mode), and no deployments. Supabase migration pushes, Edge Function deploys, and EAS builds remain explicit, manually approved steps — do not add CD workflows without being asked. Future candidates (documented, not implemented): Maestro E2E smoke tests, a manually approved workflow_dispatch CD lane for Supabase migrations / Edge Function deploys, and EAS build automation.
 
@@ -129,7 +137,7 @@ Current architecture:
 │  ├── _layout.tsx          # Providers + auth-protected root stack
 │  ├── index.tsx            # Redirect: login vs authenticated tabs
 │  ├── login.tsx
-│  ├── (tabs)/              # Home, Calendar, Teams, Messages, Profile
+│  ├── (tabs)/              # Home, Schedule, Teams, Messages, Profile
 │  ├── announcements/       # list / [id] / edit
 │  ├── events/              # [id] / edit
 │  ├── teams/[teamId]/      # team space, chat, rota/, songs/
@@ -170,6 +178,27 @@ Current architecture:
 
 ---
 
+## Mobile Presentation
+
+Use `docs/mobile-redesign/design-brief.md` as the shared presentation authority.
+The primary tabs are Home, Schedule, Teams, Messages and Profile. Schedule keeps
+the `calendar` route and exposes Church events and My serving; old detail and
+invitation paths remain compatible. Reuse `OrganisationHeader` for resolved
+church identity and switching, and the existing permission helpers for actions.
+
+Use `constants/theme.ts` and the shared components for type, spacing, semantic
+colour, fields, rows, sheets, confirmations and states. Default controls are
+52 points, body text is 17 points, and text can grow and wrap. Headings require
+explicit semantic levels. Native accessibility state and supported ARIA aliases
+must agree. Administration belongs in contextual, labelled actions; common
+member tasks should normally take no more than three meaningful screens.
+
+Render and inspect changed areas at phone dimensions; typecheck and tests alone
+do not establish visual quality. Web is an inspection proxy, not native QA.
+The redesign changes presentation and existing client-derived views; backend,
+Auth, permission and notification contracts remain frozen unless explicitly
+approved. Follow `docs/mobile-redesign/verification-plan.md` for acceptance.
+
 ## Tech Stack
 
 - React Native with Expo
@@ -195,6 +224,23 @@ Auth is dual-mode: demo login with hardcoded test profiles, and Supabase email/p
 Do not scatter auth/session logic across screens.
 
 Future Supabase Auth integration should happen behind the existing auth abstraction where possible.
+
+Church creation/switching uses the feature-local `ChurchEntryPresentationProvider`
+under AuthProvider and above the profile-keyed AppData boundary. It retains only
+transient account-owned request/draft/target/status across the existing
+`setUser(null)` remount, with identity/mode/profile and stale-result fences. It
+stores no session, app data or persistent state. Keep Auth actions, routing
+guards, startup gating and data-provider keys unchanged; mounted screens
+continue through the root routing hub to preserve invitation precedence.
+The same provider exposes read-only account/link generation tickets for invitation
+continuations across the expected profile remount. A newer account or opened link
+invalidates older completion navigation, including terminal links whose adoption
+and clearing batch together. It never navigates or retains invitation tokens.
+
+Invitation administration may filter the existing `list_organisation_invitations`
+RPC by an exact validated target profile and pending status to recover an item
+outside initial API results. The default read and token-free mapping are unchanged;
+this client-only presentation extension adds no backend capability or authority.
 
 ### Role-Based UI and Permissions
 

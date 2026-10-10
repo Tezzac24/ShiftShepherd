@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
 import { useAuth } from '../../../lib/auth/AuthContext';
@@ -6,147 +6,151 @@ import LoginScreen from '../LoginScreen';
 
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
-const mockNavigate = jest.fn();
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ replace: mockReplace, push: mockPush, navigate: mockNavigate }),
-}));
+jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace, push: mockPush }) }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
-jest.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
-}));
-jest.mock('../../../components/TextField', () => {
-  const React = jest.requireActual('react');
-  const { TextInput } = jest.requireActual('react-native');
-  return {
-    TextField: ({ label, value, onChangeText, secureTextEntry }: {
-      label: string;
-      value: string;
-      onChangeText: (value: string) => void;
-      secureTextEntry?: boolean;
-    }) => (
-      <TextInput
-        accessibilityLabel={label}
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry}
-      />
-    ),
-  };
-});
+jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }));
 jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn() }));
 
 const mockUseAuth = useAuth as jest.Mock;
-const mockSignUp = jest.fn();
-const mockSignIn = jest.fn();
-const mockSignInAsTestUser = jest.fn();
-
-function expectNoNavigation() {
-  expect(mockReplace).not.toHaveBeenCalled();
-  expect(mockPush).not.toHaveBeenCalled();
-  expect(mockNavigate).not.toHaveBeenCalled();
-}
+const signUp = jest.fn();
+const signIn = jest.fn();
+const demo = jest.fn();
+const defaults = () => ({ signInWithEmail: signIn, signUpWithEmail: signUp, signInAsTestUser: demo, supabaseEnabled: true });
+const credentials = () => {
+  fireEvent.changeText(screen.getByLabelText('Email'), 'person@example.com');
+  fireEvent.changeText(screen.getByLabelText('Password'), 'secret1');
+};
+const signupMode = () => fireEvent.press(screen.getByRole('tab', { name: 'Create account' }));
+const submit = (name = 'Sign in') => fireEvent.press(screen.getByRole('button', { name }));
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockSignUp.mockResolvedValue({ error: null, needsEmailConfirmation: false });
-  mockSignIn.mockResolvedValue(null);
-  mockUseAuth.mockReturnValue({
-    signInWithEmail: mockSignIn,
-    signUpWithEmail: mockSignUp,
-    signInAsTestUser: mockSignInAsTestUser,
-    supabaseEnabled: true,
-    pendingInvitationToken: null,
-  });
+  signUp.mockResolvedValue({ error: null, needsEmailConfirmation: false });
+  signIn.mockResolvedValue(null);
+  mockUseAuth.mockReturnValue(defaults());
 });
 
-function fillCredentials() {
-  fireEvent.changeText(screen.getByLabelText('Email'), 'person@example.com');
-  fireEvent.changeText(screen.getByLabelText('Password'), 'secret1');
-}
-
-it('offers open signup and sends only name/email/password to the auth abstraction', async () => {
-  render(<LoginScreen />);
-  fireEvent.press(screen.getByLabelText('Create a new account'));
+it('sends only name/email/password to the existing signup action', async () => {
+  render(<LoginScreen />); signupMode(); credentials();
   fireEvent.changeText(screen.getByLabelText('Full name'), 'New Person');
-  fireEvent.changeText(screen.getByLabelText('Email'), 'New@Example.com');
-  fireEvent.changeText(screen.getByLabelText('Password'), 'secret1');
-  fireEvent.press(screen.getByText('Create account'));
-
-  await waitFor(() =>
-    expect(mockSignUp).toHaveBeenCalledWith('New Person', 'New@Example.com', 'secret1'),
-  );
+  submit('Create account');
+  await waitFor(() => expect(signUp).toHaveBeenCalledWith('New Person', 'person@example.com', 'secret1'));
+  expect(mockReplace).not.toHaveBeenCalled(); expect(mockPush).not.toHaveBeenCalled();
 });
 
-/**
- * Routing after authentication belongs to the root layout's guards plus
- * app/index.tsx. A `router.replace` here used to race that transition and be
- * dispatched at a navigator that was mid-remount, which React Navigation
- * reported as "REPLACE ... was not handled by any navigator".
- */
-describe('post-authentication routing', () => {
-  it('dispatches no navigation after a successful sign-in', async () => {
-    render(<LoginScreen />);
-    fillCredentials();
-    fireEvent.press(screen.getByText('Log in'));
-
-    await waitFor(() => expect(mockSignIn).toHaveBeenCalledWith('person@example.com', 'secret1'));
-    expectNoNavigation();
-  });
-
-  it('dispatches no navigation after account creation', async () => {
-    render(<LoginScreen />);
-    fireEvent.press(screen.getByLabelText('Create a new account'));
-    fireEvent.changeText(screen.getByLabelText('Full name'), 'New Person');
-    fillCredentials();
-    fireEvent.press(screen.getByText('Create account'));
-
-    await waitFor(() => expect(mockSignUp).toHaveBeenCalled());
-    expectNoNavigation();
-  });
-
-  it('dispatches no navigation when an invitation is pending — index owns that redirect', async () => {
-    mockUseAuth.mockReturnValue({
-      signInWithEmail: mockSignIn,
-      signUpWithEmail: mockSignUp,
-      signInAsTestUser: mockSignInAsTestUser,
-      supabaseEnabled: true,
-      pendingInvitationToken: 'A'.repeat(43),
-    });
-    render(<LoginScreen />);
-    fillCredentials();
-    fireEvent.press(screen.getByText('Log in'));
-
-    await waitFor(() => expect(mockSignIn).toHaveBeenCalled());
-    expectNoNavigation();
-  });
-
-  it('dispatches no navigation after a demo account sign-in', async () => {
-    render(<LoginScreen />);
-    fireEvent.press(screen.getAllByLabelText(/^Log in as /)[0]);
-
-    await waitFor(() => expect(mockSignInAsTestUser).toHaveBeenCalled());
-    expectNoNavigation();
-  });
-
-  it('keeps the user on login when sign-in fails', async () => {
-    mockSignIn.mockResolvedValue('We couldn’t log you in.');
-    render(<LoginScreen />);
-    fillCredentials();
-    fireEvent.press(screen.getByText('Log in'));
-
-    await waitFor(() => expect(mockSignIn).toHaveBeenCalled());
-    expectNoNavigation();
-  });
+it.each([null, 'pending-invitation'])('lets Auth routing decide the destination after sign-in (invitation %s)', async (token) => {
+  mockUseAuth.mockReturnValue({ ...defaults(), pendingInvitationToken: token });
+  render(<LoginScreen />); credentials(); submit();
+  await waitFor(() => expect(signIn).toHaveBeenCalledWith('person@example.com', 'secret1'));
+  expect(mockReplace).not.toHaveBeenCalled(); expect(mockPush).not.toHaveBeenCalled();
 });
 
-it('does not offer live signup in an unconfigured demo build', () => {
-  mockUseAuth.mockReturnValue({
-    signInWithEmail: mockSignIn,
-    signUpWithEmail: mockSignUp,
-    signInAsTestUser: mockSignInAsTestUser,
-    supabaseEnabled: false,
-    pendingInvitationToken: null,
-  });
+it('retains supported demo access in a configured build without an auth-mode toggle', () => {
   render(<LoginScreen />);
-  expect(screen.queryByLabelText('Create a new account')).toBeNull();
+  expect(screen.queryAllByLabelText(/^Sign in as /)).toHaveLength(0);
+  fireEvent.press(screen.getByRole('button', { name: /Try a demo account/ }));
+  fireEvent.press(screen.getAllByLabelText(/^Sign in as /)[0]);
+  expect(demo).toHaveBeenCalledTimes(1);
+  expect(mockReplace).not.toHaveBeenCalled();
+});
+
+it('prioritises an ordinary-member demo choice with all existing accounts and no live signup', () => {
+  mockUseAuth.mockReturnValue({ ...defaults(), supabaseEnabled: false });
+  render(<LoginScreen />);
+  expect(screen.queryByRole('tab', { name: 'Create account' })).toBeNull();
+  expect(screen.queryByLabelText('Email')).toBeNull();
+  const choices = screen.getAllByLabelText(/^Sign in as /);
+  expect(choices).toHaveLength(8);
+  expect(choices[0].props.accessibilityLabel).toContain('Hannah');
+  fireEvent.press(choices[0]);
+  expect(demo).toHaveBeenCalledWith('user-hannah');
+  expect(screen.queryByText(/This build|Sees and manages everything|Team Leader/)).toBeNull();
+  expect(screen.getByRole('button', { name: /Sarah.*Choir team admin/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /David.*Media team admin/ })).toBeTruthy();
+});
+
+it('keeps manual demo sign-in available in a labelled disclosure and retains its input', async () => {
+  mockUseAuth.mockReturnValue({ ...defaults(), supabaseEnabled: false });
+  render(<LoginScreen />);
+  fireEvent.press(screen.getByRole('button', { name: 'Use a demo email instead' }));
+  credentials();
+  fireEvent.press(screen.getByRole('button', { name: /Use a demo email instead/ }));
+  expect(screen.queryByLabelText('Email')).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Use a demo email instead' }));
+  expect(screen.getByDisplayValue('person@example.com')).toBeTruthy();
+  expect(screen.getByDisplayValue('secret1')).toBeTruthy();
+  submit(); await waitFor(() => expect(signIn).toHaveBeenCalledWith('person@example.com', 'secret1'));
+});
+
+it('validates missing fields before calling Auth and preserves typed values across mode changes', () => {
+  render(<LoginScreen />); submit();
+  expect(screen.getByText('Please check these details')).toBeTruthy();
+  expect(signIn).not.toHaveBeenCalled();
+  credentials(); signupMode();
+  expect(screen.getByDisplayValue('person@example.com')).toBeTruthy();
+  expect(screen.getByDisplayValue('secret1')).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText('Full name'), 'A');
+  fireEvent.changeText(screen.getByLabelText('Password'), 'short');
+  submit('Create account');
+  expect(signUp).not.toHaveBeenCalled();
+  expect(screen.getAllByText('Use at least 6 characters for your password.').length).toBeGreaterThan(0);
+});
+
+it('shows email confirmation as information and returns to retained sign-in details', async () => {
+  signUp.mockResolvedValue({ error: null, needsEmailConfirmation: true });
+  render(<LoginScreen />); signupMode(); credentials();
+  fireEvent.changeText(screen.getByLabelText('Full name'), 'New Person'); submit('Create account');
+  await waitFor(() => expect(screen.getByText('Check your email')).toBeTruthy());
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.queryByLabelText('Password')).toBeNull();
+  expect(screen.getByText(/Check person@example.com/)).toBeTruthy();
+  submit('Back to sign in');
+  expect(screen.getByDisplayValue('person@example.com')).toBeTruthy();
+  expect(screen.getByDisplayValue('secret1')).toBeTruthy();
+  expect(signUp).toHaveBeenCalledTimes(1);
+});
+
+it('keeps service failures separate from password validation and allows retry', async () => {
+  signIn.mockResolvedValueOnce('Check your email confirmation.').mockResolvedValueOnce(null);
+  render(<LoginScreen />); credentials(); submit();
+  await waitFor(() => expect(screen.getByText('Check your email confirmation.')).toBeTruthy());
+  expect(screen.getByLabelText('Password').props.accessibilityHint).toBeUndefined();
+  expect(screen.getByDisplayValue('person@example.com')).toBeTruthy();
+  submit(); await waitFor(() => expect(signIn).toHaveBeenCalledTimes(2));
+});
+
+it('catches an unexpected failure without losing the draft', async () => {
+  signIn.mockRejectedValue(new Error('internal network detail'));
+  render(<LoginScreen />); credentials(); submit();
+  await waitFor(() => expect(screen.getByText(/We couldn’t complete that request/)).toBeTruthy());
+  expect(screen.queryByText('internal network detail')).toBeNull();
+  expect(screen.getByDisplayValue('secret1')).toBeTruthy();
+});
+
+it('prevents duplicate submit, mode changes and demo sign-in during a pending request', async () => {
+  let finish!: (value: null) => void;
+  signIn.mockReturnValue(new Promise<null>((resolve) => { finish = resolve; }));
+  render(<LoginScreen />); credentials(); submit(); submit(); signupMode();
+  expect(signIn).toHaveBeenCalledTimes(1);
+  expect(screen.queryByLabelText('Full name')).toBeNull();
+  expect(screen.getByRole('tab', { name: 'Create account' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: /Try a demo account/ })).toBeDisabled();
+  await act(async () => finish(null));
+});
+
+it('uses keyboard/autofill hints and a labelled password visibility action', () => {
+  render(<LoginScreen />);
+  expect(screen.getByLabelText('Email').props.keyboardType).toBe('email-address');
+  expect(screen.getByLabelText('Email').props.autoComplete).toBe('email');
+  expect(screen.getByLabelText('Password').props.autoComplete).toBe('current-password');
+  submit('Show password'); expect(screen.getByLabelText('Password').props.secureTextEntry).toBe(false);
+  signupMode(); expect(screen.getByLabelText('Password').props.autoComplete).toBe('new-password');
+});
+
+it('explains unavailable methods in a quiet disclosure without presenting fake provider actions', () => {
+  render(<LoginScreen />);
+  expect(screen.queryByText(/Google, Facebook/)).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Other sign-in methods' }));
+  expect(screen.getByText(/Google, Facebook and phone sign-in are not available/)).toBeTruthy();
+  expect(signIn).not.toHaveBeenCalled(); expect(signUp).not.toHaveBeenCalled();
 });

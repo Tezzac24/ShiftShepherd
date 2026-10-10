@@ -2,6 +2,18 @@ import {
   TEAM_DESCRIPTION_MAX_LENGTH,
   TEAM_NAME_MAX_LENGTH,
 } from '../../lib/supabase/services/teams';
+import { eligibleInitialTeamAdmins } from '../../lib/appData/selectors';
+import { UserProfile } from '../../types';
+
+/** Validate the chosen identity against the full directory, not a display page. */
+export function selectedInitialTeamAdmin(
+  organisationId: string,
+  users: UserProfile[],
+  profileId: string | null,
+): UserProfile | undefined {
+  if (!profileId) return undefined;
+  return eligibleInitialTeamAdmins(organisationId, users.filter((profile) => profile.id === profileId))[0];
+}
 
 export interface TeamFormErrors {
   name?: string;

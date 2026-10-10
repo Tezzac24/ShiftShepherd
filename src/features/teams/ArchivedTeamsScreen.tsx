@@ -1,191 +1,140 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Stack } from 'expo-router';
-import React, { useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { FlatList, StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
-import { Card } from '../../components/Card';
 import { useConfirm } from '../../components/ConfirmDialog';
-import { EmptyState } from '../../components/EmptyState';
+import { FocusRef } from '../../components/ModalSurface';
+import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
+import { StatePanel } from '../../components/StatePanel';
 import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { canManageTeamLifecycle } from '../../lib/permissions';
 import { Team } from '../../types';
 
-function archivedDate(team: Team): string {
-  if (!team.archived_at) return '';
-  const parsed = new Date(team.archived_at);
-  return Number.isNaN(parsed.getTime())
-    ? ''
-    : parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+function ArchivedTeamRow({ team, first, last, restoring, disabled, onRestore }: {
+  team: Team;
+  first: boolean;
+  last: boolean;
+  restoring: boolean;
+  disabled: boolean;
+  onRestore: (opener: FocusRef) => void;
+}) {
+  const styles = useThemedStyles(createStyles);
+  const opener = useRef<View>(null);
+  const parsed = new Date(team.archived_at ?? '');
+  const date = Number.isNaN(parsed.getTime()) ? null : parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return <View style={[styles.teamRow, first && styles.firstRow, last && styles.lastRow]}>
+    <View style={styles.metadata}>
+      <Badge label="Archived" tone="neutral" />
+      {date ? <AppText variant="small" tone="secondary">{date}</AppText> : null}
+    </View>
+    <AppText variant="subheading" headingLevel={2}>{team.name}</AppText>
+    {team.description ? <AppText tone="secondary">{team.description}</AppText> : null}
+    <Button ref={opener} title="Restore team" variant="secondary" icon="refresh-outline" loading={restoring} disabled={disabled}
+      accessibilityLabel={`Restore ${team.name}`} accessibilityHint="Restore this team with its existing members and history"
+      onPress={() => onRestore(opener)} />
+  </View>;
 }
 
 export default function ArchivedTeamsScreen() {
   const { user, authMode, accountStatus, isLoading } = useAuth();
+  const router = useRouter();
+  const authorityResolved = !isLoading && (authMode !== 'supabase' || accountStatus === 'ready');
+  if (!authorityResolved || !user || !canManageTeamLifecycle(user)) return <Screen>
+    <Stack.Screen options={{ title: 'Archived teams' }} />
+    <StatePanel headingLevel={1} kind={authorityResolved ? 'empty' : 'loading'} icon="lock-closed-outline"
+      title={authorityResolved ? 'No permission' : 'Checking team permissions...'}
+      message={authorityResolved ? 'Only a church admin can view or restore archived teams.' : undefined} />
+    <Button title="Back to teams" variant="secondary" onPress={() => router.replace('/(tabs)/teams')} />
+  </Screen>;
+  return <ArchivedTeamsContent key={`${authMode}:${user.profile.organisation_id}:${user.profile.id}`} organisationId={user.profile.organisation_id} />;
+}
+
+function ArchivedTeamsContent({ organisationId }: { organisationId: string }) {
+  const styles = useThemedStyles(createStyles);
   const data = useAppData();
   const confirm = useConfirm();
   const showToast = useToast();
+  const router = useRouter();
   const [confirmingTeamId, setConfirmingTeamId] = useState<string | null>(null);
   const [restoringTeamId, setRestoringTeamId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const restoreGuardRef = useRef(false);
+  const [actionError, setActionError] = useState<{ name: string; message: string } | null>(null);
+  const [restoredTeam, setRestoredTeam] = useState<Team | null>(null);
+  const pending = useRef(false);
+  const active = useRef(true);
+  const listRef = useRef<FlatList<Team>>(null);
+  const teams = data.archivedTeams.filter((team) => team.organisation_id === organisationId && team.archived_at !== null);
+  const latestTeams = useRef(teams);
+  latestTeams.current = teams;
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => {
+    if (!actionError && !restoredTeam) return;
+    const frame = requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: false }));
+    return () => cancelAnimationFrame(frame);
+  }, [actionError, restoredTeam]);
 
-  const authorityResolved =
-    !isLoading && (authMode !== 'supabase' || accountStatus === 'ready');
-  const allowed = !!user && authorityResolved && canManageTeamLifecycle(user);
-
-  const restore = async (team: Team) => {
-    if (confirmingTeamId || restoringTeamId || restoreGuardRef.current) return;
-    restoreGuardRef.current = true;
+  const restore = async (team: Team, opener: FocusRef) => {
+    if (pending.current) return;
+    pending.current = true;
     setConfirmingTeamId(team.id);
     try {
       const approved = await confirm({
         title: `Restore ${team.name}?`,
-        message:
-          'The same team, memberships, chat, rota, songs and history will return to active team areas.',
-        confirmLabel: 'Restore team',
-        destructive: false,
+        message: 'The same team, memberships, chat, rota, songs and history will return to active team areas.',
+        confirmLabel: 'Restore team', destructive: false, returnFocusRef: opener,
       });
+      if (!approved || !active.current || !latestTeams.current.some((item) => item.id === team.id)) return;
       setConfirmingTeamId(null);
-      if (!approved) return;
       setRestoringTeamId(team.id);
       setActionError(null);
-      try {
-        await data.restoreTeam(team.id);
-        showToast(`${team.name} was restored.`);
-      } catch (error) {
-        setActionError(
-          error instanceof Error
-            ? error.message
-            : "We couldn't restore this team right now. Please try again.",
-        );
-      } finally {
-        setRestoringTeamId(null);
-      }
+      const restored = await data.restoreTeam(team.id);
+      if (!active.current) return;
+      setRestoredTeam(restored);
+      showToast('Team restored.');
+    } catch (error) {
+      if (active.current) setActionError({ name: team.name, message: error instanceof Error ? error.message : "We couldn't restore this team right now. Please try again." });
     } finally {
-      setConfirmingTeamId(null);
-      restoreGuardRef.current = false;
+      pending.current = false;
+      if (active.current) { setConfirmingTeamId(null); setRestoringTeamId(null); }
     }
   };
 
-  if (!authorityResolved) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ title: 'Archived teams' }} />
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <AppText tone="secondary">Checking team permissions...</AppText>
-        </View>
-      </Screen>
-    );
-  }
-
-  if (!allowed) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ title: 'Archived teams' }} />
-        <EmptyState
-          icon="lock-closed-outline"
-          title="No permission"
-          message="Only a church admin can view or restore archived teams."
-        />
-      </Screen>
-    );
-  }
-
-  return (
-    <Screen>
-      <Stack.Screen options={{ title: 'Archived teams' }} />
-      <View style={styles.heading}>
-        <AppText variant="heading">Archived teams</AppText>
-        <AppText tone="secondary">
-          Archived teams are hidden from active areas. Their memberships and history are kept.
-        </AppText>
-      </View>
-
-      {actionError ? (
-        <Card style={styles.errorCard}>
-          <View style={styles.errorRow}>
-            <Ionicons name="alert-circle-outline" size={21} color={colors.danger} />
-            <AppText tone="danger" style={styles.flexText} accessibilityLiveRegion="polite">
-              {actionError}
-            </AppText>
-          </View>
-        </Card>
-      ) : null}
-
-      {data.teamsLoading && data.archivedTeams.length === 0 ? (
-        <Card>
-          <View style={styles.loadingRow}>
-            <ActivityIndicator color={colors.primary} />
-            <AppText tone="secondary">Loading archived teams...</AppText>
-          </View>
-        </Card>
-      ) : data.teamsError && data.archivedTeams.length === 0 ? (
-        <>
-          <EmptyState
-            icon="cloud-offline-outline"
-            title="Couldn't load archived teams"
-            message={data.teamsError}
-          />
-          <Button
-            title="Try Again"
-            variant="secondary"
-            icon="refresh-outline"
-            onPress={() => void data.refreshTeams()}
-          />
-        </>
-      ) : data.archivedTeams.length === 0 ? (
-        <EmptyState
-          icon="archive-outline"
-          title="No archived teams"
-          message="Teams you archive will appear here until a church admin restores them."
-        />
-      ) : (
-        data.archivedTeams.map((team) => (
-          <Card key={team.id} style={styles.teamCard}>
-            <View style={styles.titleRow}>
-              <View style={styles.flexText}>
-                <AppText variant="subheading">{team.name}</AppText>
-                <AppText variant="small" tone="secondary">
-                  {team.description || 'No description'}
-                </AppText>
-              </View>
-              <Badge label="Archived" tone="neutral" />
-            </View>
-            {archivedDate(team) ? (
-              <AppText variant="small" tone="muted">
-                Archived {archivedDate(team)}
-              </AppText>
-            ) : null}
-            <Button
-              title="Restore team"
-              variant="secondary"
-              icon="refresh-outline"
-              loading={restoringTeamId === team.id}
-              disabled={restoringTeamId !== null || confirmingTeamId !== null}
-              onPress={() => void restore(team)}
-              accessibilityHint={`Restore ${team.name} to active team areas`}
-            />
-          </Card>
-        ))
-      )}
-    </Screen>
-  );
+  return <Screen scroll={false} footer={<Button title="Back to teams" variant="ghost" onPress={() => router.replace('/(tabs)/teams')} />}>
+    <Stack.Screen options={{ title: 'Archived teams' }} />
+    <FlatList ref={listRef} data={teams} keyExtractor={(team) => team.id}
+      contentContainerStyle={styles.content}
+      ListHeaderComponent={<View style={styles.header}>
+        <PageHeading title="Archived teams" description="These teams are out of active use. Restore one to bring back its members and history." />
+        {restoredTeam ? <StatePanel compact kind="info" icon="checkmark-circle-outline" title={`${restoredTeam.name} was restored`}
+          message="You can open it now or keep restoring other teams." action={{ label: 'Open team', onPress: () => router.push({ pathname: '/teams/[teamId]', params: { teamId: restoredTeam.id } }) }} /> : null}
+        {actionError ? <StatePanel compact kind="error" title={`Couldn't restore ${actionError.name}`} message={actionError.message} /> : null}
+        {data.teamsError && teams.length > 0 ? <StatePanel compact kind="error" title="Couldn't refresh archived teams" message={data.teamsError}
+          action={{ label: 'Retry archived teams', onPress: () => void data.refreshTeams() }} /> : null}
+      </View>}
+      renderItem={({ item, index }) => <ArchivedTeamRow team={item} first={index === 0} last={index === teams.length - 1}
+        restoring={restoringTeamId === item.id} disabled={confirmingTeamId !== null || restoringTeamId !== null}
+        onRestore={(opener) => void restore(item, opener)} />}
+      ListEmptyComponent={data.teamsLoading ? <StatePanel kind="loading" title="Loading archived teams..." />
+        : data.teamsError ? <StatePanel kind="error" title="Couldn't load archived teams" message={data.teamsError}
+          action={{ label: 'Try Again', onPress: () => void data.refreshTeams() }} />
+          : <StatePanel icon="archive-outline" title="No archived teams" message="Teams you archive will appear here until a church admin restores them." />}
+    />
+  </Screen>;
 }
 
-const styles = StyleSheet.create({
-  heading: { gap: spacing.xs },
-  loading: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
-  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  teamCard: { gap: spacing.md },
-  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
-  flexText: { flex: 1, minWidth: 0 },
-  errorCard: { backgroundColor: colors.dangerSoft, borderColor: colors.dangerSoft },
-  errorRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
+  content: { padding: spacing.gutter, paddingBottom: spacing.xl },
+  header: { gap: spacing.md, marginBottom: spacing.lg },
+  teamRow: { gap: spacing.md, padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.border,
+    borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: StyleSheet.hairlineWidth },
+  firstRow: { borderTopWidth: 1, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  lastRow: { borderBottomWidth: 1, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
+  metadata: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
 });

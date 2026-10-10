@@ -1,7 +1,8 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { formatTime } from '../utils/dates';
 import { AppText } from './AppText';
 import { ChatAttachmentImage } from './ChatAttachmentImage';
@@ -23,22 +24,20 @@ export function MessageBubble({
   hasImage = false,
   imageUri,
 }: MessageBubbleProps) {
+  const styles = useThemedStyles(createStyles);
   const caption = body.trim();
   return (
     <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}>
       <View style={[styles.bubble, isMine ? styles.mine : styles.theirs]}>
-        {!isMine ? (
-          <AppText variant="label" style={{ color: colors.accent }}>
-            {senderName}
-          </AppText>
-        ) : null}
+        <AppText variant="label" tone="primary">{isMine ? 'You' : senderName}</AppText>
         {hasImage ? <ChatAttachmentImage uri={imageUri} isMine={isMine} /> : null}
         {caption ? (
-          <AppText style={isMine ? { color: colors.white } : undefined}>{caption}</AppText>
+          <AppText>{caption}</AppText>
         ) : null}
         <AppText
           variant="small"
-          style={[styles.time, isMine ? { color: '#D8E2F7' } : { color: colors.textMuted }]}
+          style={styles.time}
+          tone="muted"
         >
           {formatTime(createdAt)}
         </AppText>
@@ -47,19 +46,21 @@ export function MessageBubble({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   row: { flexDirection: 'row', marginVertical: spacing.xs },
   rowMine: { justifyContent: 'flex-end' },
   rowTheirs: { justifyContent: 'flex-start' },
   bubble: {
-    maxWidth: '82%',
+    maxWidth: '90%',
     borderRadius: radius.lg,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    gap: 2,
+    gap: spacing.xs,
   },
   mine: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primarySoft,
     borderBottomRightRadius: radius.sm,
   },
   theirs: {

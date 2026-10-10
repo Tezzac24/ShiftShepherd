@@ -18,6 +18,8 @@ const EMAIL_REJECTED_ERROR =
   'The invitation was saved, but its email couldn’t be delivered. Check the email address, then use Resend. If it keeps failing, invitation emails may not be fully set up yet.';
 const EMAIL_NOT_SENT_ERROR =
   'The invitation was saved, but its email couldn’t be sent. Please use Resend to try again.';
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface InvitationRow {
   invitation_id: string;
@@ -150,11 +152,20 @@ function mapInvitation(row: InvitationRow): OrganisationInvitation {
   };
 }
 
-export async function listOrganisationInvitations(): Promise<OrganisationInvitation[]> {
+export async function listOrganisationInvitations(options?: { targetProfileId: string }): Promise<OrganisationInvitation[]> {
   try {
-    const { data, error } = await requireClient().rpc('list_organisation_invitations');
+    if (options && !UUID_PATTERN.test(options.targetProfileId)) throw new Error('INVALID_INVITATION_TARGET');
+    const targetProfileId = options?.targetProfileId.toLowerCase();
+    const request = requireClient().rpc('list_organisation_invitations');
+    const { data, error } = await (options
+      ? request.eq('target_profile_id', targetProfileId).eq('status', 'pending')
+      : request);
     if (error) throw error;
-    return ((data ?? []) as InvitationRow[]).map(mapInvitation);
+    const rows = (data ?? []) as InvitationRow[];
+    if (options && rows.some((row) => row.target_profile_id !== targetProfileId || row.status !== 'pending')) {
+      throw new Error('INVALID_INVITATION_TARGET_RESPONSE');
+    }
+    return rows.map(mapInvitation);
   } catch (error) {
     console.warn('[invitations] list failed', { code: (error as { code?: string })?.code });
     throw friendly(error, 'We couldn’t load invitations right now. Please try again.');

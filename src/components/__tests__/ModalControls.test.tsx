@@ -1,0 +1,363 @@
+import React, { useRef, useState } from 'react';
+import { AccessibilityInfo, Animated, Modal, Platform, StyleSheet, Text, View } from 'react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
+
+import { ActionSheet } from '../ActionSheet';
+import { ConfirmProvider, useConfirm } from '../ConfirmDialog';
+import { SelectField } from '../SelectField';
+import { FocusRef, ModalSurface } from '../ModalSurface';
+import { ListRow } from '../ListRow';
+
+jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 24, right: 0, bottom: 34, left: 0 }),
+}));
+
+let confirm: ReturnType<typeof useConfirm>;
+function CaptureConfirm() {
+  confirm = useConfirm();
+  return <Text>Underlying screen</Text>;
+}
+function renderConfirmation() {
+  return render(<ConfirmProvider><CaptureConfirm /></ConfirmProvider>);
+}
+
+test.each(['Cancel', 'Close'])('%s cancels a confirmation and exposes the underlying screen again', async (label) => {
+  const screen = renderConfirmation();
+  let result!: Promise<boolean>;
+  act(() => { result = confirm({ title: 'Archive choir?', message: 'The dates and messages will be kept.', confirmLabel: 'Archive' }); });
+  expect(screen.queryByText('Underlying screen')).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: label }));
+  await expect(result).resolves.toBe(false);
+  expect(screen.getByText('Underlying screen')).toBeOnTheScreen();
+});
+
+test('a custom secondary label dismisses without confirming and does not change the next default', async () => {
+  const screen = renderConfirmation();
+  let result!: Promise<boolean>;
+  act(() => { result = confirm({ title: 'Write an announcement?', message: 'Review before posting.', confirmLabel: 'Write announcement', cancelLabel: 'Not now', destructive: false }); });
+  expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Not now' }));
+  await expect(result).resolves.toBe(false);
+  act(() => { result = confirm({ title: 'Restore date?', message: 'The date will be active again.', confirmLabel: 'Restore' }); });
+  expect(screen.queryByRole('button', { name: 'Not now' })).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+  await expect(result).resolves.toBe(false);
+});
+
+test('platform back/Escape cancels the confirmation', async () => {
+  const screen = renderConfirmation();
+  let result!: Promise<boolean>;
+  act(() => { result = confirm({ title: 'Leave team?', message: 'You can ask an admin to add you again.' }); });
+  act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+  await expect(result).resolves.toBe(false);
+});
+
+test('replacement cancels the earlier promise; only the current action can be confirmed', async () => {
+  const screen = renderConfirmation();
+  let first!: Promise<boolean>;
+  let second!: Promise<boolean>;
+  act(() => { first = confirm({ title: 'First action', message: 'First consequence' }); });
+  act(() => { second = confirm({ title: 'Second action', message: 'Second consequence', confirmLabel: 'Continue', destructive: false }); });
+  await expect(first).resolves.toBe(false);
+  expect(screen.queryByText('First consequence')).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
+  await expect(second).resolves.toBe(true);
+});
+
+test('unmount cancels the outstanding promise and a stale provider callback', async () => {
+  const screen = renderConfirmation();
+  let result!: Promise<boolean>;
+  act(() => { result = confirm({ title: 'Delete song?', message: 'This cannot be undone.' }); });
+  screen.unmount();
+  await expect(result).resolves.toBe(false);
+  await expect(confirm({ title: 'Stale action', message: 'No screen remains.' })).resolves.toBe(false);
+});
+
+const options = [
+  { value: 'member', label: 'Member' },
+  { value: 'admin', label: 'Team admin', description: 'Help manage the team' },
+  { value: 'unavailable', label: 'Unavailable person', disabled: true },
+];
+
+function Picker() {
+  const [value, setValue] = useState<string>('member');
+  return <SelectField label="Role" value={value} options={options} onChange={setValue} searchable />;
+}
+
+test('picker exposes the selection, supports search and returns the chosen value', () => {
+  const screen = render(<Picker />);
+  fireEvent.press(screen.getByRole('button', { name: 'Role: Member' }));
+  expect(screen.getByRole('radio', { name: 'Member' })).toHaveProp('accessibilityState', expect.objectContaining({ checked: true }));
+  expect(screen.getByRole('radio', { name: 'Unavailable person' })).toHaveProp('accessibilityState', expect.objectContaining({ disabled: true }));
+  fireEvent.changeText(screen.getByLabelText('Search role'), 'help manage');
+  expect(screen.queryByRole('radio', { name: 'Member' })).toBeNull();
+  fireEvent.press(screen.getByRole('radio', { name: 'Team admin. Help manage the team' }));
+  expect(screen.getByRole('button', { name: 'Role: Team admin' })).toHaveProp('accessibilityState', expect.objectContaining({ expanded: false }));
+
+  fireEvent.press(screen.getByRole('button', { name: 'Role: Team admin' }));
+  expect(screen.getByRole('radio', { name: 'Team admin. Help manage the team' })).toHaveProp('accessibilityState', expect.objectContaining({ checked: true }));
+});
+
+test('picker cancellation and disabled choices do not change the value', () => {
+  const onChange = jest.fn();
+  const screen = render(<SelectField label="Role" value="member" options={options} onChange={onChange} />);
+  fireEvent.press(screen.getByRole('button', { name: 'Role: Member' }));
+  fireEvent.press(screen.getByRole('radio', { name: 'Unavailable person' }));
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Role: Member' })).toHaveProp('accessibilityState', expect.objectContaining({ expanded: false }));
+
+  screen.rerender(<SelectField label="Role" value="member" options={options} onChange={onChange} disabled />);
+  fireEvent.press(screen.getByRole('button', { name: 'Role: Member' }));
+  expect(screen.queryByRole('radio')).toBeNull();
+});
+
+test('action sheets ignore disabled actions and close before invoking a selected action', () => {
+  const order: string[] = [];
+  const blocked = jest.fn();
+  const screen = render(<ActionSheet
+    visible title="Manage choir" onClose={() => order.push('close')}
+    actions={[
+      { key: 'edit', label: 'Edit team', onPress: () => order.push('edit') },
+      { key: 'archive', label: 'Archive team', onPress: blocked, disabled: true, destructive: true },
+    ]}
+  />);
+  fireEvent.press(screen.getByRole('button', { name: 'Archive team' }));
+  expect(blocked).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole('button', { name: 'Edit team' }));
+  expect(order).toEqual(['close', 'edit']);
+});
+
+test('action-sheet button choices mirror native selection and disable state on web', () => {
+  const screen = render(<ActionSheet visible title="View" onClose={jest.fn()} actions={[
+    { key: 'all', label: 'All dates', selected: true, onPress: jest.fn() },
+    { key: 'past', label: 'Past dates', selected: false, disabled: true, onPress: jest.fn() },
+  ]} />);
+  for (const [label, selected, disabled] of [['All dates', true, false], ['Past dates', false, true]] as const) {
+    const choices: { props: Record<string, unknown> }[] = screen.UNSAFE_root.findAll((node: { props: Record<string, unknown> }) => node.props.accessibilityLabel === label && node.props['aria-pressed'] !== undefined && node.props['aria-disabled'] !== undefined);
+    expect(choices.length).toBeGreaterThan(0);
+    expect(choices.every((node) => node.props['aria-pressed'] === selected && node.props['aria-disabled'] === disabled)).toBe(true);
+  }
+  expect(screen.getByRole('button', { name: 'All dates' })).toHaveProp('accessibilityState', expect.objectContaining({ selected: true, disabled: false }));
+});
+
+describe('modal dismissal focus', () => {
+  let frames: (() => void)[];
+  let focus: jest.SpyInstance;
+  let resolveNode: jest.SpyInstance;
+  const opener = (): FocusRef => ({ current: { focus: jest.fn() } as unknown as View });
+  const flushFrames = () => act(() => { frames.splice(0).forEach((callback) => callback()); });
+
+  beforeEach(() => {
+    frames = [];
+    jest.replaceProperty(Platform, 'OS', 'android');
+    jest.spyOn(global, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(() => callback(0));
+      return frames.length;
+    });
+    resolveNode = jest.spyOn(jest.requireActual('react-native'), 'findNodeHandle').mockReturnValue(71);
+    focus = jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus').mockImplementation(() => {});
+  });
+
+  afterEach(() => { jest.restoreAllMocks(); });
+
+  function Sheet({ returnFocusRef, order, unmountOnClose = false }: {
+    returnFocusRef: FocusRef; order: string[]; unmountOnClose?: boolean;
+  }) {
+    const [visible, setVisible] = useState(true);
+    if (!visible && unmountOnClose) return <Text>Destination screen</Text>;
+    return <ActionSheet visible={visible} title="Manage team" returnFocusRef={returnFocusRef}
+      onClose={() => { order.push('close'); setVisible(false); }} actions={[
+        { key: 'next', label: 'Edit team', onPress: () => order.push('action') },
+        { key: 'disabled', label: 'Unavailable action', disabled: true, onPress: () => order.push('disabled') },
+      ]} />;
+  }
+
+  test.each(['Close', 'platform back'])('%s restores the sheet opener after dismissal', (dismiss) => {
+    const returnFocusRef = opener();
+    const order: string[] = [];
+    const screen = render(<Sheet returnFocusRef={returnFocusRef} order={order} />);
+    // A disabled choice must not accidentally opt out of a later cancellation.
+    fireEvent.press(screen.getByRole('button', { name: 'Unavailable action' }));
+    if (dismiss === 'Close') fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    else act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+    expect(order).toEqual(['close']);
+    expect(focus).not.toHaveBeenCalled();
+    flushFrames();
+    expect(resolveNode).toHaveBeenCalledWith(returnFocusRef.current);
+    expect(focus).toHaveBeenCalledWith(71);
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  test('confirmation Cancel preserves native dismissal focus and resolves cancellation', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    const returnFocusRef = opener();
+    const screen = renderConfirmation();
+    let result!: Promise<boolean>;
+    act(() => { result = confirm({ title: 'Remove member?', message: 'Their church account stays.', returnFocusRef }); });
+    const dismiss = screen.UNSAFE_getByType(Modal).props.onDismiss;
+    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    await expect(result).resolves.toBe(false);
+    expect(focus).not.toHaveBeenCalled();
+    act(() => { dismiss(); dismiss(); });
+    expect(resolveNode).toHaveBeenCalledWith(returnFocusRef.current);
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['android', 'ios'] as const)('an action transfers focus before close/action callbacks, including unmount on %s', (platform) => {
+    jest.replaceProperty(Platform, 'OS', platform);
+    const order: string[] = [];
+    const screen = render(<Sheet returnFocusRef={opener()} order={order} unmountOnClose />);
+    const dismiss = screen.UNSAFE_getByType(Modal).props.onDismiss;
+    fireEvent.press(screen.getByRole('button', { name: 'Edit team' }));
+    expect(order).toEqual(['close', 'action']);
+    expect(screen.getByText('Destination screen')).toBeTruthy();
+    act(() => dismiss());
+    flushFrames();
+    expect(focus).not.toHaveBeenCalled();
+    expect(resolveNode).not.toHaveBeenCalled();
+  });
+
+  test('an old iOS dismissal cannot restore focus after a newer opening, even once both have closed', () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    const firstOpener = opener();
+    const nextOpener = opener();
+    const surface = (visible: boolean, returnFocusRef = firstOpener) => <ModalSurface visible={visible} title="Choose a date"
+      onClose={jest.fn()} returnFocusRef={returnFocusRef}><Text>Dates</Text></ModalSurface>;
+    const screen = render(surface(true));
+    const staleDismiss = screen.UNSAFE_getByType(Modal).props.onDismiss;
+    screen.rerender(surface(false));
+    screen.rerender(surface(true, nextOpener));
+    act(() => staleDismiss());
+    expect(focus).not.toHaveBeenCalled();
+    const currentDismiss = screen.UNSAFE_getByType(Modal).props.onDismiss;
+    screen.rerender(surface(false, nextOpener));
+    act(() => staleDismiss());
+    expect(focus).not.toHaveBeenCalled();
+    act(() => currentDismiss());
+    expect(resolveNode).toHaveBeenCalledWith(nextOpener.current);
+    expect(resolveNode).not.toHaveBeenCalledWith(firstOpener.current);
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  test('an old Android focus frame is ignored after the modal reopens', () => {
+    const returnFocusRef = opener();
+    const surface = (visible: boolean) => <ModalSurface visible={visible} title="Options" onClose={jest.fn()}
+      returnFocusRef={returnFocusRef}><Text>Choices</Text></ModalSurface>;
+    const screen = render(surface(true));
+    screen.rerender(surface(false));
+    const oldFrame = frames.shift()!;
+    screen.rerender(surface(true));
+    act(() => oldFrame());
+    expect(focus).not.toHaveBeenCalled();
+    screen.rerender(surface(false));
+    act(() => oldFrame());
+    expect(focus).not.toHaveBeenCalled();
+    flushFrames();
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  test('a sheet can restore cancellation focus after an earlier action transferred control', () => {
+    const returnFocusRef = opener();
+    const onClose = jest.fn();
+    const action = jest.fn();
+    const sheet = (visible: boolean) => <ActionSheet visible={visible} title="Manage team" returnFocusRef={returnFocusRef}
+      onClose={onClose} actions={[{ key: 'edit', label: 'Edit team', onPress: action }]} />;
+    const screen = render(sheet(true));
+    fireEvent.press(screen.getByRole('button', { name: 'Edit team' }));
+    screen.rerender(sheet(false));
+    screen.rerender(sheet(true));
+    flushFrames();
+    expect(focus).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    screen.rerender(sheet(false));
+    flushFrames();
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  test('web cancellation focuses the supplied element ref through the same guarded path', () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
+    const returnFocusRef = opener();
+    const screen = render(<Sheet returnFocusRef={returnFocusRef} order={[]} />);
+    fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    flushFrames();
+    expect(returnFocusRef.current?.focus).toHaveBeenCalledTimes(1);
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  let managementOpener: FocusRef;
+  function MemberManagement({ personVisible = true }: { personVisible?: boolean }) {
+    const [visible, setVisible] = useState(false);
+    const person = useRef<View>(null);
+    managementOpener = person;
+    return <>
+      {personVisible ? <ListRow ref={person} title="Ruth Johnson" onPress={() => setVisible(true)} /> : null}
+      <ActionSheet visible={visible} title="Manage Ruth" onClose={() => setVisible(false)} returnFocusRef={person}
+        actions={[{ key: 'role', label: 'Manage role', onPress: jest.fn() }]} />
+    </>;
+  }
+
+  test('closing a member management sheet returns focus to the exact people row', () => {
+    const screen = render(<MemberManagement />);
+    fireEvent.press(screen.getByRole('button', { name: 'Ruth Johnson' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    flushFrames();
+    expect(managementOpener.current !== null).toBe(true);
+    expect(resolveNode.mock.calls.some(([node]) => node === managementOpener.current)).toBe(true);
+    expect(focus).toHaveBeenCalledWith(71);
+  });
+
+  test('closing a member sheet safely skips focus if a refreshed list removed its opener', () => {
+    const screen = render(<MemberManagement />, { createNodeMock: () => ({ focus: jest.fn() }) });
+    fireEvent.press(screen.getByRole('button', { name: 'Ruth Johnson' }));
+    screen.rerender(<MemberManagement personVisible={false} />);
+    fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    flushFrames();
+    expect(resolveNode.mock.calls.length).toBe(0);
+    expect(focus).not.toHaveBeenCalled();
+  });
+});
+
+test.each([true, false])('all action drawers use a stationary backdrop and respect reduced motion (%s)', async (reducedMotion) => {
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(reducedMotion);
+  const timing = jest.spyOn(Animated, 'timing');
+  const screen = render(<ActionSheet visible title="Manage team" onClose={jest.fn()} actions={[]} />);
+  await act(async () => {});
+  expect(screen.UNSAFE_getByType(Modal).props.animationType).toBe('none');
+  const backdrop = screen.getByTestId('modal-backdrop', { includeHiddenElements: true });
+  const panel = screen.getByTestId('modal-panel', { includeHiddenElements: true });
+  expect(StyleSheet.flatten(backdrop.props.style).transform).toBeUndefined();
+  expect(StyleSheet.flatten(panel.props.style).transform).toEqual([{ translateY: expect.anything() }]);
+  if (reducedMotion) expect(timing).not.toHaveBeenCalled();
+  else {
+    expect(timing).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ toValue: 0, duration: 220, useNativeDriver: true }));
+    expect(timing).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ toValue: 1, duration: 160, useNativeDriver: true }));
+  }
+  screen.unmount();
+  jest.restoreAllMocks();
+});
+
+test.each(['sheet', 'dialog'] as const)('shared %s surfaces use the correct default motion', async (presentation) => {
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+  const timing = jest.spyOn(Animated, 'timing');
+  const screen = render(<ModalSurface visible title="Choose" presentation={presentation} onClose={jest.fn()}><Text>Content</Text></ModalSurface>);
+  await act(async () => {});
+  expect(screen.UNSAFE_getByType(Modal).props.animationType).toBe('none');
+  if (presentation === 'sheet') expect(timing).toHaveBeenCalledTimes(2);
+  else expect(timing).not.toHaveBeenCalled();
+  screen.unmount();
+  jest.restoreAllMocks();
+});
+
+test('a drawer can explicitly opt out of sliding', async () => {
+  const timing = jest.spyOn(Animated, 'timing');
+  const screen = render(<ActionSheet visible title="Manage team" slide={false} onClose={jest.fn()} actions={[]} />);
+  await act(async () => {});
+  expect(timing).not.toHaveBeenCalled();
+  screen.unmount();
+  jest.restoreAllMocks();
+});

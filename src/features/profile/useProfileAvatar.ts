@@ -1,7 +1,7 @@
 /**
  * Profile photo management for the Profile screen (live Supabase mode only).
  *
- * Owns the whole flow: ask for photo-library permission (only when the user
+ * Owns the whole flow: ask for camera or photo-library permission (only when the user
  * taps, never at startup), open the system picker, normalise the picked
  * image into the avatar service's shape, and hand it to AppData — which
  * uploads to the private `profile-avatars` bucket and repoints the profile.
@@ -10,7 +10,7 @@
  * is untouched.
  */
 import * as ImagePicker from 'expo-image-picker';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { useConfirm } from '../../components/ConfirmDialog';
 import { useToast } from '../../components/Toast';
@@ -51,7 +51,7 @@ function toPickedFile(asset: ImagePicker.ImagePickerAsset): PickedAvatarFile | n
   return { base64, mimeType, fileSize: asset.fileSize ?? null };
 }
 
-export type AvatarBusy = 'uploading' | 'removing' | null;
+export type AvatarBusy = 'picking' | 'uploading' | 'removing' | null;
 
 export function useProfileAvatar() {
   const user = useRequiredUser();
@@ -60,6 +60,7 @@ export function useProfileAvatar() {
   const showToast = useToast();
   const confirm = useConfirm();
   const [busy, setBusy] = useState<AvatarBusy>(null);
+  const pending = useRef(false);
 
   // Photo management is a live-Supabase feature: demo mode keeps its
   // initials-only profile card and never calls Supabase Storage.
@@ -67,20 +68,26 @@ export function useProfileAvatar() {
   const hasPhoto = !!user.profile.avatar_url;
   const avatarUri = data.getAvatarUri(user.profile);
 
-  const changePhoto = useCallback(async () => {
-    if (busy) return;
+  const pickPhoto = useCallback(async (source: 'camera' | 'library') => {
+    if (!canManagePhoto || pending.current) return;
+    pending.current = true;
+    setBusy('picking');
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission = source === 'camera'
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        showToast(PERMISSION_ERROR, 'error');
+        showToast(source === 'camera'
+          ? 'To take a photo, please allow camera access for Shift Shepherd in your device settings.'
+          : PERMISSION_ERROR, 'error');
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 0.8,
-        base64: true,
-        selectionLimit: 1,
-      });
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ['images'], quality: 0.8, base64: true, selectionLimit: 1,
+      };
+      const result = source === 'camera'
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
       if (result.canceled) return;
       const asset = result.assets[0];
       if (!asset) return;
@@ -97,28 +104,34 @@ export function useProfileAvatar() {
     } catch (error) {
       showToast(error instanceof Error ? error.message : PICK_ERROR, 'error');
     } finally {
+      pending.current = false;
       setBusy(null);
     }
-  }, [busy, data, showToast]);
+  }, [canManagePhoto, data, showToast]);
+
+  const changePhoto = useCallback(() => pickPhoto('library'), [pickPhoto]);
+  const takePhoto = useCallback(() => pickPhoto('camera'), [pickPhoto]);
 
   const removePhoto = useCallback(async () => {
-    if (busy) return;
-    const ok = await confirm({
-      title: 'Remove photo',
-      message: 'Your profile will show your initials instead.',
-      confirmLabel: 'Remove',
-    });
-    if (!ok) return;
+    if (!canManagePhoto || pending.current) return;
+    pending.current = true;
     try {
+      const ok = await confirm({
+        title: 'Remove photo',
+        message: 'Your profile will show your initials instead.',
+        confirmLabel: 'Remove',
+      });
+      if (!ok) return;
       setBusy('removing');
       await data.removeOwnAvatar();
       showToast('Profile photo removed.');
     } catch (error) {
       showToast(error instanceof Error ? error.message : REMOVE_ERROR, 'error');
     } finally {
+      pending.current = false;
       setBusy(null);
     }
-  }, [busy, confirm, data, showToast]);
+  }, [canManagePhoto, confirm, data, showToast]);
 
-  return { canManagePhoto, hasPhoto, avatarUri, busy, changePhoto, removePhoto };
+  return { canManagePhoto, hasPhoto, avatarUri, busy, changePhoto, takePhoto, removePhoto };
 }

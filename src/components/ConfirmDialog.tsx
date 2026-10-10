@@ -1,74 +1,87 @@
 /**
- * Confirmation dialog used before every destructive action.
- * A custom modal (not Alert.alert) so it works on iOS, Android, AND web.
+ * Promise-based confirmation for consequential actions. Every way out resolves:
+ * explicit buttons, platform back/Escape, replacement, and provider unmount.
  */
-import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-import { Modal, StyleSheet, View } from 'react-native';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
 import { AppText } from './AppText';
 import { Button } from './Button';
+import { FocusRef, ModalSurface } from './ModalSurface';
 
-interface ConfirmOptions {
+export interface ConfirmOptions {
   title: string;
   message: string;
   confirmLabel?: string;
-  /** Destructive styling (red confirm button). Default true. */
+  cancelLabel?: string;
+  /** Existing caller default remains true; routine actions can opt out. */
   destructive?: boolean;
+  returnFocusRef?: FocusRef;
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
-
 const ConfirmContext = createContext<ConfirmFn | undefined>(undefined);
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [options, setOptions] = useState<ConfirmOptions | null>(null);
-  const resolver = useRef<(v: boolean) => void>(() => {});
+  const resolver = useRef<((value: boolean) => void) | null>(null);
+  const opener = useRef<FocusRef | undefined>(undefined);
+  const mounted = useRef(true);
 
-  const confirm = useCallback<ConfirmFn>((opts) => {
-    setOptions(opts);
-    return new Promise<boolean>((resolve) => {
-      resolver.current = resolve;
-    });
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const pending = resolver.current;
+      resolver.current = null;
+      pending?.(false);
+    };
   }, []);
 
-  const close = (result: boolean) => {
-    resolver.current(result);
+  const confirm = useCallback<ConfirmFn>((opts) => {
+    if (!mounted.current) return Promise.resolve(false);
+    resolver.current?.(false);
+    opener.current = opts.returnFocusRef;
+    setOptions(opts);
+    return new Promise<boolean>((resolve) => { resolver.current = resolve; });
+  }, []);
+
+  const close = useCallback((result: boolean) => {
+    const pending = resolver.current;
+    resolver.current = null;
     setOptions(null);
-  };
+    pending?.(result);
+  }, []);
 
   return (
     <ConfirmContext.Provider value={confirm}>
-      {children}
-      <Modal
-        visible={options !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => close(false)}
+      <View
+        style={styles.content}
+        accessibilityElementsHidden={options !== null}
+        importantForAccessibility={options ? 'no-hide-descendants' : 'auto'}
+        aria-hidden={options !== null}
       >
-        {options ? (
-          <View style={styles.overlay}>
-            <View style={styles.dialog}>
-              <AppText variant="subheading" style={styles.center}>
-                {options.title}
-              </AppText>
-              <AppText tone="secondary" style={styles.center}>
-                {options.message}
-              </AppText>
-              <View style={styles.buttons}>
-                <Button title="Cancel" variant="secondary" onPress={() => close(false)} />
-                <Button
-                  title={options.confirmLabel ?? 'Delete'}
-                  variant={options.destructive === false ? 'primary' : 'destructive'}
-                  onPress={() => close(true)}
-                />
-              </View>
-            </View>
-          </View>
-        ) : (
-          <View />
-        )}
-      </Modal>
+        {children}
+      </View>
+      <ModalSurface
+        visible={options !== null}
+        title={options?.title ?? ''}
+        presentation="dialog"
+        onClose={() => close(false)}
+        returnFocusRef={opener.current}
+        footer={options ? (
+          <>
+            <Button
+              title={options.confirmLabel ?? 'Delete'}
+              variant={options.destructive === false ? 'primary' : 'destructive'}
+              onPress={() => close(true)}
+            />
+            <Button title={options.cancelLabel ?? 'Cancel'} variant="secondary" onPress={() => close(false)} />
+          </>
+        ) : null}
+      >
+        {options ? <AppText tone="secondary">{options.message}</AppText> : null}
+      </ModalSurface>
     </ConfirmContext.Provider>
   );
 }
@@ -79,25 +92,4 @@ export function useConfirm(): ConfirmFn {
   return ctx;
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: colors.overlay,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
-  },
-  dialog: {
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-    gap: spacing.md,
-    width: '100%',
-    maxWidth: 420,
-  },
-  center: { textAlign: 'center' },
-  buttons: {
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-});
+const styles = StyleSheet.create({ content: { flex: 1 } });

@@ -1,181 +1,203 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { useConfirm } from '../../../components/ConfirmDialog';
 import { useToast } from '../../../components/Toast';
 import { useAppData } from '../../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../../lib/auth/AuthContext';
-import {
-  listOrganisationMembers,
-  removeOrganisationMember,
-} from '../../../lib/supabase/services/organisationMemberships';
-import { OrganisationMemberSummary, SessionUser, UserProfile } from '../../../types';
+import { listOrganisationMembers, removeOrganisationMember } from '../../../lib/supabase/services/organisationMemberships';
 import OrganisationMembersScreen from '../OrganisationMembersScreen';
+import { ADMIN, adminAuth, CURRENT, deferred, DIRECTORY, MEMBER, ORGANISATION_ID, PROFILE, REMOVED } from './organisationAdminFixtures';
 
-jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockBack = jest.fn();
+let mockCanGoBack = true;
+let mockFocused = true;
 jest.mock('expo-router', () => {
   const React = jest.requireActual('react');
-  return {
-    Stack: { Screen: () => null },
-    useRouter: () => ({ push: mockPush, replace: mockReplace }),
-    useFocusEffect: (callback: () => void) => React.useEffect(callback, [callback]),
-  };
+  return { Stack: { Screen: () => null }, useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => mockCanGoBack }),
+    useFocusEffect: (callback: () => void) => { const focused = mockFocused; return React.useEffect(() => focused ? callback() : undefined, [callback, focused]); } };
 });
+jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
-jest.mock('../../../lib/auth/AuthContext', () => ({
-  useAuth: jest.fn(),
-  useRequiredUser: jest.fn(),
-}));
+jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn(), useRequiredUser: jest.fn() }));
 jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: jest.fn() }));
 jest.mock('../../../components/Toast', () => ({ useToast: jest.fn() }));
-jest.mock('../../../lib/supabase/services/organisationMemberships', () => ({
-  listOrganisationMembers: jest.fn(),
-  removeOrganisationMember: jest.fn(),
-}));
-jest.mock('../../../components/TextField', () => {
-  const React = jest.requireActual('react');
-  const { TextInput } = jest.requireActual('react-native');
-  return {
-    TextField: ({ label, ...props }: Record<string, unknown>) =>
-      React.createElement(TextInput, { ...props, accessibilityLabel: label }),
-  };
-});
-jest.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
-}));
+jest.mock('../../../lib/supabase/services/organisationMemberships', () => ({ listOrganisationMembers: jest.fn(), removeOrganisationMember: jest.fn() }));
+jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }));
 
-const mockUseAppData = useAppData as jest.Mock;
-const mockUseAuth = useAuth as jest.Mock;
-const mockUseRequiredUser = useRequiredUser as jest.Mock;
-const mockUseConfirm = useConfirm as jest.Mock;
-const mockUseToast = useToast as jest.Mock;
 const mockList = listOrganisationMembers as jest.Mock;
 const mockRemove = removeOrganisationMember as jest.Mock;
-
-const PROFILE: UserProfile = {
-  id: '20000000-0000-4000-a000-000000000001',
-  auth_user_id: '90000000-0000-4000-a000-000000000001',
-  organisation_id: '10000000-0000-4000-a000-000000000001',
-  full_name: 'Daniel Okafor',
-  email: 'daniel@example.church',
-  phone: null,
-  avatar_url: null,
-  access_status: 'active',
-  access_removed_at: null,
-  access_removed_by: null,
-  access_removal_reason: null,
-  created_at: '',
-};
-const ADMIN: SessionUser = {
-  profile: PROFILE,
-  orgRole: 'church_admin',
-  memberships: [],
-  supabaseProfileId: PROFILE.id,
-};
-const CURRENT: OrganisationMemberSummary = {
-  profile_id: PROFILE.id,
-  full_name: PROFILE.full_name,
-  email: PROFILE.email,
-  avatar_url: null,
-  access_status: 'active',
-  access_removed_at: null,
-  access_removal_reason: null,
-  linked: true,
-  role: 'church_admin',
-  team_count: 1,
-  pending_invitation_status: null,
-  is_current_user: true,
-  is_last_church_admin: false,
-};
-const MEMBER: OrganisationMemberSummary = {
-  ...CURRENT,
-  profile_id: '20000000-0000-4000-a000-000000000002',
-  full_name: 'Ruth Johnson',
-  email: 'ruth@example.church',
-  role: 'general_member',
-  team_count: 0,
-  is_current_user: false,
-};
-
-function setup(role: SessionUser['orgRole'] = 'church_admin') {
-  const refreshTeams = jest.fn().mockResolvedValue(undefined);
-  mockUseAuth.mockReturnValue({ authMode: 'supabase' });
-  mockUseRequiredUser.mockReturnValue({ ...ADMIN, orgRole: role });
-  mockUseAppData.mockReturnValue({
-    organisation: { id: PROFILE.organisation_id, name: 'Grace Church' },
-    users: [PROFILE],
-    getAvatarUri: jest.fn(),
-    refreshTeams,
-  });
-  mockUseConfirm.mockReturnValue(jest.fn().mockResolvedValue(true));
-  mockUseToast.mockReturnValue(jest.fn());
-  mockRemove.mockResolvedValue({ ...MEMBER, access_status: 'removed' });
-  return { refreshTeams };
-}
+const confirm = jest.fn();
+const toast = jest.fn();
+const refreshTeams = jest.fn();
+const auth = useAuth as jest.Mock;
+const requiredUser = useRequiredUser as jest.Mock;
 
 beforeEach(() => {
-  jest.clearAllMocks();
-  setup();
+  jest.useFakeTimers();
+  jest.clearAllMocks(); mockFocused = true; mockCanGoBack = true;
+  auth.mockReturnValue(adminAuth()); requiredUser.mockReturnValue(ADMIN);
+  (useAppData as jest.Mock).mockReturnValue({ organisation: { id: ORGANISATION_ID, name: 'Grace Church' }, users: [PROFILE], getAvatarUri: jest.fn(), refreshTeams });
+  (useConfirm as jest.Mock).mockReturnValue(confirm); (useToast as jest.Mock).mockReturnValue(toast);
+  mockList.mockResolvedValue([CURRENT, MEMBER]); confirm.mockResolvedValue(true); refreshTeams.mockResolvedValue(undefined);
+  mockRemove.mockResolvedValue({ profile_id: MEMBER.profile_id, access_status: 'removed' });
 });
+afterEach(() => { jest.useRealTimers(); });
 
-it('shows a bounded loading state while the member RPC is pending', () => {
+it('shows loading and one meaningful accessible status while the RPC is pending', () => {
   mockList.mockReturnValue(new Promise(() => {}));
-  const screen = render(<OrganisationMembersScreen />);
-  expect(screen.getByTestId('organisation-members-loading')).toBeTruthy();
+  const view = render(<OrganisationMembersScreen />);
+  expect(view.getByTestId('organisation-members-loading')).toBeTruthy();
+  expect(view.getAllByRole('progressbar')).toHaveLength(1);
 });
 
-it('shows ready rows, role/access badges, current marker, and filters search', async () => {
-  mockList.mockResolvedValue([CURRENT, MEMBER]);
-  const screen = render(<OrganisationMembersScreen />);
-  await waitFor(() => expect(screen.getByTestId('organisation-members-ready')).toBeTruthy());
-  expect(screen.getByText('Daniel Okafor')).toBeTruthy();
-  expect(screen.getByText('You')).toBeTruthy();
-  expect(screen.getAllByText('Church Admin').length).toBeGreaterThan(0);
-  fireEvent.changeText(screen.getByLabelText('Search members'), 'ruth@example');
-  expect(screen.queryByText('Daniel Okafor')).toBeNull();
-  expect(screen.getByText('Ruth Johnson')).toBeTruthy();
+it('searches the server beyond the first page and labels the bounded results honestly', async () => {
+  mockList.mockImplementation(async (query) => query ? [MEMBER] : [CURRENT]);
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText('Daniel Okafor');
+  expect(view.getByText(/Up to 200 matching people/)).toBeTruthy();
+  fireEvent.changeText(view.getByLabelText('Search members'), 'ruth@example');
+  await view.findByText('Ruth Johnson');
+  expect(mockList).toHaveBeenCalledWith('ruth@example');
+  expect(view.queryByText('Daniel Okafor')).toBeNull();
 });
 
-it('shows empty and no-match states', async () => {
+it('does not describe empty results as proof that a person does not exist', async () => {
   mockList.mockResolvedValue([]);
-  const empty = render(<OrganisationMembersScreen />);
-  await waitFor(() => expect(empty.getByText('No members yet')).toBeTruthy());
-  empty.unmount();
-
-  mockList.mockResolvedValue([MEMBER]);
-  const noMatch = render(<OrganisationMembersScreen />);
-  await waitFor(() => expect(noMatch.getByText('Ruth Johnson')).toBeTruthy());
-  fireEvent.changeText(noMatch.getByLabelText('Search members'), 'nobody');
-  expect(noMatch.getByText('No matching members')).toBeTruthy();
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText('No members in these results');
+  fireEvent.changeText(view.getByLabelText('Search members'), 'nobody');
+  await view.findByText('No matching results');
+  expect(view.getByText(/Search results do not confirm/)).toBeTruthy();
 });
 
-it('shows a retryable load error without raw details', async () => {
-  mockList.mockRejectedValue(new Error('We couldn’t load organisation members right now.'));
-  const screen = render(<OrganisationMembersScreen />);
-  await waitFor(() => expect(screen.getByText('We couldn’t load members')).toBeTruthy());
-  expect(screen.getByText('Try again')).toBeTruthy();
+it('rejects out-of-order search completions', async () => {
+  const old = deferred<typeof MEMBER[]>();
+  mockList.mockImplementation((query) => query === 'old' ? old.promise : Promise.resolve(query === 'new' ? [DIRECTORY] : [CURRENT]));
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText(CURRENT.full_name);
+  fireEvent.changeText(view.getByLabelText('Search members'), 'old');
+  await waitFor(() => expect(mockList).toHaveBeenCalledWith('old'));
+  fireEvent.changeText(view.getByLabelText('Search members'), 'new');
+  await view.findByText(DIRECTORY.full_name);
+  await act(async () => old.resolve([MEMBER]));
+  expect(view.queryByText(MEMBER.full_name)).toBeNull();
 });
 
-it('keeps non-admin direct routes locked and never calls the privileged RPC', async () => {
-  setup('general_member');
-  const screen = render(<OrganisationMembersScreen />);
-  expect(screen.getByText('No permission')).toBeTruthy();
-  expect(screen.getByText('Only a church admin can manage organisation members and roles.')).toBeTruthy();
-  expect(mockList).not.toHaveBeenCalled();
+it('keeps the query across same-account readiness and refuses calls while unresolved', async () => {
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText(MEMBER.full_name);
+  fireEvent.changeText(view.getByLabelText('Search members'), 'Ruth');
+  auth.mockReturnValue(adminAuth(ADMIN, { accountStatus: 'loading' }));
+  view.rerender(<OrganisationMembersScreen />);
+  expect(view.getByDisplayValue('Ruth')).toBeTruthy();
+  const count = mockList.mock.calls.length;
+  await act(async () => { jest.advanceTimersByTime(350); });
+  expect(mockList).toHaveBeenCalledTimes(count);
+  auth.mockReturnValue(adminAuth()); view.rerender(<OrganisationMembersScreen />);
+  await waitFor(() => expect(mockList).toHaveBeenCalledWith('Ruth'));
 });
 
-it('requires confirmation, prevents client-side deletion, and refreshes canonical state after removal', async () => {
-  const { refreshTeams } = setup();
-  mockList.mockResolvedValue([MEMBER]);
-  const screen = render(<OrganisationMembersScreen />);
-  await waitFor(() => expect(screen.getByText('Remove access')).toBeTruthy());
-  fireEvent.press(screen.getByText('Remove access'));
+it('opens management in context and passes an exact target hint into the role route', async () => {
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText(MEMBER.full_name);
+  expect(view.queryByText('Manage role')).toBeNull();
+  fireEvent.press(view.getByText(MEMBER.full_name));
+  fireEvent.press(view.getByText('Manage role'));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/organisations/members/[profileId]', params: {
+    profileId: MEMBER.profile_id, memberEmail: MEMBER.email, memberName: MEMBER.full_name, organisationId: ORGANISATION_ID,
+  } });
+});
+
+it('keeps removal confirmation short and names the full person and church in its body', async () => {
+  const name = 'Ruth Alexandra Johnson Adeyemi Thompson of the Northside Community';
+  mockList.mockResolvedValue([{ ...MEMBER, full_name: name }]);
+  const view = render(<OrganisationMembersScreen />); await view.findByText(name);
+  fireEvent.press(view.getByText(name)); fireEvent.press(view.getByText('Remove access'));
+  await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+    title: 'Remove church access?', message: expect.stringContaining(`${name}\n${MEMBER.email}\nGrace Church`),
+    destructive: true, returnFocusRef: expect.any(Object),
+  })));
+  expect(confirm.mock.calls[0][0].message).toContain('Future duties are not reassigned automatically');
+});
+
+it.each([DIRECTORY, REMOVED])('connects the selected $full_name directly to invitation creation', async (member) => {
+  mockList.mockResolvedValue([member]);
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText(member.full_name);
+  fireEvent.press(view.getByText(member.full_name));
+  expect(view.getByText(/includes archived teams/)).toBeTruthy();
+  fireEvent.press(view.getByText(member.access_status === 'removed' ? 'Invite again' : 'Invite to church'));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/organisations/invitations', params: {
+    targetProfileId: member.profile_id, targetEmail: member.email, targetName: member.full_name, organisationId: ORGANISATION_ID, create: '1',
+  } });
+  expect(view.queryByText('Manage role')).toBeNull();
+});
+
+it('routes an existing pending invitation into its current list', async () => {
+  mockList.mockResolvedValue([{ ...DIRECTORY, pending_invitation_status: 'pending' }]);
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText(DIRECTORY.full_name); fireEvent.press(view.getByText(DIRECTORY.full_name));
+  fireEvent.press(view.getByText('View pending invitation'));
+  expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({ params: expect.objectContaining({ targetProfileId: DIRECTORY.profile_id, create: '0' }) }));
+});
+
+it('keeps final-admin protection and own Leave from Profile distinct', async () => {
+  mockList.mockResolvedValue([{ ...CURRENT, is_last_church_admin: true }]);
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText(CURRENT.full_name); fireEvent.press(view.getByText(CURRENT.full_name));
+  expect(view.getByText(/Final church admin/)).toBeTruthy();
+  expect(view.queryByText('Remove access')).toBeNull();
+  fireEvent.press(view.getByText('Leave from Profile'));
+  expect(mockReplace).toHaveBeenCalledWith('/(tabs)/profile');
+  expect(mockRemove).not.toHaveBeenCalled();
+});
+
+it('confirms removal with retained history and future-duty consequences, then refreshes canonical data', async () => {
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText(MEMBER.full_name); fireEvent.press(view.getByText(MEMBER.full_name));
+  fireEvent.press(view.getByText('Remove access'));
   await waitFor(() => expect(mockRemove).toHaveBeenCalledWith(MEMBER.profile_id));
-  expect(mockUseConfirm()).toHaveBeenCalledWith(expect.objectContaining({
-    title: 'Remove Ruth Johnson from Grace Church?',
-    confirmLabel: 'Remove access',
-  }));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Remove church access?', message: expect.stringContaining('Future duties are not reassigned automatically.') }));
   expect(refreshTeams).toHaveBeenCalledWith({ quiet: true });
 });
 
+it('does not turn a confirmed removal into a failed removal when refresh fails', async () => {
+  refreshTeams.mockRejectedValue(new Error('Couldn’t refresh the directory.'));
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText(MEMBER.full_name); fireEvent.press(view.getByText(MEMBER.full_name)); fireEvent.press(view.getByText('Remove access'));
+  await view.findByText('Access removed; couldn’t refresh details');
+  expect(view.getByText('Ruth Johnson no longer has access to this church.')).toBeTruthy();
+  expect(view.queryByText('Couldn’t confirm access removal')).toBeNull();
+});
+
+it('fences an open confirmation after authority loss and after blur', async () => {
+  const approval = deferred<boolean>(); confirm.mockReturnValue(approval.promise);
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText(MEMBER.full_name); fireEvent.press(view.getByText(MEMBER.full_name)); fireEvent.press(view.getByText('Remove access'));
+  mockFocused = false; view.rerender(<OrganisationMembersScreen />);
+  await act(async () => approval.resolve(true));
+  expect(mockRemove).not.toHaveBeenCalled();
+});
+
+it.each(['general_member', 'demo'])('does not call the privileged RPC for %s', (mode) => {
+  const user = { ...ADMIN, orgRole: mode === 'general_member' ? 'general_member' as const : ADMIN.orgRole };
+  requiredUser.mockReturnValue(user); auth.mockReturnValue(adminAuth(user, mode === 'demo' ? { authMode: 'demo' } : {}));
+  const view = render(<OrganisationMembersScreen />);
+  expect(view.getByText('No permission')).toBeTruthy(); expect(mockList).not.toHaveBeenCalled();
+});
+
+it('offers an explicit safe exit for a direct denied route', () => {
+  mockCanGoBack = false; const user = { ...ADMIN, orgRole: 'general_member' as const };
+  requiredUser.mockReturnValue(user); auth.mockReturnValue(adminAuth(user));
+  const view = render(<OrganisationMembersScreen />); fireEvent.press(view.getByText('Back to Profile'));
+  expect(mockReplace).toHaveBeenCalledWith('/');
+});
+
+it('keeps a retryable read failure separate from an empty list', async () => {
+  mockList.mockRejectedValue(new Error('We couldn’t load organisation members right now.'));
+  const view = render(<OrganisationMembersScreen />);
+  await view.findByText('We couldn’t load members'); expect(view.getByText('Try again')).toBeTruthy();
+  expect(view.queryByText('No members in these results')).toBeNull();
+});

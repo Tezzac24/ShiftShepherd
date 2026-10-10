@@ -1,83 +1,51 @@
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
-import { AnnouncementCard } from '../../components/AnnouncementCard';
-import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
-import { EmptyState } from '../../components/EmptyState';
+import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
+import { StatePanel } from '../../components/StatePanel';
 import { useAppData } from '../../lib/appData/AppDataContext';
-import { userName, visibleAnnouncements } from '../../lib/appData/selectors';
+import { userName } from '../../lib/appData/selectors';
 import { useRequiredUser } from '../../lib/auth/AuthContext';
-import { canCreateAnyAnnouncement } from '../../lib/permissions';
+import { canCreateAnyAnnouncement, canCreateTeamAnnouncements } from '../../lib/permissions';
+import { useCurrentTime } from '../../utils/useCurrentTime';
+import { HomeNotice } from '../home/HomeNotice';
+import { accessibleAnnouncements, announcementTeam } from './announcementPresentation';
 
 export default function AnnouncementsListScreen() {
   const router = useRouter();
+  const { teamId } = useLocalSearchParams<{ teamId?: string | string[] }>();
   const user = useRequiredUser();
   const data = useAppData();
+  useCurrentTime();
+  const filtered = teamId !== undefined;
+  const team = announcementTeam(user, data.teams, teamId);
+  const announcements = accessibleAnnouncements(user, data.announcements, data.archivedTeams)
+    .filter((notice) => !filtered || (!!team && notice.team_id === team.id));
+  const canCreate = team ? canCreateTeamAnnouncements(user, team.id) : !filtered && canCreateAnyAnnouncement(user);
 
-  const announcements = visibleAnnouncements(user, data.announcements);
-  // Live mode only: a first load shows a spinner instead of pretending the
-  // list is empty; a failed load offers a retry instead of stale content.
-  const loadingFirstTime = data.announcementsLoading && announcements.length === 0;
-
-  return (
-    <Screen>
-      <Stack.Screen options={{ title: 'Announcements' }} />
-
-      {canCreateAnyAnnouncement(user) ? (
-        <Button
-          title="New Announcement"
-          icon="add-circle-outline"
-          onPress={() => router.push('/announcements/edit')}
-        />
-      ) : null}
-
-      {data.announcementsError ? (
-        <View style={styles.errorBox}>
-          <AppText tone="danger" style={styles.errorText}>
-            {data.announcementsError}
-          </AppText>
-          <Button
-            title="Try Again"
-            variant="secondary"
-            icon="refresh-outline"
-            onPress={() => void data.refreshAnnouncements()}
-          />
-        </View>
-      ) : null}
-
-      {loadingFirstTime ? (
-        <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <AppText tone="secondary">Loading announcements…</AppText>
-        </View>
-      ) : announcements.length > 0 ? (
-        announcements.map((a) => (
-          <AnnouncementCard
-            key={a.id}
-            announcement={a}
-            authorName={userName(data.users, a.created_by)}
-            teamName={a.team_id ? data.teams.find((t) => t.id === a.team_id)?.name : undefined}
-            imageUri={data.getAnnouncementImageUri(a)}
-            onPress={() => router.push({ pathname: '/announcements/[id]', params: { id: a.id } })}
-          />
-        ))
-      ) : data.announcementsError ? null : (
-        <EmptyState
-          icon="megaphone-outline"
-          title="No announcements yet"
-          message="There are no announcements yet. Important updates will appear here."
-        />
-      )}
-    </Screen>
-  );
+  return <Screen>
+    <Stack.Screen options={{ title: 'Announcements' }} />
+    <PageHeading title={filtered || !canCreate ? (filtered ? 'Team announcements' : 'Announcements') : undefined} eyebrow={team?.name}
+      description={filtered ? undefined : 'Updates from your church and teams.'}
+      centerAction={!filtered && canCreate}
+      action={canCreate ? <Button title="New announcement" icon="add-outline" onPress={() => router.push({ pathname: '/announcements/edit', params: team ? { teamId: team.id } : {} })} /> : undefined} />
+    {filtered ? <Button title="All announcements" variant="secondary" icon="megaphone-outline" onPress={() => router.dismissTo('/announcements')} /> : null}
+    {filtered && !team ? data.teamsLoading ? <StatePanel kind="loading" title="Loading this team…" />
+      : data.teamsError ? <StatePanel kind="error" title="Couldn't load this team" message={data.teamsError}
+        action={{ label: 'Retry team', onPress: () => void data.refreshTeams() }} />
+        : <StatePanel title="Team announcements unavailable" message="This team is not available in your current church." icon="people-outline" />
+      : <>
+        {data.announcementsError ? <StatePanel compact kind="error" title="Couldn't refresh announcements" message={data.announcementsError}
+          action={{ label: 'Retry announcements', onPress: () => void data.refreshAnnouncements() }} /> : null}
+        {announcements.length ? announcements.map((notice) => <HomeNotice key={notice.id} announcement={notice} authorName={userName(data.users, notice.created_by)}
+          teamName={notice.team_id ? data.teams.find((candidate) => candidate.id === notice.team_id)?.name : undefined}
+          imageUri={data.getAnnouncementImageUri(notice)}
+          onPress={() => router.push({ pathname: '/announcements/[id]', params: { id: notice.id } })} />)
+          : data.announcementsLoading ? <StatePanel kind="loading" title="Loading announcements…" />
+            : !data.announcementsError ? <StatePanel icon="megaphone-outline" title={team ? 'No team announcements yet' : 'No announcements yet'}
+              message={team ? `Updates for ${team.name} will appear here.` : 'Updates from your church and teams will appear here.'} /> : null}
+      </>}
+  </Screen>;
 }
-
-const styles = StyleSheet.create({
-  loadingBox: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
-  errorBox: { gap: spacing.sm },
-  errorText: { textAlign: 'center' },
-});

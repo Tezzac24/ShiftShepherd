@@ -1,302 +1,272 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { StyleSheet, Switch, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
+import { spacing } from '../../../constants/theme';
 import { AnnouncementImage } from '../../components/AnnouncementImage';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
-import { Card } from '../../components/Card';
-import { EmptyState } from '../../components/EmptyState';
+import { FormErrorSummary } from '../../components/FormErrorSummary';
+import { ListGroup } from '../../components/ListGroup';
+import { SwitchRow } from '../../components/ListRow';
+import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
 import { SelectField } from '../../components/SelectField';
+import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
-import { currentAndUpcomingEvents } from '../../lib/appData/selectors';
-import { useRequiredUser } from '../../lib/auth/AuthContext';
-import {
-  canCreateChurchAnnouncements,
-  canCreateTeamAnnouncements,
-  canEditAnnouncement,
-} from '../../lib/permissions';
+import { useAuth } from '../../lib/auth/AuthContext';
+import { canCreateAnyAnnouncement, canCreateChurchAnnouncements, canEditAnnouncement } from '../../lib/permissions';
 import { isAnnouncementImagePath } from '../../lib/supabase/services/announcementImages';
-import { useAnnouncementImageDraft } from './useAnnouncementImageDraft';
+import { Announcement, SessionUser } from '../../types';
+import { accessibleAnnouncements, announcementAudienceOptions, announcementAuthorityKey, announcementEventOptions, CHURCH_AUDIENCE } from './announcementPresentation';
+import { AnnouncementImageDraft, useAnnouncementImageDraft } from './useAnnouncementImageDraft';
+import { AnnouncementOptions } from './AnnouncementOptions';
 
-const CHURCH_WIDE = 'church';
+type Params = { id?: string | string[]; teamId?: string | string[]; presetTitle?: string | string[]; presetBody?: string | string[] };
+type Draft = { title: string; body: string; audience: string | null; pinned: boolean; linkedEventId: string | null };
+type Field = 'title' | 'body' | 'audience';
+type Step = 'draft' | 'saving' | 'image-pending' | 'image-saving' | 'image-failed' | 'complete';
 
-/**
- * Create/edit announcement. Audience options depend on the user's
- * permissions: church-wide (admins/announcement managers) and/or the
- * specific teams they lead.
- */
 export default function AnnouncementFormScreen() {
+  const params = useLocalSearchParams<Params>();
+  const { user, authMode, accountStatus, isLoading } = useAuth();
   const router = useRouter();
-  // presetTitle/presetBody prefill the form (e.g. a rehearsal cancellation
-  // notice) — nothing is posted until the user taps Post Announcement.
-  const { id, teamId: presetTeamId, presetTitle, presetBody } = useLocalSearchParams<{
-    id?: string;
-    teamId?: string;
-    presetTitle?: string;
-    presetBody?: string;
-  }>();
-  const user = useRequiredUser();
+  const authorityResolved = !isLoading && (authMode !== 'supabase' || accountStatus === 'ready');
+  if (!user || !canCreateAnyAnnouncement(user)) return <Screen>
+    <Stack.Screen options={{ title: 'Announcement' }} />
+    <StatePanel headingLevel={1} kind={authorityResolved ? 'empty' : 'loading'} icon="lock-closed-outline"
+      title={authorityResolved ? 'No permission' : 'Checking announcement permissions…'}
+      message={authorityResolved ? 'You do not have permission to create or edit announcements.' : undefined} />
+    <Button title="All announcements" variant="secondary" onPress={() => router.replace('/announcements')} />
+  </Screen>;
+  const draftRoute = params.id === undefined ? `new:${JSON.stringify([params.teamId, params.presetTitle, params.presetBody])}` : `edit:${String(params.id)}`;
+  return <AnnouncementForm key={`${authMode}:${user.profile.organisation_id}:${user.profile.id}:${draftRoute}:${announcementAuthorityKey(user)}`}
+    params={params} user={user} authorityResolved={authorityResolved} />;
+}
+
+function AnnouncementForm({ params, user, authorityResolved }: { params: Params; user: SessionUser; authorityResolved: boolean }) {
+  const router = useRouter();
   const data = useAppData();
   const showToast = useToast();
-
-  const existing = id ? data.announcements.find((a) => a.id === id) : undefined;
-  const editing = !!existing;
-
-  // Audience choices this user is allowed to post to.
-  const audienceOptions = [
-    ...(canCreateChurchAnnouncements(user)
-      ? [{ label: 'Whole church', value: CHURCH_WIDE, description: 'Everyone will see this' }]
-      : []),
-    ...data.teams
-      .filter((t) => canCreateTeamAnnouncements(user, t.id))
-      .map((t) => ({
-        label: `${t.name} team`,
-        value: t.id,
-        description: `Only ${t.name} members will see this`,
-      })),
-  ];
-
-  const [title, setTitle] = useState(existing?.title ?? presetTitle ?? '');
-  const [body, setBody] = useState(existing?.body ?? presetBody ?? '');
-  const [audience, setAudience] = useState<string | null>(
-    existing ? (existing.team_id ?? CHURCH_WIDE) : (presetTeamId ?? audienceOptions[0]?.value ?? null),
-  );
-  const [pinned, setPinned] = useState(existing?.pinned ?? false);
-  const [linkedEventId, setLinkedEventId] = useState<string | null>(
-    existing?.linked_event_id ?? null,
-  );
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  // One optional image per announcement — a live-Supabase Storage feature.
-  // Picks/removals are held as a draft and applied after the announcement
-  // itself saves; demo mode shows no image controls and never calls Storage.
-  const imagesEnabled = data.announcementsLive;
-  const { draft: imageDraft, picking, pickImage, markRemoved } = useAnnouncementImageDraft();
+  const editing = params.id !== undefined;
+  const existing = accessibleAnnouncements(user, data.announcements, data.archivedTeams).find((notice) => notice.id === params.id);
+  const options = announcementAudienceOptions(user, data.teams);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>('draft');
+  const [saved, setSaved] = useState<Announcement | null>(null);
+  const image = useAnnouncementImageDraft();
+  const submittedImage = useRef<AnnouncementImageDraft>({ kind: 'unchanged' });
+  const active = useRef(true);
+  const requestPending = useRef(false);
+  const imagePending = useRef(false);
+  const navigated = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const titleRef = useRef<TextInput>(null);
+  const bodyRef = useRef<TextInput>(null);
+  const positions = useRef<Record<Field, number>>({ title: 0, body: 0, audience: 0 });
+  const target = saved ?? existing;
+  const targetAllowed = !target || (canEditAnnouncement(user, target) && options.some((option) => option.value === (target.team_id ?? CHURCH_AUDIENCE)));
+  const allowed = targetAllowed && options.length > 0;
+  const current = useRef({ authorityResolved, allowed });
+  current.current = { authorityResolved, allowed };
+  const needsTeam = !!existing?.team_id || params.teamId !== undefined || !canCreateChurchAnnouncements(user);
+  const requestedTeam = target?.team_id ?? (typeof params.teamId === 'string' ? params.teamId : null);
+  const teamUnresolved = requestedTeam ? !options.some((option) => option.value === requestedTeam)
+    : !options.some((option) => option.value !== CHURCH_AUDIENCE);
+  const waitingForTeam = needsTeam && teamUnresolved && (data.teamsLoading || !!data.teamsError);
   const existingHasImage = isAnnouncementImagePath(existing?.image_url ?? null);
-  const showsImage =
-    imageDraft.kind === 'replace' || (imageDraft.kind === 'unchanged' && existingHasImage);
-  const displayImageUri =
-    imageDraft.kind === 'replace'
-      ? imageDraft.previewUri
-      : imageDraft.kind === 'unchanged'
-        ? data.getAnnouncementImageUri(existing)
-        : undefined;
+  const showsImage = image.draft.kind === 'replace' || (image.draft.kind === 'unchanged' && existingHasImage);
+  const imageUri = image.draft.kind === 'replace' ? image.draft.previewUri
+    : image.draft.kind === 'unchanged' ? data.getAnnouncementImageUri(existing) : undefined;
 
-  // Only events that haven't finished are offered for linking. An existing
-  // link to a now-past event stays choosable so editing never silently
-  // drops a valid link.
-  const linkableEvents = currentAndUpcomingEvents(data.events);
-  const linkedPastEvent =
-    linkedEventId && !linkableEvents.some((e) => e.id === linkedEventId)
-      ? data.events.find((e) => e.id === linkedEventId)
-      : undefined;
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => {
+    // A cold edit waits for its own row. Later shared-data refreshes keep the draft.
+    if (draft || !authorityResolved || waitingForTeam || (editing && !existing)) return;
+    setDraft(existing ? { title: existing.title, body: existing.body, audience: existing.team_id ?? CHURCH_AUDIENCE,
+      pinned: existing.pinned, linkedEventId: existing.linked_event_id } : {
+      title: typeof params.presetTitle === 'string' ? params.presetTitle : '',
+      body: typeof params.presetBody === 'string' ? params.presetBody : '',
+      audience: params.teamId !== undefined ? options.find((option) => option.value === params.teamId)?.value ?? null : options[0]?.value ?? null,
+      pinned: false, linkedEventId: null,
+    });
+  }, [draft, authorityResolved, waitingForTeam, editing, existing, params, options]);
 
-  const allowed = editing ? canEditAnnouncement(user, existing) : audienceOptions.length > 0;
-  if (!allowed) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ title: 'Announcements' }} />
-        <EmptyState
-          icon="lock-closed-outline"
-          title="No permission"
-          message="You do not have permission to do that."
-        />
-      </Screen>
-    );
-  }
-
-  const handleSave = async () => {
-    if (saving) return; // no duplicate submissions
-    if (!title.trim() || !body.trim() || !audience) {
-      setError('Please add a title, a message, and choose who should see it.');
+  const { setAnnouncementImage, removeAnnouncementImage } = data;
+  useEffect(() => {
+    if (!authorityResolved || !allowed || !saved || navigated.current) return;
+    if (step === 'complete' && !navigated.current) {
+      navigated.current = true;
+      showToast(editing ? 'Announcement updated.' : 'Announcement posted.');
+      if (router.canGoBack()) router.back(); else router.replace({ pathname: '/announcements/[id]', params: { id: saved.id } });
       return;
     }
-    // No image_url here: on create it starts null (the image uploads after
-    // the row exists), and on update the dedicated image actions own it.
-    const record = {
-      title: title.trim(),
-      body: body.trim(),
-      team_id: audience === CHURCH_WIDE ? null : audience,
-      audience: (audience === CHURCH_WIDE ? 'church' : 'team') as 'church' | 'team',
-      pinned,
-      // In live mode the picker lists live events, so this is already a real
-      // event UUID (or null); in demo mode it is a local mock event id.
-      linked_event_id: linkedEventId,
-      created_by: existing?.created_by ?? user.profile.id,
-    };
-    setError(null);
-    setSaving(true);
-    try {
-      let savedId: string;
-      if (existing) {
-        await data.updateAnnouncement(existing.id, record);
-        savedId = existing.id;
-      } else {
-        const created = await data.addAnnouncement({ ...record, image_url: null });
-        savedId = created.id;
-      }
-
-      // Apply the pending image change now the announcement row exists. The
-      // text is already saved, so an image failure never rolls it back — the
-      // person hears what happened and can retry from Edit Announcement.
-      const wantsImageChange =
-        imagesEnabled &&
-        (imageDraft.kind === 'replace' || (imageDraft.kind === 'remove' && existingHasImage));
-      if (wantsImageChange) {
-        try {
-          if (imageDraft.kind === 'replace') {
-            await data.setAnnouncementImage(savedId, imageDraft.file);
-          } else {
-            await data.removeAnnouncementImage(savedId);
-          }
-        } catch (imageError) {
-          const reason = imageError instanceof Error ? imageError.message : '';
-          showToast(
-            (editing
-              ? `Your changes were saved, but the image change didn’t go through. ${reason}`
-              : `Your announcement was posted, but the image wasn’t added. ${reason}`
-            ).trim(),
-            'error',
-          );
-          router.back();
-          return;
+    if (step !== 'image-pending' || imagePending.current) return;
+    imagePending.current = true;
+    setStep('image-saving');
+    void (async () => {
+      try {
+        const change = submittedImage.current;
+        if (change.kind === 'replace') await setAnnouncementImage(saved.id, change.file);
+        else if (change.kind === 'remove') await removeAnnouncementImage(saved.id);
+        if (active.current) { setImageError(null); setStep('complete'); }
+      } catch (error) {
+        if (active.current) {
+          setImageError(error instanceof Error ? error.message : 'Please try the image change again.');
+          setStep('image-failed');
         }
-      }
+      } finally { imagePending.current = false; }
+    })();
+  }, [authorityResolved, allowed, saved, step, editing, router, showToast, setAnnouncementImage, removeAnnouncementImage]);
+  useEffect(() => { if (saveError || imageError) scrollRef.current?.scrollTo({ y: 0, animated: false }); }, [saveError, imageError]);
 
-      showToast(editing ? 'Announcement updated.' : 'Announcement posted.');
-      router.back();
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : 'Your changes could not be saved. Please try again.',
-      );
-      setSaving(false);
+  const cancel = () => router.canGoBack() ? router.back() : router.replace('/announcements');
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    value: draft, blocked: step === 'saving' || step === 'image-saving' || image.picking, saved: saved !== null, uncertain: saveError !== null,
+    message: 'Your announcement changes will not be saved.', onDiscard: cancel, extraChanges: image.draft.kind === 'replace' || (image.draft.kind === 'remove' && existingHasImage),
+  });
+  const change = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((previous) => previous ? { ...previous, [key]: value } : previous);
+  const focusField = (field: Field) => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, positions.current[field] - spacing.md), animated: false });
+    if (field === 'title') titleRef.current?.focus();
+    if (field === 'body') bodyRef.current?.focus();
+  };
+  const save = async () => {
+    if (!draft || !current.current.authorityResolved || !current.current.allowed || requestPending.current || saved || image.picking || (editing && !existing)) return;
+    const errors: Partial<Record<Field, string>> = {};
+    if (!draft.title.trim()) errors.title = 'Add a title.';
+    if (!draft.body.trim()) errors.body = 'Write a message.';
+    if (!options.some((option) => option.value === draft.audience)) errors.audience = 'Choose an audience you can post to.';
+    setFieldErrors(errors);
+    setSaveError(null);
+    if (Object.keys(errors).length) {
+      requestAnimationFrame(() => { if (active.current) focusField(Object.keys(errors)[0] as Field); });
+      return;
     }
+    requestPending.current = true;
+    submittedImage.current = data.announcementsLive && (image.draft.kind === 'replace' || (image.draft.kind === 'remove' && existingHasImage))
+      ? image.draft : { kind: 'unchanged' };
+    setStep('saving');
+    const record = { title: draft.title.trim(), body: draft.body.trim(), team_id: draft.audience === CHURCH_AUDIENCE ? null : draft.audience,
+      audience: (draft.audience === CHURCH_AUDIENCE ? 'church' : 'team') as 'church' | 'team', pinned: draft.pinned,
+      linked_event_id: draft.linkedEventId, created_by: existing?.created_by ?? user.profile.id };
+    try {
+      let result: Announcement;
+      if (existing) { await data.updateAnnouncement(existing.id, record); result = { ...existing, ...record }; }
+      else result = await data.addAnnouncement({ ...record, image_url: null });
+      if (!active.current) return;
+      // A successful text write is remembered before any photo work. Image retry
+      // never calls add/update again and therefore never repeats the create push.
+      setSaved(result);
+      setStep(submittedImage.current.kind === 'unchanged' ? 'complete' : 'image-pending');
+    } catch (error) {
+      if (active.current) { setSaveError(error instanceof Error ? error.message : 'Your announcement could not be saved. Please try again.'); setStep('draft'); }
+    } finally { requestPending.current = false; }
   };
 
-  return (
-    <Screen keyboard>
-      <Stack.Screen options={{ title: editing ? 'Edit Announcement' : 'New Announcement' }} />
-      <TextField
-        label="Title"
-        placeholder="e.g. Sunday Service This Week"
-        value={title}
-        onChangeText={setTitle}
-      />
-      <TextField
-        label="Message"
-        placeholder="Write your announcement here…"
-        value={body}
-        onChangeText={setBody}
-        multiline
-      />
-      <SelectField
-        label="Who should see this?"
-        value={audience}
-        options={audienceOptions}
-        onChange={setAudience}
-      />
-      {/* Events are live alongside announcements now, so the picker works in
-          both modes: live event UUIDs in live mode, mock ids in demo mode. */}
-      <SelectField
-        label="Linked event (optional)"
-        placeholder="No linked event"
-        value={linkedEventId ?? 'none'}
-        options={[
-          { label: 'No linked event', value: 'none' },
-          ...(linkedPastEvent
-            ? [{ label: `${linkedPastEvent.title} (finished)`, value: linkedPastEvent.id }]
-            : []),
-          ...linkableEvents.map((e) => ({ label: e.title, value: e.id })),
-        ]}
-        onChange={(v) => setLinkedEventId(v === 'none' ? null : v)}
-      />
+  const screenTitle = editing ? 'Edit announcement' : 'New announcement';
+  const waitingForAuthority = !authorityResolved || waitingForTeam;
+  if (saved && (waitingForAuthority || allowed)) return <Screen scrollRef={scrollRef} footer={waitingForAuthority ?
+    <Button title="Close" variant="secondary" onPress={() => { navigated.current = true; cancel(); }} />
+    : step === 'image-failed' ? <>
+      <Button title="Try image change again" icon="image-outline" onPress={() => { if (current.current.allowed && current.current.authorityResolved) setStep('image-pending'); }} />
+      <Button title="View announcement" variant="secondary" onPress={() => router.replace({ pathname: '/announcements/[id]', params: { id: saved.id } })} />
+    </> : undefined}>
+    <Stack.Screen options={{ headerLeft, title: 'Announcement saved' }} />
+    <PageHeading title={editing ? 'Changes saved' : 'Announcement posted'} description="Your title, message and audience are saved." />
+    {imageError ? <StatePanel compact kind="error" title={submittedImage.current.kind === 'remove' ? "Image wasn't removed" : "Image wasn't saved"}
+      message={`${imageError} ${waitingForAuthority ? 'You can close and change the image later.' : 'You can retry now or view your announcement and change the image later.'}`} /> : null}
+    {waitingForAuthority ? <>
+      <StatePanel compact kind={!authorityResolved || data.teamsLoading ? 'loading' : 'error'}
+        title={!authorityResolved ? 'Checking announcement permissions…' : data.teamsLoading ? 'Loading announcement audiences…' : "Couldn't load announcement audiences"}
+        message={authorityResolved && !data.teamsLoading ? data.teamsError ?? undefined : undefined}
+        action={authorityResolved && !data.teamsLoading ? { label: 'Retry teams', onPress: () => void data.refreshTeams() } : undefined} />
+      <AppText tone="secondary">{step === 'complete' ? 'You can close this screen or wait to continue.'
+        : step === 'image-saving' ? 'The image change is still in progress.'
+          : step === 'image-failed' ? 'The image change is still unsaved.'
+            : 'The image change has not been saved yet. It will continue when this check is complete.'}</AppText>
+    </> : !imageError ? <StatePanel compact kind="loading" title={step === 'complete' ? 'Finishing up…' : 'Saving the image change…'} /> : null}
+    <AppText variant="heading" headingLevel={2}>{saved.title}</AppText>
+    {submittedImage.current.kind === 'replace' ? <AnnouncementImage uri={submittedImage.current.previewUri} height={180} presentation="full" accessibilityLabel="Selected announcement image" /> : null}
+  </Screen>;
+  if (!authorityResolved) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} />
+    <StatePanel headingLevel={1} kind="loading" title="Checking announcement permissions…" />
+    <Button ref={exitRef} title="Cancel" variant="secondary" onPress={() => requestExit()} />
+  </Screen>;
+  if (editing && !existing && !saved) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} />
+    {data.announcementsLoading ? <StatePanel headingLevel={1} kind="loading" title="Loading announcement…" />
+      : data.announcementsError ? <StatePanel headingLevel={1} kind="error" title="Couldn't load this announcement" message={data.announcementsError}
+        action={{ label: 'Retry announcement', onPress: () => void data.refreshAnnouncements() }} />
+        : <StatePanel headingLevel={1} title="Announcement unavailable" message="This announcement may have been removed or is not available in your current church." />}
+    <Button title="All announcements" variant="secondary" onPress={() => router.replace('/announcements')} />
+  </Screen>;
+  if (waitingForTeam) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} />
+    <StatePanel headingLevel={1} kind={data.teamsLoading ? 'loading' : 'error'} title={data.teamsLoading ? 'Loading announcement audiences…' : "Couldn't load announcement audiences"}
+      message={data.teamsLoading ? undefined : data.teamsError ?? undefined}
+      action={data.teamsLoading ? undefined : { label: 'Retry teams', onPress: () => void data.refreshTeams() }} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" onPress={() => requestExit()} />
+  </Screen>;
+  if (!allowed) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} />
+    <StatePanel headingLevel={1} title="No permission" icon="lock-closed-outline" message="You can no longer manage this announcement or its team is unavailable." />
+    <Button title="All announcements" variant="secondary" onPress={() => router.replace('/announcements')} />
+  </Screen>;
+  if (!draft) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} /><StatePanel headingLevel={1} kind="loading" title="Preparing announcement…" /></Screen>;
 
-      <Card style={styles.toggleCard}>
-        <View style={styles.toggleRow}>
-          <View style={{ flex: 1 }}>
-            <AppText variant="bodyBold">Pin this announcement</AppText>
-            <AppText variant="small" tone="secondary">
-              Pinned announcements stay at the top of the list.
-            </AppText>
-          </View>
-          <Switch
-            value={pinned}
-            onValueChange={setPinned}
-            trackColor={{ true: colors.primary, false: colors.borderStrong }}
-            accessibilityLabel="Pin this announcement"
-          />
-        </View>
-      </Card>
-
-      {imagesEnabled ? (
-        <Card>
-          <View>
-            <AppText variant="bodyBold">Image (optional)</AppText>
-            <AppText variant="small" tone="secondary">
-              Add a photo to show with this announcement.
-            </AppText>
-          </View>
-          <AnnouncementImage uri={displayImageUri} height={160} />
-          <View style={styles.imageActions}>
-            <Button
-              title={showsImage ? 'Change image' : 'Add image'}
-              variant="secondary"
-              icon="image-outline"
-              onPress={() => void pickImage()}
-              loading={picking}
-              disabled={saving}
-              accessibilityHint="Choose an image from your photos"
-            />
-            {showsImage ? (
-              <Button
-                title="Remove image"
-                variant="ghost"
-                icon="trash-outline"
-                onPress={markRemoved}
-                disabled={saving || picking}
-                accessibilityHint="The announcement will show no image after saving"
-              />
-            ) : null}
-          </View>
-        </Card>
-      ) : null}
-
-      {error ? (
-        <AppText tone="danger" style={styles.error}>
-          {error}
-        </AppText>
-      ) : null}
-
-      <View style={styles.actions}>
-        <Button
-          title={editing ? 'Save Changes' : 'Post Announcement'}
-          icon="checkmark-outline"
-          loading={saving}
-          onPress={() => void handleSave()}
-        />
-        <Button
-          title="Cancel"
-          variant="secondary"
-          disabled={saving}
-          onPress={() => router.back()}
-        />
-      </View>
-    </Screen>
-  );
+  const busy = step !== 'draft';
+  const optionalSummary = [draft.pinned ? 'Pinned' : null, draft.linkedEventId ? 'Event linked' : null, showsImage ? 'Image selected' : null].filter(Boolean).join(' · ');
+  return <Screen keyboard scrollRef={scrollRef} footer={<View style={styles.actions}>
+    <Button ref={exitRef} title="Cancel" variant="secondary" disabled={busy || image.picking} onPress={() => requestExit()} style={styles.cancel} />
+    <Button title={editing ? 'Save changes' : 'Post announcement'} loading={busy} disabled={image.picking} onPress={() => void save()} style={styles.save} />
+  </View>}>
+    <Stack.Screen options={{ headerLeft, title: screenTitle }} />
+    <PageHeading title={screenTitle} description={editing ? undefined : 'Share an update with your church or team.'} />
+    {saveError ? <StatePanel compact kind="error" title={editing ? 'Couldn’t save changes' : 'Couldn’t post announcement'} message={saveError} /> : null}
+    {data.announcementsError && editing ? <StatePanel compact kind="error" title="Couldn't refresh this announcement" message={data.announcementsError}
+      action={{ label: 'Retry announcement', onPress: () => void data.refreshAnnouncements() }} /> : null}
+    <FormErrorSummary errors={Object.entries(fieldErrors).filter(([, message]) => !!message).map(([key, message]) => ({ key, message: message!, onPress: () => focusField(key as Field) }))} />
+    <View onLayout={(event) => { positions.current.title = event.nativeEvent.layout.y; }}>
+      <TextField ref={titleRef} label="Title" placeholder="What is the update?" value={draft.title} editable={!busy}
+        onChangeText={(value) => { change('title', value); setFieldErrors((errors) => ({ ...errors, title: undefined })); }} error={fieldErrors.title}
+        returnKeyType="next" onSubmitEditing={() => bodyRef.current?.focus()} />
+    </View>
+    <View onLayout={(event) => { positions.current.body = event.nativeEvent.layout.y; }}>
+      <TextField ref={bodyRef} label="Message" placeholder="What should people know?" value={draft.body} multiline editable={!busy}
+        onChangeText={(value) => { change('body', value); setFieldErrors((errors) => ({ ...errors, body: undefined })); }} error={fieldErrors.body} />
+    </View>
+    <View onLayout={(event) => { positions.current.audience = event.nativeEvent.layout.y; }}>
+      <SelectField label="Who should see this?" value={draft.audience} options={options} disabled={busy} searchable={options.length > 7} searchPlaceholder="Team name"
+        onChange={(value) => { change('audience', value); setFieldErrors((errors) => ({ ...errors, audience: undefined })); }} error={fieldErrors.audience}
+        helper={params.teamId !== undefined && !draft.audience ? 'The requested team is unavailable. Choose an audience before posting.' : undefined} />
+    </View>
+    <AnnouncementOptions summary={optionalSummary} disabled={busy}>
+      <SelectField label="Linked event (optional)" value={draft.linkedEventId ?? 'none'}
+        options={announcementEventOptions(data.events, user.profile.organisation_id, draft.linkedEventId)} disabled={busy} searchable searchPlaceholder="Event title"
+        onChange={(value) => change('linkedEventId', value === 'none' ? null : value)} />
+      {data.eventsError ? <StatePanel compact kind="error" title="Couldn't refresh event choices" message="An existing event link will be kept unless you change it."
+        action={{ label: 'Retry events', onPress: () => void data.refreshEvents() }} /> : null}
+      <ListGroup><SwitchRow title="Pin this announcement" subtitle="Keep it at the top of announcements." value={draft.pinned}
+        disabled={busy} onValueChange={(value) => change('pinned', value)} /></ListGroup>
+      {data.announcementsLive ? <View style={styles.optional}>
+        <AppText variant="subheading" headingLevel={2}>Image (optional)</AppText>
+        <AppText variant="small" tone="secondary">One JPEG, PNG or WebP image, under 5 MB. The image changes when you save.</AppText>
+        <AnnouncementImage uri={imageUri} height={180} presentation="full" accessibilityLabel="Announcement image preview" />
+        {image.draft.kind === 'remove' && existingHasImage ? <AppText tone="secondary">The current image will be removed when you save.</AppText> : null}
+        <Button title={showsImage ? 'Change image' : 'Add image'} variant="secondary" icon="image-outline" loading={image.picking} disabled={busy} onPress={() => void image.pickImage()} />
+        {showsImage ? <Button title="Remove image" variant="ghost" icon="trash-outline" disabled={busy || image.picking} onPress={image.markRemoved} /> : null}
+      </View> : null}
+    </AnnouncementOptions>
+  </Screen>;
 }
 
 const styles = StyleSheet.create({
-  toggleCard: { gap: spacing.md },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  imageActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  error: { textAlign: 'center' },
-  actions: { gap: spacing.sm, marginTop: spacing.sm },
+  optional: { gap: spacing.md },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  cancel: { flexGrow: 1, flexBasis: 100 },
+  save: { flexGrow: 2, flexBasis: 170 },
 });

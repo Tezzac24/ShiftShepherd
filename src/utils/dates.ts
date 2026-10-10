@@ -109,8 +109,8 @@ export function isWithinNextDays(date: Date, days: number): boolean {
 }
 
 /** "Good morning" / "Good afternoon" / "Good evening" */
-export function greetingForNow(): string {
-  const h = new Date().getHours();
+export function greetingForNow(now = new Date()): string {
+  const h = now.getHours();
   if (h < 12) return 'Good morning';
   if (h < 18) return 'Good afternoon';
   return 'Good evening';

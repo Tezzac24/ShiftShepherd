@@ -1,183 +1,144 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { categoryColors, colors, spacing } from '../../../constants/theme';
+import { spacing } from '../../../constants/theme';
+import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
-import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
-import { Card } from '../../components/Card';
 import { useConfirm } from '../../components/ConfirmDialog';
-import { EmptyState } from '../../components/EmptyState';
+import { ListGroup } from '../../components/ListGroup';
+import { ListRow } from '../../components/ListRow';
+import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
+import { SectionHeader } from '../../components/SectionHeader';
+import { StatePanel } from '../../components/StatePanel';
 import { useToast } from '../../components/Toast';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { userName } from '../../lib/appData/selectors';
-import { useRequiredUser } from '../../lib/auth/AuthContext';
+import { useAuth } from '../../lib/auth/AuthContext';
 import { canManageEvents } from '../../lib/permissions';
-import { formatFullDate, formatTime } from '../../utils/dates';
-import { nextOccurrenceForEvent, recurrenceLabelForEvent } from '../../utils/recurrence';
+import { SessionUser } from '../../types';
+import { formatTime, parseDateKey } from '../../utils/dates';
+import { recurrenceLabelForEvent } from '../../utils/recurrence';
+import { eventDetailTimes } from './eventPresentation';
+import { fullScheduleDate, ScheduleDateMarker } from './ScheduleRows';
 
 export default function EventDetailScreen() {
+  const { id, occurrenceStart } = useLocalSearchParams<{ id: string | string[]; occurrenceStart?: string | string[] }>();
+  const { user, authMode, accountStatus, isLoading } = useAuth();
+  if (!user) return null;
+  return <EventDetail key={`${authMode}:${user.profile.organisation_id}:${user.profile.id}:${String(id)}:${user.orgRole}`}
+    id={typeof id === 'string' ? id : null} occurrenceStart={typeof occurrenceStart === 'string' ? occurrenceStart : undefined}
+    user={user} authorityResolved={!isLoading && (authMode !== 'supabase' || accountStatus === 'ready')} />;
+}
+
+function EventDetail({ id, occurrenceStart, user, authorityResolved }: {
+  id: string | null; occurrenceStart?: string; user: SessionUser; authorityResolved: boolean;
+}) {
   const router = useRouter();
-  const { id, occurrenceStart } = useLocalSearchParams<{ id: string; occurrenceStart?: string }>();
-  const user = useRequiredUser();
   const data = useAppData();
   const confirm = useConfirm();
   const showToast = useToast();
+  const [managing, setManaging] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleted, setDeleted] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const event = data.events.find((e) => e.id === id);
-
-  if (!event) {
-    return (
-      <Screen>
-        <Stack.Screen options={{ title: 'Event' }} />
-        {data.eventsLoading ? (
-          // Live mode: the events list may still be on its way from the server.
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <AppText tone="secondary">Loading event…</AppText>
-          </View>
-        ) : (
-          <EmptyState
-            icon="calendar-outline"
-            title="Event not found"
-            message="This event may have been removed."
-          />
-        )}
-      </Screen>
-    );
-  }
-
-  const category = data.categories.find((c) => c.id === event.category_id);
-  const cat = category ? categoryColors[category.name] : undefined;
-  const team = event.team_id ? data.teams.find((t) => t.id === event.team_id) : undefined;
-  // The route's occurrenceStart only says WHICH occurrence was opened. The
-  // event may have been edited since it was passed, so displayed times are
-  // always recomputed from the current event data — never from the raw param
-  // (a stale param previously kept showing the old time after an edit).
-  let start = new Date(event.start_time);
-  let end = new Date(event.end_time);
-  if (event.is_recurring) {
-    const fromDay = occurrenceStart ? new Date(occurrenceStart) : new Date();
-    if (!Number.isNaN(fromDay.getTime())) {
-      fromDay.setHours(0, 0, 0, 0);
-      const occurrence = nextOccurrenceForEvent(event, fromDay);
-      if (occurrence) {
-        start = new Date(occurrence.start_time);
-        end = new Date(occurrence.end_time);
-      }
-    }
-  }
-  const recurrenceLabel = recurrenceLabelForEvent(event);
+  const active = useRef(true);
+  const requestPending = useRef(false);
+  const navigated = useRef(false);
+  const manageRef = useRef<View>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const event = data.events.find((candidate) => candidate.id === id && candidate.organisation_id === user.profile.organisation_id);
+  const archivedTeam = !!event?.team_id && data.archivedTeams.some((team) => team.id === event.team_id && team.organisation_id === user.profile.organisation_id);
+  const allowed = !!event && canManageEvents(user) && !archivedTeam;
+  const current = useRef({ authorityResolved, allowed });
+  current.current = { authorityResolved, allowed };
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => {
+    if (!deleted || !authorityResolved || navigated.current) return;
+    navigated.current = true;
+    showToast('Event deleted.');
+    if (router.canGoBack()) router.back(); else router.replace('/(tabs)/calendar');
+  }, [deleted, authorityResolved, router, showToast]);
+  useEffect(() => { if (deleteError) scrollRef.current?.scrollTo({ y: 0, animated: false }); }, [deleteError]);
 
   const handleDelete = async () => {
-    if (deleting) return;
-    const ok = await confirm({
-      title: 'Delete event',
-      message: 'Are you sure you want to delete this event?',
-    });
-    if (!ok) return;
-    setDeleteError(null);
+    if (!current.current.authorityResolved || !current.current.allowed || !event || requestPending.current) return;
+    requestPending.current = true;
     setDeleting(true);
     try {
+      const ok = await confirm({ title: event.is_recurring ? 'Delete the whole series?' : 'Delete event?',
+        message: event.is_recurring ? `All dates in “${event.title}” will be removed, including this occurrence. This cannot be undone.`
+          : `“${event.title}” will be removed from the church schedule. This cannot be undone.`,
+        confirmLabel: event.is_recurring ? 'Delete series' : 'Delete event', destructive: true, returnFocusRef: manageRef });
+      if (!ok || !active.current || !current.current.allowed || !current.current.authorityResolved) return;
+      setDeleteError(null);
       await data.deleteEvent(event.id);
-      showToast('Event deleted.');
-      router.back();
+      if (active.current) setDeleted(true);
     } catch (error) {
-      setDeleteError(
-        error instanceof Error
-          ? error.message
-          : 'This event could not be deleted. Please try again.',
-      );
-      setDeleting(false);
-    }
+      if (active.current) setDeleteError(error instanceof Error ? error.message : 'This event could not be deleted. Please try again.');
+    } finally { requestPending.current = false; if (active.current) setDeleting(false); }
   };
 
-  return (
-    <Screen contentStyle={styles.contentGrow}>
-      <Stack.Screen options={{ title: 'Event' }} />
-      <Card>
-        {category ? <Badge label={category.name} bg={cat?.bg} fg={cat?.fg} /> : null}
-        <AppText variant="heading">{event.title}</AppText>
+  if (!authorityResolved || !event || deleted) return <Screen>
+    <Stack.Screen options={{ title: 'Event' }} />
+    {!authorityResolved || data.eventsLoading || deleted ? <StatePanel headingLevel={1} kind="loading" title={deleted ? 'Returning to the schedule…' : 'Loading event…'} />
+      : data.eventsError ? <StatePanel headingLevel={1} kind="error" title="Couldn't load this event" message={data.eventsError}
+        action={{ label: 'Retry event', onPress: () => void data.refreshEvents() }} />
+        : <StatePanel headingLevel={1} icon="calendar-outline" title="Event unavailable" message="This event may have been removed or is not available in your current church." />}
+    <Button title="Back to schedule" variant="secondary" onPress={() => router.replace('/(tabs)/calendar')} />
+  </Screen>;
 
-        <View style={styles.metaRow}>
-          <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
-          <AppText tone="secondary">{formatFullDate(start)}</AppText>
-        </View>
-        <View style={styles.metaRow}>
-          <Ionicons name="time-outline" size={20} color={colors.textSecondary} />
-          <AppText tone="secondary">
-            {formatTime(start.toISOString())} - {formatTime(end.toISOString())}
-          </AppText>
-        </View>
-        <View style={styles.metaRow}>
-          <Ionicons name="location-outline" size={20} color={colors.textSecondary} />
-          <AppText tone="secondary">{event.location}</AppText>
-        </View>
-        {team ? (
-          <View style={styles.metaRow}>
-            <Ionicons name="people-outline" size={20} color={colors.textSecondary} />
-            <AppText tone="secondary">Related team: {team.name}</AppText>
-          </View>
-        ) : null}
-        {recurrenceLabel ? (
-          <View style={styles.metaRow}>
-            <Ionicons name="repeat-outline" size={20} color={colors.textSecondary} />
-            <AppText tone="secondary">{recurrenceLabel}</AppText>
-          </View>
-        ) : null}
-      </Card>
+  const { start, end } = eventDetailTimes(event, occurrenceStart);
+  const category = data.categories.find((candidate) => candidate.id === event.category_id);
+  const team = data.teams.find((candidate) => candidate.id === event.team_id && candidate.organisation_id === user.profile.organisation_id && candidate.archived_at === null);
+  const recurrenceLabel = recurrenceLabelForEvent(event);
+  const editParams = { id: event.id, ...(occurrenceStart ? { occurrenceStart } : {}) };
 
-      <Card>
-        <AppText variant="subheading">About this event</AppText>
-        <AppText tone="secondary">{event.description}</AppText>
-        <AppText variant="small" tone="muted">
-          Added by {userName(data.users, event.created_by)}
-        </AppText>
-        {event.is_recurring ? (
-          <AppText variant="small" tone="muted">
-            Editing or deleting this event changes the recurring event series in this demo.
-          </AppText>
-        ) : null}
-      </Card>
-
-      {canManageEvents(user) ? (
-        <View style={styles.actions}>
-          {deleteError ? (
-            <AppText tone="danger" style={styles.deleteError}>
-              {deleteError}
-            </AppText>
-          ) : null}
-          <Button
-            title="Edit Event"
-            variant="secondary"
-            icon="create-outline"
-            disabled={deleting}
-            onPress={() => router.push({ pathname: '/events/edit', params: { id: event.id } })}
-          />
-          <Button
-            title="Delete Event"
-            variant="destructive"
-            icon="trash-outline"
-            loading={deleting}
-            onPress={() => void handleDelete()}
-          />
-        </View>
-      ) : null}
-    </Screen>
-  );
+  return <Screen scrollRef={scrollRef}>
+    <Stack.Screen options={{ title: 'Event' }} />
+    {deleteError ? <StatePanel compact kind="error" title="Event wasn't deleted" message={deleteError}
+      action={{ label: 'Try deleting again', onPress: () => void handleDelete() }} /> : null}
+    {data.eventsError ? <StatePanel compact kind="error" title="Couldn't refresh this event" message={data.eventsError}
+      action={{ label: 'Retry event', onPress: () => void data.refreshEvents() }} /> : null}
+    <View style={styles.context}>
+      <AppText variant="label" tone="primary" style={styles.contextLabel}>{category?.name ?? 'Church event'}</AppText>
+      {allowed ? <Button ref={manageRef} title="Manage" accessibilityLabel="Manage event" variant="ghost" icon="options-outline"
+        loading={deleting} onPress={() => setManaging(true)} /> : null}
+    </View>
+    <PageHeading title={event.title} />
+    <ListGroup>
+      <ListRow title={fullScheduleDate(start)} subtitle={`${formatTime(start.toISOString())} – ${formatTime(end.toISOString())}`}
+        leading={<ScheduleDateMarker date={start} label={fullScheduleDate(start)} />} />
+      <ListRow icon="location-outline" title="Where" subtitle={event.location} />
+    </ListGroup>
+    {recurrenceLabel ? <View style={styles.section}>
+      <AppText variant="bodyBold">{recurrenceLabel}</AppText>
+      {event.recurrence_end_date ? <AppText variant="small" tone="secondary">This series ends on {fullScheduleDate(parseDateKey(event.recurrence_end_date))}.</AppText> : null}
+    </View> : null}
+    <View style={styles.section}>
+      <SectionHeader title="About this event" />
+      <AppText>{event.description || 'No extra details have been added.'}</AppText>
+      {team ? <AppText tone="secondary">Related team: {team.name}</AppText> : null}
+      <AppText variant="small" tone="muted">Added by {userName(data.users, event.created_by)}</AppText>
+    </View>
+    {archivedTeam && canManageEvents(user) ? <StatePanel compact kind="info" title="Related team is archived"
+      message="A church admin must restore the team before this event can be edited or deleted." /> : null}
+    {allowed ? <>
+      <ActionSheet visible={managing} title="Manage event" description={event.is_recurring ? 'Changes apply to every date in this series.' : undefined}
+        onClose={() => setManaging(false)} returnFocusRef={manageRef} actions={[
+          { key: 'edit', label: event.is_recurring ? 'Edit series' : 'Edit event', icon: 'create-outline', disabled: deleting,
+            onPress: () => router.push({ pathname: '/events/edit', params: editParams }) },
+          { key: 'delete', label: event.is_recurring ? 'Delete series' : 'Delete event', icon: 'trash-outline', destructive: true, disabled: deleting,
+            onPress: () => void handleDelete() },
+        ]} />
+    </> : null}
+  </Screen>;
 }
 
 const styles = StyleSheet.create({
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  // Grows so the actions can anchor to the lower part of short screens;
-  // on long content they simply follow the content.
-  contentGrow: { flexGrow: 1 },
-  actions: { gap: spacing.sm, marginTop: 'auto', paddingTop: spacing.md },
-  loadingBox: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
-  deleteError: { textAlign: 'center' },
+  section: { gap: spacing.sm, marginVertical: spacing.sm },
+  context: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  contextLabel: { flexGrow: 1, flexShrink: 1, flexBasis: 160 },
 });

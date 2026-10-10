@@ -3,7 +3,8 @@ import { Image } from 'expo-image';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 
 /** Fixed-aspect chat photo with a calm, layout-stable failure fallback. */
@@ -20,6 +21,8 @@ export function ChatAttachmentImage({
   height?: number;
   accessibilityLabel?: string;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [uri]);
 
@@ -28,20 +31,25 @@ export function ChatAttachmentImage({
       <View
         style={[
           styles.fallback,
-          { width, height },
+          { width, maxWidth: '100%', aspectRatio: width / height },
           isMine ? styles.fallbackMine : styles.fallbackTheirs,
         ]}
         accessibilityLabel="Photo unavailable"
+        accessibilityRole="image"
+        accessible
       >
         <Ionicons
           name="image-outline"
           size={30}
-          color={isMine ? colors.white : colors.textMuted}
+          color={colors.textMuted}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          aria-hidden
         />
         <AppText
           variant="small"
-          style={isMine ? styles.fallbackTextMine : undefined}
-          tone={isMine ? undefined : 'muted'}
+          tone="muted"
         >
           Photo unavailable
         </AppText>
@@ -52,23 +60,22 @@ export function ChatAttachmentImage({
   return (
     <Image
       source={{ uri }}
-      style={{ width, height, borderRadius: radius.md }}
+      style={{ width, maxWidth: '100%', aspectRatio: width / height, borderRadius: radius.md }}
       contentFit="cover"
-      transition={150}
+      transition={0}
       onError={() => setFailed(true)}
       accessibilityLabel={accessibilityLabel}
     />
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   fallback: {
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
   },
-  fallbackMine: { backgroundColor: 'rgba(255,255,255,0.16)' },
-  fallbackTheirs: { backgroundColor: colors.background },
-  fallbackTextMine: { color: colors.white },
+  fallbackMine: { backgroundColor: colors.surface },
+  fallbackTheirs: { backgroundColor: colors.surfaceRaised },
 });

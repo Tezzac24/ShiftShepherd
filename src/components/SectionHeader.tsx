@@ -1,30 +1,24 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../constants/theme';
-import { AppText } from './AppText';
+import { spacing } from '../../constants/theme';
+import { AppText, HeadingLevel } from './AppText';
+import { Button } from './Button';
 
 interface SectionHeaderProps {
   title: string;
   actionLabel?: string;
+  actionAccessibilityLabel?: string;
   onAction?: () => void;
+  headingLevel?: HeadingLevel;
 }
 
-export function SectionHeader({ title, actionLabel, onAction }: SectionHeaderProps) {
+export function SectionHeader({ title, actionLabel, actionAccessibilityLabel, onAction, headingLevel = 2 }: SectionHeaderProps) {
   return (
     <View style={styles.row}>
-      <AppText variant="subheading">{title}</AppText>
+      <AppText variant="subheading" headingLevel={headingLevel} style={styles.title}>{title}</AppText>
       {actionLabel && onAction ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={actionLabel}
-          onPress={onAction}
-          hitSlop={12}
-        >
-          <AppText variant="label" style={{ color: colors.primary }}>
-            {actionLabel}
-          </AppText>
-        </Pressable>
+        <Button title={actionLabel} accessibilityLabel={actionAccessibilityLabel} variant="ghost" onPress={onAction} style={styles.action} />
       ) : null}
     </View>
   );
@@ -32,9 +26,9 @@ export function SectionHeader({ title, actionLabel, onAction }: SectionHeaderPro
 
 const styles = StyleSheet.create({
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.sm,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center',
+    columnGap: spacing.md, rowGap: spacing.xs, marginTop: spacing.sm,
   },
+  title: { flexGrow: 1, flexShrink: 1, flexBasis: 160 },
+  action: { maxWidth: '100%', paddingHorizontal: spacing.sm },
 });

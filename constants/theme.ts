@@ -1,37 +1,54 @@
 /**
  * Shift Shepherd design tokens.
  *
- * Direction: calm, clean, friendly, trustworthy — designed for older and
- * less technical users. Blue for primary actions, purple as a secondary
- * accent, red only for destructive actions and warnings.
+ * Mobile design authority: docs/mobile-redesign/design-brief.md.
+ * Deep teal, warm neutrals and readable green ink. Existing names remain
+ * compatible while screens progressively adopt the shared foundation.
  */
 
 export const colors = {
   // Brand
-  primary: '#2F5FC4',
-  primaryDark: '#24499A',
-  primarySoft: '#EAF0FB',
-  accent: '#6D5BC7',
-  accentSoft: '#F0EDFA',
-  danger: '#C0392B',
-  dangerSoft: '#FAECEA',
+  primary: '#155C52',
+  primaryDark: '#10483F',
+  primarySoft: '#E5F0EB',
+  onPrimary: '#FFFFFF',
+  accent: '#825238',
+  accentSoft: '#F5EDE5',
+  danger: '#AF2935',
+  dangerSoft: '#FFF0F0',
 
   // Semantic status (availability etc.)
-  success: '#2E7D52',
-  successSoft: '#E9F4EE',
-  warning: '#9A6B15',
-  warningSoft: '#FAF3E3',
+  success: '#216347',
+  successSoft: '#E7F3EB',
+  warning: '#815510',
+  warningSoft: '#FFF3DA',
 
   // Neutrals
-  background: '#F5F6FA',
+  background: '#F7F8F5',
+  surface: '#FFFFFF',
   card: '#FFFFFF',
-  text: '#1D2433',
-  textSecondary: '#535C6E',
-  textMuted: '#7A8294',
-  border: '#E4E7EE',
-  borderStrong: '#CDD3DE',
-  overlay: 'rgba(29, 36, 51, 0.45)',
+  surfaceRaised: '#EDF2EE',
+  text: '#182F2A',
+  textSecondary: '#465D55',
+  textMuted: '#596B63',
+  border: '#DCE4DD',
+  borderStrong: '#789082',
+  overlay: 'rgba(24, 47, 42, 0.45)',
   white: '#FFFFFF',
+};
+
+export type ThemeColors = typeof colors;
+
+/** Night-time surfaces with readable teal actions and semantic status colours. */
+export const darkColors: ThemeColors = {
+  primary: '#8CD5C4', primaryDark: '#B0E9DC', primarySoft: '#1B3932', onPrimary: '#102F27',
+  accent: '#E0B99E', accentSoft: '#392A23',
+  danger: '#FFABB1', dangerSoft: '#442328',
+  success: '#9CD8B3', successSoft: '#20382A',
+  warning: '#EAC579', warningSoft: '#3C311F',
+  background: '#101613', surface: '#1C2420', card: '#1C2420', surfaceRaised: '#29332D',
+  text: '#EEF4EF', textSecondary: '#C3CEC6', textMuted: '#ACBBB0',
+  border: '#3B4940', borderStrong: '#82988A', overlay: 'rgba(0, 0, 0, 0.65)', white: '#FFFFFF',
 };
 
 export const spacing = {
@@ -39,34 +56,43 @@ export const spacing = {
   sm: 8,
   md: 12,
   lg: 16,
+  gutter: 20,
   xl: 24,
   xxl: 32,
+  xxxl: 40,
 };
 
 export const radius = {
   sm: 10,
   md: 14,
-  lg: 18,
+  lg: 20,
   pill: 999,
 };
 
 /** Large, readable typography for mixed-confidence users. */
 export const type = {
-  title: { fontSize: 28, lineHeight: 34, fontWeight: '700' as const },
-  heading: { fontSize: 22, lineHeight: 28, fontWeight: '700' as const },
-  subheading: { fontSize: 18, lineHeight: 24, fontWeight: '600' as const },
-  body: { fontSize: 17, lineHeight: 24, fontWeight: '400' as const },
-  bodyBold: { fontSize: 17, lineHeight: 24, fontWeight: '600' as const },
-  label: { fontSize: 15, lineHeight: 20, fontWeight: '600' as const },
-  small: { fontSize: 14, lineHeight: 19, fontWeight: '400' as const },
+  display: { fontSize: 32, lineHeight: 39, fontWeight: '700' as const },
+  title: { fontSize: 28, lineHeight: 35, fontWeight: '700' as const },
+  heading: { fontSize: 22, lineHeight: 29, fontWeight: '700' as const },
+  subheading: { fontSize: 19, lineHeight: 26, fontWeight: '600' as const },
+  body: { fontSize: 17, lineHeight: 26, fontWeight: '400' as const },
+  bodyBold: { fontSize: 17, lineHeight: 26, fontWeight: '600' as const },
+  bodyEmphasis: { fontSize: 17, lineHeight: 26, fontWeight: '600' as const },
+  label: { fontSize: 16, lineHeight: 22, fontWeight: '600' as const },
+  small: { fontSize: 14, lineHeight: 21, fontWeight: '400' as const },
+  caption: { fontSize: 14, lineHeight: 21, fontWeight: '400' as const },
+  secondary: { fontSize: 14, lineHeight: 21, fontWeight: '400' as const },
+  navigation: { fontSize: 13, lineHeight: 18, fontWeight: '600' as const },
 };
 
 /** Minimum comfortable touch target. */
 export const touchTarget = 52;
+/** Seven columns must fit a phone; date grids are the only 44-point exception. */
+export const calendarTouchTarget = 44;
 
 export const shadow = {
   card: {
-    shadowColor: '#1D2433',
+    shadowColor: colors.text,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
@@ -74,18 +100,24 @@ export const shadow = {
   },
 };
 
-/** Colours for event category badges (calm blue/purple family). */
+/** All category labels use the same contrast-checked semantic palette. */
 export const categoryColors: Record<string, { bg: string; fg: string }> = {
-  'Service': { bg: '#EAF0FB', fg: '#2F5FC4' },
-  'Rehearsal': { bg: '#F0EDFA', fg: '#6D5BC7' },
-  'Prayer Meeting': { bg: '#E9F4EE', fg: '#2E7D52' },
-  'Bible Study': { bg: '#FAF3E3', fg: '#9A6B15' },
-  'Team Meeting': { bg: '#EAF0FB', fg: '#24499A' },
-  'Youth Event': { bg: '#F0EDFA', fg: '#8A4FB0' },
-  "Children's Ministry": { bg: '#FAF3E3', fg: '#B05D2A' },
-  'Outreach': { bg: '#E9F4EE', fg: '#1F6B5C' },
-  'Special Event': { bg: '#F0EDFA', fg: '#6D5BC7' },
-  'Conference': { bg: '#EAF0FB', fg: '#2F5FC4' },
-  'Social Event': { bg: '#E9F4EE', fg: '#2E7D52' },
-  'Other': { bg: '#EEF0F5', fg: '#535C6E' },
+  'Service': { bg: colors.primarySoft, fg: colors.primary },
+  'Rehearsal': { bg: colors.accentSoft, fg: colors.accent },
+  'Prayer Meeting': { bg: colors.successSoft, fg: colors.success },
+  'Bible Study': { bg: colors.warningSoft, fg: colors.warning },
+  'Team Meeting': { bg: colors.primarySoft, fg: colors.primaryDark },
+  'Youth Event': { bg: colors.accentSoft, fg: colors.accent },
+  "Children's Ministry": { bg: colors.warningSoft, fg: colors.warning },
+  'Outreach': { bg: colors.successSoft, fg: colors.success },
+  'Special Event': { bg: colors.accentSoft, fg: colors.accent },
+  'Conference': { bg: colors.primarySoft, fg: colors.primary },
+  'Social Event': { bg: colors.successSoft, fg: colors.success },
+  'Other': { bg: colors.surfaceRaised, fg: colors.textSecondary },
 };
+
+/** White initials meet text contrast on every fallback colour. */
+export const avatarColors = [
+  colors.primary, colors.accent, colors.success,
+  colors.primaryDark, colors.warning, colors.textSecondary,
+];

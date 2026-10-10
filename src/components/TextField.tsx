@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { forwardRef, useState } from 'react';
 import {
   StyleProp,
   StyleSheet,
+  TextInput,
   TextInputProps,
+  useWindowDimensions,
   View,
   ViewStyle,
 } from 'react-native';
-import { TextInput as PaperTextInput } from 'react-native-paper';
 
-import { colors, radius, spacing, touchTarget, type } from '../../constants/theme';
+import { radius, spacing, touchTarget, type, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 
-interface TextFieldProps extends TextInputProps {
+export interface TextFieldProps extends TextInputProps {
   label?: string;
   helper?: string;
   error?: string;
@@ -19,97 +21,79 @@ interface TextFieldProps extends TextInputProps {
   containerStyle?: StyleProp<ViewStyle>;
 }
 
-export function TextField({
-  label,
-  helper,
-  error,
-  multiline,
-  style,
-  containerStyle,
-  disabled,
-  editable,
-  accessibilityLabel,
-  accessibilityState,
-  cursorColor,
-  placeholderTextColor,
-  selectionColor,
-  ...rest
-}: TextFieldProps) {
-  const isDisabled = !!disabled || editable === false;
-  const paperCursorColor = typeof cursorColor === 'string' ? cursorColor : colors.primary;
-  const paperPlaceholderColor =
-    typeof placeholderTextColor === 'string' ? placeholderTextColor : colors.textMuted;
-  const paperSelectionColor =
-    typeof selectionColor === 'string' ? selectionColor : colors.primarySoft;
+/** Native ref supports focus, selection and measurement for form recovery. */
+export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField({
+  label, helper, error, multiline, style, containerStyle, disabled, editable,
+  accessibilityLabel, accessibilityHint, accessibilityState,
+  cursorColor, placeholderTextColor,
+  selectionColor, onFocus, onBlur, ...rest
+}, ref) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
+  const [focused, setFocused] = useState(false);
+  const { fontScale } = useWindowDimensions();
+  const isDisabled = !!disabled || editable === false || !!accessibilityState?.disabled || !!rest['aria-disabled'];
+  const busy = accessibilityState?.busy ?? rest['aria-busy'];
+  const hint = [accessibilityHint, error ?? helper].filter(Boolean).join('. ');
 
   return (
     <View style={[styles.wrap, containerStyle]}>
       {label ? <AppText variant="label">{label}</AppText> : null}
-      <PaperTextInput
-        mode="outlined"
+      <TextInput
+        {...rest}
+        ref={ref}
+        allowFontScaling={rest.allowFontScaling ?? true}
         accessibilityLabel={accessibilityLabel ?? label}
+        accessibilityHint={hint || undefined}
         accessibilityState={{
           ...accessibilityState,
-          disabled: isDisabled || accessibilityState?.disabled,
+          disabled: isDisabled, busy,
         }}
-        activeOutlineColor={error ? colors.danger : colors.primary}
-        cursorColor={paperCursorColor}
-        dense={false}
-        disabled={isDisabled}
+        aria-disabled={isDisabled}
+        aria-busy={busy}
         editable={!isDisabled}
-        error={!!error}
         multiline={multiline}
-        outlineColor={error ? colors.danger : colors.borderStrong}
-        placeholderTextColor={paperPlaceholderColor}
-        selectionColor={paperSelectionColor}
-        textColor={colors.text}
-        contentStyle={[styles.content, multiline && styles.multilineContent]}
-        outlineStyle={[styles.outline, error ? styles.inputError : null]}
+        cursorColor={cursorColor ?? colors.primary}
+        placeholderTextColor={placeholderTextColor ?? colors.textMuted}
+        selectionColor={selectionColor ?? colors.primarySoft}
+        onFocus={(event) => { setFocused(true); onFocus?.(event); }}
+        onBlur={(event) => { setFocused(false); onBlur?.(event); }}
         style={[
           styles.input,
+          { minHeight: Math.max(touchTarget, type.body.lineHeight * fontScale + spacing.md * 2) },
           multiline && styles.multiline,
-          isDisabled ? styles.disabled : null,
+          focused && styles.focused,
+          isDisabled && styles.disabled,
           style,
+          error ? styles.inputError : null,
         ]}
-        {...rest}
       />
       {error ? (
-        <AppText variant="small" tone="danger" accessibilityLiveRegion="polite">
+        <AppText variant="small" tone="danger" accessibilityRole="alert" accessibilityLiveRegion="polite">
           {error}
         </AppText>
       ) : helper ? (
-        <AppText variant="small" tone="muted">
-          {helper}
-        </AppText>
+        <AppText variant="small" tone="secondary">{helper}</AppText>
       ) : null}
     </View>
   );
-}
+});
 
-const styles = StyleSheet.create({
-  wrap: { gap: spacing.xs },
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
+  wrap: { gap: spacing.sm },
   input: {
-    minHeight: touchTarget,
-    backgroundColor: colors.card,
-    fontSize: type.body.fontSize,
-  },
-  content: {
+    ...type.body,
     color: colors.text,
-    fontSize: type.body.fontSize,
-    lineHeight: type.body.lineHeight,
-    paddingHorizontal: spacing.md,
-  },
-  outline: {
+    minHeight: touchTarget,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderStrong,
     borderRadius: radius.md,
     borderWidth: 1.5,
-  },
-  multiline: {
-    minHeight: 120,
-  },
-  multilineContent: {
-    textAlignVertical: 'top',
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
   },
+  multiline: { minHeight: 120, textAlignVertical: 'top' },
+  focused: { borderColor: colors.primary, borderWidth: 2 },
   inputError: { borderColor: colors.danger },
-  disabled: { opacity: 0.55 },
+  disabled: { backgroundColor: colors.surfaceRaised, color: colors.textSecondary },
 });
