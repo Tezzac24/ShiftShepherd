@@ -3,8 +3,9 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
 
-import { spacing } from '../../../constants/theme';
-import { useThemeColors } from '@/src/lib/theme/AppearanceContext';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
+import { AnimatedDisclosure } from '../../components/AnimatedDisclosure';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
@@ -36,6 +37,7 @@ export default function SongDetailScreen() {
 
 function SongDetail({ scope, songId }: { scope: ChoirScopeValue; songId: string | null }) {
   const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const { team, user } = scope;
   const router = useRouter();
   const data = useAppData();
@@ -125,41 +127,57 @@ function SongDetail({ scope, songId }: { scope: ChoirScopeValue; songId: string 
 
   return <Screen>
     <Stack.Screen options={{ title: 'Song' }} />
-    <View style={styles.context}>
-      <AppText variant="label" tone="primary" style={styles.team}>{team.name}</AppText>
-      <Button ref={manageRef} title="Manage" accessibilityLabel="Manage song" variant="ghost" icon="options-outline" disabled={deleting}
-        onPress={() => { if (canAct()) setManaging(true); }} />
+    <View style={styles.hero}>
+      <View style={styles.context}>
+        <View style={styles.teamContext}>
+          <View style={styles.musicMark} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden>
+            <Ionicons name="musical-notes-outline" size={22} color={colors.primary} accessible={false} />
+          </View>
+          <AppText variant="label" tone="primary" style={styles.team}>{team.name}</AppText>
+        </View>
+        <Button ref={manageRef} title="Manage" accessibilityLabel="Manage song" variant="ghost" icon="options-outline" disabled={deleting}
+          onPress={() => { if (canAct()) setManaging(true); }} />
+      </View>
+      <View style={styles.songHeading}>
+        <AppText variant="display" headingLevel={1}>{song.title}</AppText>
+        {song.artist ? <AppText tone="secondary">{song.artist}</AppText> : null}
+      </View>
+      {song.tags.length ? <View style={styles.tags}>{song.tags.map((tag) =>
+        <View key={tag} style={styles.tag}><AppText variant="small" tone="primary">{tag}</AppText></View>
+      )}</View> : null}
     </View>
-    <PageHeading title={song.title} description={song.artist ?? undefined} />
-    {song.tags.length ? <AppText variant="small" tone="secondary">{song.tags.join(' · ')}</AppText> : null}
     {deleteError ? <StatePanel compact kind="error" title="Couldn't delete the song" message={deleteError}
       action={{ label: 'Retry delete', onPress: () => void remove() }} /> : null}
     {data.songsError ? <StatePanel compact kind="error" title="Couldn't refresh this song" message="This is the last version loaded."
       action={{ label: 'Retry songs', onPress: () => void data.refreshSongs() }} /> : null}
-    {song.links.length ? <View style={styles.links}>
-      <ListRow title="Music links" subtitle={`${song.links.length} ${song.links.length === 1 ? 'link' : 'links'}`}
-        icon={linksOpen ? 'remove-outline' : 'add-outline'} showChevron={false} disabled={deleting} accessibilityState={{ expanded: linksOpen }}
-        onPress={() => { if (canAct()) setLinksOpen((value) => !value); }} />
-      {linksOpen ? <><AppText variant="small" tone="secondary">These links open outside Shift Shepherd.</AppText>
-      <ListGroup>{song.links.map((link, index) => <View key={link.id}>
-        <ListRow icon={platformIcons[link.platform]} title={link.platform === 'Other' ? 'Open music link' : `Open on ${link.platform}`}
-          accessibilityLabel={`Open ${link.platform === 'Other' ? 'music' : link.platform} link ${index + 1}`}
-          disabled={!!openingLink || deleting} accessibilityState={{ busy: openingLink === link.id }}
-          showChevron={false} right={<Ionicons name="open-outline" size={22} color={colors.primary} accessible={false} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />}
-          onPress={() => void openLink(link.id)} />
-        {linkError === link.id ? <View style={styles.linkError}><StatePanel compact kind="error" title="Couldn't open this link"
-          message="Try again, or use Manage to check the saved music link."
-          action={{ label: 'Retry link', onPress: () => void openLink(link.id) }} /></View> : null}
-      </View>)}</ListGroup></> : null}
-    </View> : null}
-    <View style={styles.section}>
-      <SectionHeader title="Lyrics" />
-      <AppText selectable>{song.lyrics}</AppText>
+    <View style={styles.lyrics}>
+      <View style={styles.sectionTitle}>
+        <View style={styles.rule} />
+        <AppText variant="label" headingLevel={2} tone="primary">Lyrics</AppText>
+      </View>
+      <AppText selectable style={styles.lyricsText}>{song.lyrics}</AppText>
     </View>
-    {song.notes ? <View style={styles.section}><SectionHeader title="Notes" /><AppText>{song.notes}</AppText></View> : null}
+    {song.notes ? <View style={styles.notes}><SectionHeader title="Notes" /><AppText>{song.notes}</AppText></View> : null}
     <AppText variant="small" tone="muted" style={styles.attribution}>
       Added by {userName(data.users, song.added_by)} · {formatRelative(song.created_at)}
     </AppText>
+    {song.links.length ? <View style={styles.links}>
+      <AnimatedDisclosure title="Music links" summary={`${song.links.length} ${song.links.length === 1 ? 'link' : 'links'}`}
+        icon="musical-notes-outline" disabled={deleting} open={linksOpen}
+        onToggle={() => { if (canAct()) setLinksOpen((value) => !value); }}>
+        <AppText variant="small" tone="secondary">These links open outside Shift Shepherd.</AppText>
+        <ListGroup>{song.links.map((link, index) => <View key={link.id}>
+          <ListRow icon={platformIcons[link.platform]} title={link.platform === 'Other' ? 'Open music link' : `Open on ${link.platform}`}
+            accessibilityLabel={`Open ${link.platform === 'Other' ? 'music' : link.platform} link ${index + 1}`}
+            disabled={!!openingLink || deleting} accessibilityState={{ busy: openingLink === link.id }}
+            showChevron={false} right={<Ionicons name="open-outline" size={22} color={colors.primary} accessible={false} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />}
+            onPress={() => void openLink(link.id)} />
+          {linkError === link.id ? <View style={styles.linkError}><StatePanel compact kind="error" title="Couldn't open this link"
+            message="Try again, or use Manage to check the saved music link."
+            action={{ label: 'Retry link', onPress: () => void openLink(link.id) }} /></View> : null}
+        </View>)}</ListGroup>
+      </AnimatedDisclosure>
+    </View> : null}
     <ActionSheet visible={managing} title="Manage song" description={song.title} returnFocusRef={manageRef} onClose={() => setManaging(false)} actions={[
       { key: 'edit', label: 'Edit song', icon: 'create-outline', disabled: deleting, onPress: edit },
       { key: 'delete', label: 'Delete song', icon: 'trash-outline', destructive: true, disabled: deleting, onPress: () => void remove() },
@@ -167,11 +185,24 @@ function SongDetail({ scope, songId }: { scope: ChoirScopeValue; songId: string 
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
+  hero: { paddingHorizontal: spacing.xs, paddingBottom: spacing.xl,
+    borderBottomWidth: 1, borderBottomColor: colors.border, gap: spacing.lg },
   context: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
-  team: { flexGrow: 1, flexShrink: 1, flexBasis: 140 },
-  section: { gap: spacing.md, marginTop: spacing.md },
-  links: { gap: spacing.md },
+  teamContext: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexGrow: 1, flexShrink: 1, flexBasis: 150 },
+  team: { flexShrink: 1 },
+  musicMark: { width: 36, height: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border,
+    justifyContent: 'center', alignItems: 'center' },
+  songHeading: { gap: spacing.sm },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  tag: { borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
+  lyrics: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.gutter, gap: spacing.lg },
+  sectionTitle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  rule: { width: 20, height: 2, backgroundColor: colors.primary },
+  lyricsText: { lineHeight: 30 },
+  notes: { backgroundColor: colors.accentSoft, borderRadius: radius.md, padding: spacing.lg, gap: spacing.sm },
+  links: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   linkError: { padding: spacing.md },
-  attribution: { marginTop: spacing.lg },
+  attribution: { marginTop: spacing.sm },
 });

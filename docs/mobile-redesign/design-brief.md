@@ -189,9 +189,10 @@ main content. All choir members retain song editing. Date-specific praise and
 worship choices remain separately authorised. Selection/reorder controls have
 comfortable targets and save remains reachable after scrolling.
 The library uses grouped virtualized rows with dividers, full titles, artist and
-tags; avoid separate panels and link counts for every song. Above the lyrics,
+tags; avoid separate panels and link counts for every song. At the bottom of song detail, after lyrics, notes and attribution,
 provide a compact **Music links** disclosure with the existing labelled links
-and adjacent failure/retry when expanded. Keep it collapsed by default so long
+and adjacent failure/retry when expanded. Use the shared slide/fade disclosure
+and rotating chevron for music links and optional song-form sections. Keep it collapsed by default so long
 lyrics remain the main reading content without hiding access to listening links.
 Service selection uses the shared **Choose songs / Song order (N)** segments
 on the existing route, defaulting to Choose songs. Keep the switch reachable

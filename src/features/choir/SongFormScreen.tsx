@@ -8,7 +8,7 @@ import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { FormErrorSummary } from '../../components/FormErrorSummary';
 import { ListGroup } from '../../components/ListGroup';
-import { ListRow } from '../../components/ListRow';
+import { AnimatedDisclosure } from '../../components/AnimatedDisclosure';
 import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
 import { SelectField } from '../../components/SelectField';
@@ -184,29 +184,29 @@ function SongForm({ scope, songId, editing }: { scope: ChoirScopeValue; songId: 
       <TextField ref={lyricsRef} label="Lyrics" placeholder="Paste or type the lyrics here" value={draft.lyrics} onChangeText={(value) => change('lyrics', value)}
         error={errors.lyrics} editable={!saving} multiline style={styles.lyrics} />
     </View>
-    <ListRow title="Artist and notes (optional)" subtitle={detailsOpen ? undefined : [draft.artist, draft.notes.trim() ? 'Notes added' : null].filter(Boolean).join(' · ') || 'Artist, source or guidance for your team'}
-      icon={detailsOpen ? 'remove-outline' : 'add-outline'} showChevron={false} disabled={saving} accessibilityState={{ expanded: detailsOpen }}
-      onPress={() => { if (editable()) setDetailsOpen((value) => !value); }} />
-    {detailsOpen ? <View style={styles.fields}>
+    <AnimatedDisclosure title="Artist and notes (optional)" summary={detailsOpen ? undefined : [draft.artist, draft.notes.trim() ? 'Notes added' : null].filter(Boolean).join(' · ') || 'Artist, source or guidance for your team'}
+      icon="person-outline" disabled={saving} open={detailsOpen}
+      onToggle={() => { if (editable()) setDetailsOpen((value) => !value); }}>
+      <View style={styles.fields}>
       <TextField label="Artist / source (optional)" placeholder="e.g. John Newton" value={draft.artist} onChangeText={(value) => change('artist', value)} editable={!saving} />
       <TextField label="Notes (optional)" placeholder="e.g. Usually sung in G." value={draft.notes} onChangeText={(value) => change('notes', value)} editable={!saving} multiline />
-    </View> : null}
-    <ListRow title="Tags (optional)" subtitle={tagsOpen ? undefined : draft.tags.join(' · ') || 'Help people find this song'}
-      icon={tagsOpen ? 'remove-outline' : 'add-outline'} showChevron={false} disabled={saving} accessibilityState={{ expanded: tagsOpen }}
-      onPress={() => { if (editable()) setTagsOpen((value) => !value); }} />
-    {tagsOpen ? <View style={styles.tags}>{availableTags.map((tag) => {
+    </View></AnimatedDisclosure>
+    <AnimatedDisclosure title="Tags (optional)" summary={tagsOpen ? undefined : draft.tags.join(' · ') || 'Help people find this song'}
+      icon="pricetags-outline" disabled={saving} open={tagsOpen}
+      onToggle={() => { if (editable()) setTagsOpen((value) => !value); }}>
+      <View style={styles.tags}>{availableTags.map((tag) => {
       const checked = draft.tags.includes(tag);
       return <Pressable key={tag} accessibilityRole="checkbox" accessibilityLabel={`Tag: ${tag}`} accessibilityState={{ checked, disabled: saving }}
         aria-checked={checked} aria-disabled={saving} disabled={saving}
         onPress={() => change('tags', checked ? draft.tags.filter((item) => item !== tag) : [...draft.tags, tag])}
         style={({ pressed }) => [styles.tag, checked && styles.checkedTag, pressed && styles.pressed]}>
-        <AppText variant="label" tone={checked ? 'inverse' : 'primary'}>{checked ? '✓ ' : ''}{tag}</AppText>
+        <AppText variant="label" tone={checked ? 'onPrimary' : 'primary'}>{checked ? '✓ ' : ''}{tag}</AppText>
       </Pressable>;
-    })}</View> : null}
-    <ListRow title="Music links (optional)" subtitle={linksOpen ? undefined : draft.links.length ? `${draft.links.length} ${draft.links.length === 1 ? 'link' : 'links'}` : 'YouTube, Spotify, Apple Music or another link'}
-      icon={linksOpen ? 'remove-outline' : 'add-outline'} showChevron={false} disabled={saving} accessibilityState={{ expanded: linksOpen }}
-      onPress={() => { if (editable()) setLinksOpen((value) => !value); }} />
-    {linksOpen ? <View style={styles.fields}>
+    })}</View></AnimatedDisclosure>
+    <AnimatedDisclosure title="Music links (optional)" summary={linksOpen ? undefined : draft.links.length ? `${draft.links.length} ${draft.links.length === 1 ? 'link' : 'links'}` : 'YouTube, Spotify, Apple Music or another link'}
+      icon="musical-notes-outline" disabled={saving} open={linksOpen}
+      onToggle={() => { if (editable()) setLinksOpen((value) => !value); }}>
+      <View style={styles.fields}>
       {draft.links.map((link, index) => <ListGroup key={link.localId}><View style={styles.linkFields}>
         <AppText variant="subheading" headingLevel={2}>Link {index + 1}</AppText>
         <SelectField label={`Platform for link ${index + 1}`} value={link.platform} options={platforms.map((platform) => ({ label: platform, value: platform }))}
@@ -218,7 +218,7 @@ function SongForm({ scope, songId, editing }: { scope: ChoirScopeValue; songId: 
       </View></ListGroup>)}
       <Button title="Add music link" variant="secondary" icon="link-outline" disabled={saving}
         onPress={() => change('links', [...draft.links, { localId: `new:${nextLinkId.current++}`, platform: 'YouTube', url: '' }])} />
-    </View> : null}
+    </View></AnimatedDisclosure>
   </Screen>;
 }
 
