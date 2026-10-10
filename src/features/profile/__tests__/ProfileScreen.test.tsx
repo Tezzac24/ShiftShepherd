@@ -5,12 +5,15 @@ import { useAppData } from '../../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../../lib/auth/AuthContext';
 import { PROFILE_NAME_REQUIRED, PROFILE_NAME_TOO_LONG } from '../../../lib/supabase/services/profiles';
 import ProfileScreen from '../ProfileScreen';
+import EditProfileScreen from '../EditProfileScreen';
 import { useProfileAvatar } from '../useProfileAvatar';
 
 const mockToast = jest.fn();
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, replace: mockReplace }) }));
+const mockBack = jest.fn();
+jest.mock('expo-router/react-navigation', () => ({ usePreventRemove: jest.fn() }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => true }) }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
 jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn(), useRequiredUser: jest.fn() }));
@@ -58,7 +61,7 @@ beforeEach(() => {
   });
   mockUseProfileAvatar.mockReturnValue({
     canManagePhoto: true, hasPhoto: false, avatarUri: undefined, busy: null,
-    changePhoto: jest.fn(), removePhoto: jest.fn(),
+    changePhoto: jest.fn(), takePhoto: jest.fn(), removePhoto: jest.fn(),
   });
   mockUseAppData.mockReturnValue({
     teams: [], memberships: [], organisation: { id: 'org-live', name: 'Fallback church' },
@@ -73,13 +76,7 @@ function demo() {
 }
 
 function edit() {
-  const screen = render(<ProfileScreen />);
-  fireEvent.press(screen.getByRole('button', { name: 'Edit profile' }));
-  return screen;
-}
-
-function openChurchName(screen: ReturnType<typeof render>) {
-  fireEvent.press(screen.getByRole('button', { name: 'Different name at this church' }));
+  return render(<EditProfileScreen />);
 }
 
 describe('Profile identity and names', () => {
@@ -94,19 +91,16 @@ describe('Profile identity and names', () => {
     expect(screen.queryByTestId('profile-edit-form')).toBeNull();
   });
 
-  it('explains the default name and progressively discloses an optional church name', () => {
+  it('opens editing in its own route and presents both names directly', () => {
+    const profile = render(<ProfileScreen />);
+    fireEvent.press(profile.getByRole('button', { name: 'Edit profile' }));
+    expect(mockPush).toHaveBeenCalledWith('/profile/edit');
+    profile.unmount();
     const screen = edit();
     expect(screen.getByLabelText('Your name')).toBeTruthy();
-    expect(screen.getByText('Used across your churches unless you choose a different name for one church.')).toBeTruthy();
-    expect(screen.queryByTestId('profile-organisation-name-input')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Different name at this church' })).toHaveProp('accessibilityState', expect.objectContaining({ expanded: false }));
-    openChurchName(screen);
-    expect(screen.getByTestId('profile-organisation-name-input')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Different name at this church' })).toHaveProp('accessibilityState', expect.objectContaining({ expanded: true }));
-    expect(screen.getByText('This changes only your name at the current church. Leave blank to use your name above.')).toBeTruthy();
+    expect(screen.getByLabelText('Username at this church')).toBeTruthy();
     expect(screen.queryByTestId('profile-phone-input')).toBeNull();
-    expect(screen.queryByLabelText('Email')).toBeNull();
-    expect(screen.getByTestId('profile-contact-details')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
   });
 
   it('opens an existing church name without confusing it with the account name', () => {
@@ -116,57 +110,35 @@ describe('Profile identity and names', () => {
     expect(screen.getByTestId('profile-organisation-name-input')).toHaveProp('value', 'Sarah Choir');
   });
 
-  it('shows a neutral missing phone without offering contact editing', () => {
-    mockUseRequiredUser.mockReturnValue({ ...LIVE_USER, profile: { ...LIVE_USER.profile, phone: null } });
+  it('Cancel leaves without saving, and a fresh visit starts with the current names', () => {
     const screen = edit();
-    expect(screen.getByText('Not added')).toBeTruthy();
-    expect(screen.getByText('Your email and phone number can’t be changed here.')).toBeTruthy();
-    expect(screen.queryByTestId('profile-phone-input')).toBeNull();
-  });
-
-  it('Cancel discards both name drafts and restores the original disclosure on reopening', () => {
-    const screen = edit();
-    openChurchName(screen);
     fireEvent.changeText(screen.getByTestId('profile-full-name-input'), 'Someone Else');
     fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), 'Other Name');
     fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByTestId('profile-edit-form')).toBeNull();
-    fireEvent.press(screen.getByTestId('edit-profile-action'));
-    expect(screen.getByDisplayValue('Sarah Williams')).toBeTruthy();
-    expect(screen.queryByTestId('profile-organisation-name-input')).toBeNull();
-    openChurchName(screen);
-    expect(screen.getByTestId('profile-organisation-name-input')).toHaveProp('value', '');
+    expect(mockBack).toHaveBeenCalledTimes(1);
     expect(setProfileDisplayNames).not.toHaveBeenCalled();
+    screen.unmount();
+    const reopened = edit();
+    expect(reopened.getByDisplayValue('Sarah Williams')).toBeTruthy();
+    expect(reopened.getByTestId('profile-organisation-name-input')).toHaveProp('value', '');
   });
 
   it('saves exactly the two trimmed names in one atomic action, with no contact or role payload', async () => {
     const screen = edit();
-    openChurchName(screen);
     fireEvent.changeText(screen.getByTestId('profile-full-name-input'), '  Sarah W.  ');
     fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), '  Sarah Choir  ');
     fireEvent.press(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(setProfileDisplayNames.mock.calls).toEqual([['Sarah W.', 'Sarah Choir']]));
     expect(mockUseAppData().updateOwnProfile).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('profile-edit-form')).toBeNull();
+    await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
     expect(mockToast).toHaveBeenCalledWith('Profile updated.');
   });
 
   it('saves a blank church name as null', async () => {
     const screen = edit();
-    openChurchName(screen);
     fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), '   ');
     fireEvent.press(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(setProfileDisplayNames).toHaveBeenCalledWith('Sarah Williams', null));
-  });
-
-  it('collapsing the optional name keeps its draft in the atomic save', async () => {
-    const screen = edit();
-    openChurchName(screen);
-    fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), 'Sarah Choir');
-    openChurchName(screen);
-    expect(screen.getByText('Using Sarah Choir at this church.')).toBeTruthy();
-    fireEvent.press(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(setProfileDisplayNames).toHaveBeenCalledWith('Sarah Williams', 'Sarah Choir'));
   });
 
   it.each([['', PROFILE_NAME_REQUIRED], ['x', PROFILE_NAME_REQUIRED], ['x'.repeat(101), PROFILE_NAME_TOO_LONG]])(
@@ -186,7 +158,6 @@ describe('Profile identity and names', () => {
   it('preserves drafts on save failure and clears the error on cancellation', async () => {
     setProfileDisplayNames.mockRejectedValue(new Error('Please try again when you are connected.'));
     const screen = edit();
-    openChurchName(screen);
     fireEvent.changeText(screen.getByTestId('profile-full-name-input'), 'Sarah W.');
     fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), 'Choir Sarah');
     fireEvent.press(screen.getByRole('button', { name: 'Save' }));
@@ -195,9 +166,11 @@ describe('Profile identity and names', () => {
     expect(screen.getByDisplayValue('Choir Sarah')).toBeTruthy();
     expect(mockToast).not.toHaveBeenCalled();
     fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
-    fireEvent.press(screen.getByTestId('edit-profile-action'));
-    expect(screen.queryByText('Please try again when you are connected.')).toBeNull();
-    expect(screen.getByDisplayValue('Sarah Williams')).toBeTruthy();
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    screen.unmount();
+    const reopened = edit();
+    expect(reopened.queryByText('Please try again when you are connected.')).toBeNull();
+    expect(reopened.getByDisplayValue('Sarah Williams')).toBeTruthy();
   });
 
   it('holds the submitted names and blocks repeat save, cancellation and photo actions while saving', async () => {
@@ -207,7 +180,7 @@ describe('Profile identity and names', () => {
     fireEvent.press(screen.getByRole('button', { name: 'Save' }));
     expect(screen.getByRole('button', { name: 'Save' })).toHaveProp('accessibilityState', expect.objectContaining({ busy: true, disabled: true }));
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Add photo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Edit photo' })).toBeDisabled();
     expect(screen.getByTestId('profile-full-name-input')).toHaveProp('editable', false);
     fireEvent.press(screen.getByRole('button', { name: 'Save' }));
     fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
@@ -222,14 +195,35 @@ describe('Profile identity and names', () => {
     const photo = mockUseProfileAvatar();
     expect(photo.changePhoto).not.toHaveBeenCalled();
     expect(photo.removePhoto).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByRole('button', { name: 'Change photo' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Edit photo' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Upload photo' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Edit photo' }));
     fireEvent.press(screen.getByRole('button', { name: 'Remove photo' }));
     expect(photo.changePhoto).toHaveBeenCalledTimes(1);
     expect(photo.removePhoto).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Photo changes are saved when you make them.')).toBeTruthy();
   });
 
-  it.each(['uploading', 'removing'])('keeps save and cancel blocked while a photo is %s', (busy) => {
+  it('offers camera capture only from the photo drawer and disables viewing without a photo', () => {
+    const screen = edit();
+    expect(screen.queryByRole('button', { name: 'Take photo' })).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'Edit photo' }));
+    expect(screen.getByRole('button', { name: 'View photo' })).toBeDisabled();
+    fireEvent.press(screen.getByRole('button', { name: 'Take photo' }));
+    expect(mockUseProfileAvatar().takePhoto).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Take photo' })).toBeNull();
+  });
+
+  it('views the resolved photo without starting an upload', () => {
+    mockUseProfileAvatar.mockReturnValue({ ...mockUseProfileAvatar(), hasPhoto: true, avatarUri: 'https://example.test/avatar.png' });
+    const screen = edit();
+    fireEvent.press(screen.getByRole('button', { name: 'Edit photo' }));
+    fireEvent.press(screen.getByRole('button', { name: 'View photo' }));
+    expect(screen.getByLabelText("Sarah Williams's profile photo")).toBeTruthy();
+    expect(mockUseProfileAvatar().changePhoto).not.toHaveBeenCalled();
+  });
+
+  it.each(['picking', 'uploading', 'removing'])('keeps save and cancel blocked while a photo is %s', (busy) => {
     mockUseProfileAvatar.mockReturnValue({ ...mockUseProfileAvatar(), busy, hasPhoto: true });
     const screen = edit();
     fireEvent.press(screen.getByRole('button', { name: 'Save' }));

@@ -87,6 +87,7 @@ function RootStack({ hasStarted }: { hasStarted: React.MutableRefObject<boolean>
       {/* Everything else requires a signed-in user */}
       <Stack.Protected guard={!!user}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
         <Stack.Screen name="announcements/index" options={{ title: 'Announcements' }} />
         <Stack.Screen name="announcements/[id]" options={{ title: 'Announcement' }} />
         <Stack.Screen name="announcements/edit" options={{ title: 'Announcement' }} />

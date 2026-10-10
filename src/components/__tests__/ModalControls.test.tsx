@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { AccessibilityInfo, Modal, Platform, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Modal, Platform, StyleSheet, Text, View } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 
 import { ActionSheet } from '../ActionSheet';
@@ -320,4 +320,44 @@ describe('modal dismissal focus', () => {
     expect(resolveNode.mock.calls.length).toBe(0);
     expect(focus).not.toHaveBeenCalled();
   });
+});
+
+test.each([true, false])('all action drawers use a stationary backdrop and respect reduced motion (%s)', async (reducedMotion) => {
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(reducedMotion);
+  const timing = jest.spyOn(Animated, 'timing');
+  const screen = render(<ActionSheet visible title="Manage team" onClose={jest.fn()} actions={[]} />);
+  await act(async () => {});
+  expect(screen.UNSAFE_getByType(Modal).props.animationType).toBe('none');
+  const backdrop = screen.getByTestId('modal-backdrop', { includeHiddenElements: true });
+  const panel = screen.getByTestId('modal-panel', { includeHiddenElements: true });
+  expect(StyleSheet.flatten(backdrop.props.style).transform).toBeUndefined();
+  expect(StyleSheet.flatten(panel.props.style).transform).toEqual([{ translateY: expect.anything() }]);
+  if (reducedMotion) expect(timing).not.toHaveBeenCalled();
+  else {
+    expect(timing).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ toValue: 0, duration: 220, useNativeDriver: true }));
+    expect(timing).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ toValue: 1, duration: 160, useNativeDriver: true }));
+  }
+  screen.unmount();
+  jest.restoreAllMocks();
+});
+
+test.each(['sheet', 'dialog'] as const)('shared %s surfaces use the correct default motion', async (presentation) => {
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+  const timing = jest.spyOn(Animated, 'timing');
+  const screen = render(<ModalSurface visible title="Choose" presentation={presentation} onClose={jest.fn()}><Text>Content</Text></ModalSurface>);
+  await act(async () => {});
+  expect(screen.UNSAFE_getByType(Modal).props.animationType).toBe('none');
+  if (presentation === 'sheet') expect(timing).toHaveBeenCalledTimes(2);
+  else expect(timing).not.toHaveBeenCalled();
+  screen.unmount();
+  jest.restoreAllMocks();
+});
+
+test('a drawer can explicitly opt out of sliding', async () => {
+  const timing = jest.spyOn(Animated, 'timing');
+  const screen = render(<ActionSheet visible title="Manage team" slide={false} onClose={jest.fn()} actions={[]} />);
+  await act(async () => {});
+  expect(timing).not.toHaveBeenCalled();
+  screen.unmount();
+  jest.restoreAllMocks();
 });

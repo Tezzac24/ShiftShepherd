@@ -24,11 +24,12 @@ interface ActionSheetProps {
   actions: SheetAction[];
   onClose: () => void;
   returnFocusRef?: FocusRef;
+  slide?: boolean;
 }
 
 /** Labelled contextual tools; selecting one closes the sheet before its action. */
 export function ActionSheet({
-  visible, title, description, actions, onClose, returnFocusRef,
+  visible, title, description, actions, onClose, returnFocusRef, slide,
 }: ActionSheetProps) {
   const transferredFocus = useRef(false);
   const wasVisible = useRef(false);
@@ -36,7 +37,7 @@ export function ActionSheet({
   wasVisible.current = visible;
 
   return (
-    <ModalSurface visible={visible} title={title} onClose={onClose} returnFocusRef={returnFocusRef}
+    <ModalSurface visible={visible} title={title} onClose={onClose} returnFocusRef={returnFocusRef} slide={slide}
       shouldRestoreFocus={() => !transferredFocus.current}>
       {description ? <AppText tone="secondary">{description}</AppText> : null}
       {actions.map((action) => (

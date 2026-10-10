@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AccessibilityInfo, findNodeHandle, KeyboardAvoidingView, Modal, Platform, Pressable,
-  ScrollView, StyleSheet, Text, TextInput, View,
+  AccessibilityInfo, Animated, Easing, findNodeHandle, KeyboardAvoidingView, Modal, Platform, Pressable,
+  ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -34,17 +34,54 @@ interface ModalSurfaceProps {
   returnFocusRef?: FocusRef;
   /** Read at dismissal so a synchronous navigation/unmount can transfer focus. */
   shouldRestoreFocus?: () => boolean;
+  /** Sheets slide by default; opt out for an immediate presentation. */
+  slide?: boolean;
 }
 
 /**
  * Native Modal supplies the modal window (and web keyboard focus trap).
- * No transition is intentional: reduced motion is respected from first paint.
+ * Sheets slide over a stationary fading backdrop, respecting reduced motion.
  * Supply the opener ref for reliable native accessibility focus restoration.
  */
 export function ModalSurface({
   visible, title, onClose, children, presentation = 'sheet',
-  closeLabel = 'Close', footer, scroll = true, returnFocusRef, shouldRestoreFocus,
+  closeLabel = 'Close', footer, scroll = true, returnFocusRef, shouldRestoreFocus, slide = presentation === 'sheet',
 }: ModalSurfaceProps) {
+  const [reducedMotion, setReducedMotion] = useState(true);
+  const { height: windowHeight } = useWindowDimensions();
+  const [panelOffset] = useState(() => new Animated.Value(0));
+  const [backdropOpacity] = useState(() => new Animated.Value(1));
+  const panelHeight = useRef(0);
+  const animateSheet = slide && presentation === 'sheet' && !reducedMotion;
+  useEffect(() => {
+    if (!visible) return;
+    panelOffset.setValue(animateSheet ? (panelHeight.current || windowHeight) : 0);
+    backdropOpacity.setValue(animateSheet ? 0 : 1);
+    if (!animateSheet) return;
+    const animation = Animated.parallel([
+      Animated.timing(panelOffset, {
+        toValue: 0, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 1, duration: 160, useNativeDriver: true,
+      }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [visible, animateSheet, windowHeight, panelOffset, backdropOpacity]);
+  useEffect(() => {
+    if (!slide) return;
+    let mounted = true;
+    let receivedChange = false;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted && !receivedChange) setReducedMotion(enabled);
+    }).catch(() => {});
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (enabled) => {
+      receivedChange = true;
+      setReducedMotion(enabled);
+    });
+    return () => { mounted = false; subscription.remove(); };
+  }, [slide]);
   const insets = useSafeAreaInsets();
   const titleRef = useRef<Text>(null);
   const opener = useRef({ ref: returnFocusRef, shouldRestoreFocus });
@@ -112,19 +149,28 @@ export function ModalSurface({
         },
         presentation === 'dialog' && { paddingBottom: insets.bottom + spacing.md },
       ]}>
-        <Pressable
-          accessible={false}
-          importantForAccessibility="no"
-          style={StyleSheet.absoluteFill}
-          onPress={onClose}
-        />
-        <View
+        <Animated.View testID="modal-backdrop" style={[
+          StyleSheet.absoluteFill,
+          styles.backdrop,
+          { opacity: presentation === 'sheet' ? Animated.multiply(backdropOpacity, 0.8) : backdropOpacity },
+        ]}>
+          <Pressable
+            accessible={false}
+            importantForAccessibility="no"
+            style={StyleSheet.absoluteFill}
+            onPress={onClose}
+          />
+        </Animated.View>
+        <Animated.View
+          testID="modal-panel"
+          onLayout={(event) => { panelHeight.current = event.nativeEvent.layout.height; }}
           accessibilityViewIsModal
           onAccessibilityEscape={onClose}
           style={[
             styles.panel,
             presentation === 'dialog' ? styles.dialog : styles.sheet,
             { paddingBottom: presentation === 'sheet' ? Math.max(insets.bottom, spacing.md) : spacing.md },
+            { transform: [{ translateY: panelOffset }] },
           ]}
         >
           <View style={styles.header}>
@@ -141,14 +187,15 @@ export function ModalSurface({
           </View>
           {content}
           {footer ? <View style={styles.footer}>{footer}</View> : null}
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: colors.overlay },
+  overlay: { flex: 1 },
+  backdrop: { backgroundColor: colors.overlay },
   sheetOverlay: { justifyContent: 'flex-end' },
   dialogOverlay: { justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.gutter },
   panel: { backgroundColor: colors.surface, maxHeight: '90%', width: '100%', flexShrink: 1 },
