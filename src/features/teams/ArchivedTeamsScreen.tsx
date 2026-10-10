@@ -2,7 +2,8 @@ import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
@@ -25,6 +26,7 @@ function ArchivedTeamRow({ team, first, last, restoring, disabled, onRestore }: 
   disabled: boolean;
   onRestore: (opener: FocusRef) => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const opener = useRef<View>(null);
   const parsed = new Date(team.archived_at ?? '');
   const date = Number.isNaN(parsed.getTime()) ? null : parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -56,6 +58,7 @@ export default function ArchivedTeamsScreen() {
 }
 
 function ArchivedTeamsContent({ organisationId }: { organisationId: string }) {
+  const styles = useThemedStyles(createStyles);
   const data = useAppData();
   const confirm = useConfirm();
   const showToast = useToast();
@@ -126,7 +129,7 @@ function ArchivedTeamsContent({ organisationId }: { organisationId: string }) {
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { padding: spacing.gutter, paddingBottom: spacing.xl },
   header: { gap: spacing.md, marginBottom: spacing.lg },
   teamRow: { gap: spacing.md, padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.border,

@@ -2,7 +2,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
+import { spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -24,6 +25,7 @@ import { TeamFormErrors, validateTeamForm } from './teamForm';
 import { useTeamAvatar } from './useTeamAvatar';
 
 function TeamPhotoEditor({ team, disabled }: { team: Team; disabled: boolean }) {
+  const styles = useThemedStyles(createStyles);
   const avatar = useTeamAvatar(team);
   if (!avatar.canManage) return null;
   return <View style={styles.section}>
@@ -59,6 +61,7 @@ export default function TeamEditScreen() {
 }
 
 function TeamEditContent({ teamId, organisationId, authorityResolved }: { teamId: string; organisationId: string; authorityResolved: boolean }) {
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const confirm = useConfirm();
   const showToast = useToast();
@@ -229,7 +232,7 @@ function TeamEditContent({ teamId, organisationId, authorityResolved }: { teamId
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   section: { gap: spacing.sm, marginTop: spacing.sm },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   flexText: { flex: 1, minWidth: 0 },

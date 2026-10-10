@@ -2,7 +2,8 @@ import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
-import { colors, spacing } from "../../../constants/theme";
+import { spacing, type ThemeColors } from "../../../constants/theme";
+import { useAppearance, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from "../../components/AppText";
 import { Avatar } from "../../components/Avatar";
 import { Button } from "../../components/Button";
@@ -30,6 +31,8 @@ const orgRoleLabels: Record<string, string> = {
 };
 
 export default function ProfileScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { preference } = useAppearance();
   const router = useRouter();
   const user = useRequiredUser();
   const {
@@ -218,6 +221,12 @@ export default function ProfileScreen() {
             subtitle="Choose updates from this church"
             onPress={() => router.push("/settings/notifications")}
           />
+          <ListRow
+            icon="contrast-outline"
+            title="Display"
+            subtitle={preference === 'system' ? 'Use device settings' : preference === 'dark' ? 'Dark' : 'Light'}
+            onPress={() => router.push("/settings/display")}
+          />
         </ListGroup>
       </View>
 
@@ -312,7 +321,7 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   profileContent: { paddingBottom: spacing.lg },
   flex: { flex: 1, minWidth: 0 },
   identity: { gap: spacing.xs, paddingBottom: spacing.md },

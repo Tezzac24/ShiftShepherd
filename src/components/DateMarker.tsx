@@ -1,7 +1,8 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 
 interface DateMarkerProps {
@@ -15,6 +16,7 @@ interface DateMarkerProps {
 }
 
 export function DateMarker({ day, month, accessibilityLabel, decorative = false }: DateMarkerProps) {
+  const styles = useThemedStyles(createStyles);
   return (
     <View
       style={styles.marker}
@@ -31,7 +33,7 @@ export function DateMarker({ day, month, accessibilityLabel, decorative = false 
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   marker: {
     minWidth: 56, alignSelf: 'flex-start', alignItems: 'center',
     paddingHorizontal: spacing.sm, paddingVertical: spacing.sm,

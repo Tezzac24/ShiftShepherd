@@ -3,7 +3,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
@@ -36,6 +37,8 @@ export function TeamIdentityHeader({ team, onOpenSettings, canOpenSettings, subt
   manageOpen?: boolean;
   actionRef?: React.Ref<View>;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const { canManage, avatarUri } = useTeamAvatar(team);
   return <View style={styles.identityBlock}>
     <View style={styles.identityHeader}>
@@ -74,6 +77,8 @@ export default function TeamSpaceScreen() {
 }
 
 function TeamSpaceContent({ team, isCurrentScope }: { team: Team; isCurrentScope: () => boolean }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const confirm = useConfirm();
   const showToast = useToast();
@@ -233,7 +238,7 @@ function TeamSpaceContent({ team, isCurrentScope }: { team: Team; isCurrentScope
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   identityBlock: { gap: spacing.xs },
   identityHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   identityCopy: { flex: 1, minWidth: 0 },

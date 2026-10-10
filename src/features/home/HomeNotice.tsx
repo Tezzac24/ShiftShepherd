@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AnnouncementImage } from '../../components/AnnouncementImage';
 import { AppText } from '../../components/AppText';
 import { Announcement } from '../../types';
@@ -12,6 +13,8 @@ import { announcementAccentColor } from '../announcements/announcementAccent';
 export function HomeNotice({ announcement, authorName, teamName, imageUri, onPress }: {
   announcement: Announcement; authorName: string; teamName?: string; imageUri?: string; onPress: () => void;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const accentColor = announcementAccentColor(announcement.team_id ? teamName : undefined);
   return (
     <Pressable onPress={onPress} accessibilityRole="button"
@@ -40,7 +43,7 @@ export function HomeNotice({ announcement, authorName, teamName, imageUri, onPre
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   notice: { gap: spacing.sm, padding: spacing.lg, borderLeftWidth: spacing.xs, borderLeftColor: colors.accent, borderRadius: radius.sm, backgroundColor: colors.surface },
   metadata: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   context: { flex: 1, minWidth: 0 },

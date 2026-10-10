@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText, HeadingLevel } from './AppText';
 import { Button } from './Button';
 
@@ -21,6 +22,8 @@ export interface StatePanelProps {
 export function StatePanel({
   kind = 'empty', compact = false, title, message, icon, action, headingLevel,
 }: StatePanelProps) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const color = kind === 'error' ? colors.danger : colors.primary;
   const statusIcon = icon ?? (kind === 'error' ? 'alert-circle-outline' : 'information-circle-outline');
   const status = kind === 'loading' ? (
@@ -61,7 +64,7 @@ export function StatePanel({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   panel: { gap: spacing.md },
   full: { alignItems: 'center', paddingVertical: spacing.xxl, paddingHorizontal: spacing.lg },
   compact: { flexDirection: 'row', alignItems: 'flex-start', padding: spacing.lg, backgroundColor: colors.surfaceRaised, borderRadius: radius.md },

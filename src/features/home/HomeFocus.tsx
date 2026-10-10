@@ -1,7 +1,8 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { AvailabilityBadge } from '../../components/Badge';
 import { Button } from '../../components/Button';
@@ -11,6 +12,7 @@ import { formatClockTime, formatTime, formatUpcoming, parseDateKey } from '../..
 import { fullScheduleDate, ScheduleDateMarker } from '../calendar/ScheduleRows';
 
 export function ServingFocus({ serving, onPress }: { serving: ServingSummary; onPress: () => void }) {
+  const styles = useThemedStyles(createStyles);
   const date = parseDateKey(serving.entry.date);
   const when = [formatUpcoming(date), serving.entry.time ? formatClockTime(serving.entry.time) : null].filter(Boolean).join(' · ');
   return (
@@ -28,6 +30,7 @@ export function ServingFocus({ serving, onPress }: { serving: ServingSummary; on
 }
 
 export function EventFocus({ event, onPress }: { event: Event; onPress: () => void }) {
+  const styles = useThemedStyles(createStyles);
   const date = new Date(event.start_time);
   const time = `${formatTime(event.start_time)} – ${formatTime(event.end_time)}`;
   return (
@@ -46,7 +49,7 @@ export function EventFocus({ event, onPress }: { event: Event; onPress: () => vo
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   focus: { gap: spacing.md, padding: spacing.lg, backgroundColor: colors.primarySoft, borderRadius: radius.lg },
   eventFocus: { gap: spacing.md, padding: spacing.gutter, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border },
   dateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },

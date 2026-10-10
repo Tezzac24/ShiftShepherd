@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, spacing, radius, touchTarget } from '../../constants/theme';
+import { spacing, radius, touchTarget, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 import { ModalSurface } from './ModalSurface';
 import { TextField } from './TextField';
@@ -32,6 +33,8 @@ export function SelectField<T extends string>({
   label, placeholder = 'Choose…', value, options, onChange, disabled = false,
   helper, error, searchable = false, searchPlaceholder = 'Search options',
 }: SelectFieldProps<T>) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
@@ -123,7 +126,7 @@ export function SelectField<T extends string>({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   wrap: { gap: spacing.sm },
   field: {
     minHeight: touchTarget, borderWidth: 1.5, borderColor: colors.borderStrong,

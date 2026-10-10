@@ -3,7 +3,8 @@ import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
@@ -23,6 +24,8 @@ import { useCurrentTime } from '../../utils/useCurrentTime';
 import { teamDirectory } from './teamPresentation';
 
 export default function TeamsScreen() {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const user = useRequiredUser();
   const { authMode, accountStatus, isLoading } = useAuth();
@@ -114,7 +117,7 @@ export default function TeamsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { paddingHorizontal: spacing.gutter, paddingBottom: spacing.lg },
   header: { gap: spacing.md, marginBottom: spacing.md },
   manage: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md },

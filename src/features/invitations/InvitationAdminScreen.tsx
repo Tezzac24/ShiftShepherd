@@ -3,7 +3,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
@@ -54,6 +55,7 @@ export default function InvitationAdminScreen() {
 function Invitations({ user, targetProfileId, targetEmail, targetName, organisationHint, startCreating }: {
   user: SessionUser; targetProfileId?: string; targetEmail?: string; targetName?: string; organisationHint?: string; startCreating: boolean;
 }) {
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const data = useAppData();
@@ -359,6 +361,7 @@ function InvitationHistoryRow({ invitation, first, last, disabled, loading, expa
   invitation: OrganisationInvitation; first: boolean; last: boolean; disabled: boolean; loading: boolean;
   expanded: boolean; onOpen: (opener: FocusRef) => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const opener = useRef<View>(null);
   const title = invitation.target_display_name ?? invitation.invited_email;
   const subtitle = `${invitation.target_display_name ? `${invitation.invited_email}\n` : ''}${statusLabels[invitation.status]} · Expires ${invitationExpiryLabel(invitation.expires_at)}\n${deliveryLabel(invitation)}${invitation.status === 'pending' && !invitation.last_sent_at ? '\nEmail not sent yet. Open Manage to resend.' : ''}`;
@@ -373,7 +376,7 @@ function InvitationHistoryRow({ invitation, first, last, disabled, loading, expa
   </View>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   form: { gap: spacing.lg },
   content: { padding: spacing.gutter },
   listHeader: { gap: spacing.lg, paddingBottom: spacing.xl },

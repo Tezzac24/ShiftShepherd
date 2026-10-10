@@ -2,7 +2,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { FormErrorSummary } from '../../components/FormErrorSummary';
@@ -33,6 +34,7 @@ export default function SongFormScreen() {
 }
 
 function SongForm({ scope, songId, editing }: { scope: ChoirScopeValue; songId: string | null; editing: boolean }) {
+  const styles = useThemedStyles(createStyles);
   const { team, user } = scope;
   const router = useRouter();
   const data = useAppData();
@@ -220,7 +222,7 @@ function SongForm({ scope, songId, editing }: { scope: ChoirScopeValue; songId: 
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   lyrics: { minHeight: 190 },
   fields: { gap: spacing.md },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

@@ -3,7 +3,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { Button } from '../../components/Button';
 import { ListGroupContext } from '../../components/ListGroup';
 import { ListRow } from '../../components/ListRow';
@@ -25,6 +26,7 @@ export default function SongDatabaseScreen() {
 }
 
 function SongLibrary({ scope, initialQuery }: { scope: ChoirScopeValue; initialQuery: string }) {
+  const styles = useThemedStyles(createStyles);
   const { team, user } = scope;
   const data = useAppData();
   const router = useRouter();
@@ -72,7 +74,7 @@ function SongLibrary({ scope, initialQuery }: { scope: ChoirScopeValue; initialQ
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { padding: spacing.gutter },
   header: { gap: spacing.md, marginBottom: spacing.lg },
   songRow: { borderLeftWidth: 1, borderRightWidth: 1, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border, overflow: 'hidden' },

@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 
 export interface FormErrorItem {
@@ -17,6 +18,8 @@ export function FormErrorSummary({ errors, title = 'Please check these details' 
   errors: readonly FormErrorItem[];
   title?: string;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   if (!errors.length) return null;
   return (
     <View style={styles.panel}>
@@ -42,7 +45,7 @@ export function FormErrorSummary({ errors, title = 'Please check these details' 
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   panel: { padding: spacing.lg, borderRadius: radius.md, backgroundColor: colors.dangerSoft, gap: spacing.sm },
   heading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   text: { flex: 1 },

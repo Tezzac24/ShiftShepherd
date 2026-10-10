@@ -41,6 +41,7 @@ phone-size web inspection from the native QA still required.
 
 ## Current capabilities
 
+- **Profile → Preferences → Display** offers Light, Dark and Use device settings, with device-local persistence and immediate app-wide appearance changes. Native device-following uses `userInterfaceStyle: automatic`; existing native builds need rebuilding to pick up that configuration.
 - Home prioritises latest announcement, next upcoming event, then the user's next team responsibility.
 - Event create/edit uses an inline calendar date picker, a simple readable time list, and recurrence choices including monthly weekday patterns.
 - Recurring events are stored as base rows and expanded locally for upcoming Home and Schedule lists.

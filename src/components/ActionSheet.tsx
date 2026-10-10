@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 import { FocusRef, ModalSurface } from './ModalSurface';
 
@@ -31,6 +32,8 @@ interface ActionSheetProps {
 export function ActionSheet({
   visible, title, description, actions, onClose, returnFocusRef, slide,
 }: ActionSheetProps) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const transferredFocus = useRef(false);
   const wasVisible = useRef(false);
   if (visible && !wasVisible.current) transferredFocus.current = false;
@@ -81,7 +84,7 @@ export function ActionSheet({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   action: {
     minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     padding: spacing.md, borderRadius: radius.md,

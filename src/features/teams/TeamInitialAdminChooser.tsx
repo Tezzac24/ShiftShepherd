@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
+import { spacing } from '../../../constants/theme';
+import { useThemeColors } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { ListGroup } from '../../components/ListGroup';
@@ -25,6 +26,7 @@ export function TeamInitialAdminChooser({ visible, onClose, opener, organisation
   onSelect: (id: string | null) => void;
   getAvatarUri: (profile: UserProfile) => string | undefined;
 }) {
+  const colors = useThemeColors();
   const [query, setQuery] = useState('');
   const candidates = useMemo(() => eligibleInitialTeamAdmins(organisationId, users, query), [organisationId, users, query]);
   const selected = selectedInitialTeamAdmin(organisationId, users, selectedId);

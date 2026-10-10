@@ -4,7 +4,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { availabilityLabels, Badge } from '../../components/Badge';
@@ -34,6 +35,8 @@ export default function RotaListScreen() {
 }
 
 function RotaList({ scope }: { scope: RotaScopeValue }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const { user, team } = scope;
   const data = useAppData();
   const now = useCurrentTime();
@@ -136,7 +139,7 @@ function RotaList({ scope }: { scope: RotaScopeValue }) {
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { padding: spacing.gutter },
   heading: { gap: spacing.md, marginBottom: spacing.md },
   sectionHeading: { gap: spacing.md, marginBottom: spacing.md },

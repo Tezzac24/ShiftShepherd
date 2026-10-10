@@ -3,7 +3,8 @@ import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-rout
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AnnouncementImage } from '../../components/AnnouncementImage';
 import { AppText } from '../../components/AppText';
@@ -37,6 +38,8 @@ export default function AnnouncementDetailScreen() {
 }
 
 function AnnouncementDetail({ id, user, authorityResolved }: { id: string | null; user: SessionUser; authorityResolved: boolean }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const navigation = useNavigation('/');
   const data = useAppData();
@@ -182,7 +185,7 @@ function AnnouncementDetail({ id, user, authorityResolved }: { id: string | null
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   notice: { borderWidth: 1, borderColor: colors.border, borderTopWidth: spacing.xs, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface },
   heading: { padding: spacing.gutter, gap: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   context: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },

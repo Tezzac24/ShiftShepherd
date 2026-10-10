@@ -11,6 +11,7 @@ export const colors = {
   primary: '#155C52',
   primaryDark: '#10483F',
   primarySoft: '#E5F0EB',
+  onPrimary: '#FFFFFF',
   accent: '#825238',
   accentSoft: '#F5EDE5',
   danger: '#AF2935',
@@ -34,6 +35,20 @@ export const colors = {
   borderStrong: '#789082',
   overlay: 'rgba(24, 47, 42, 0.45)',
   white: '#FFFFFF',
+};
+
+export type ThemeColors = typeof colors;
+
+/** Night-time surfaces with readable teal actions and semantic status colours. */
+export const darkColors: ThemeColors = {
+  primary: '#8CD5C4', primaryDark: '#B0E9DC', primarySoft: '#1B3932', onPrimary: '#102F27',
+  accent: '#E0B99E', accentSoft: '#392A23',
+  danger: '#FFABB1', dangerSoft: '#442328',
+  success: '#9CD8B3', successSoft: '#20382A',
+  warning: '#EAC579', warningSoft: '#3C311F',
+  background: '#101613', surface: '#1C2420', card: '#1C2420', surfaceRaised: '#29332D',
+  text: '#EEF4EF', textSecondary: '#C3CEC6', textMuted: '#ACBBB0',
+  border: '#3B4940', borderStrong: '#82988A', overlay: 'rgba(0, 0, 0, 0.65)', white: '#FFFFFF',
 };
 
 export const spacing = {

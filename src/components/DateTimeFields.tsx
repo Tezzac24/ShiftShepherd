@@ -9,7 +9,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { calendarTouchTarget, colors, radius, spacing, touchTarget } from '../../constants/theme';
+import { calendarTouchTarget, radius, spacing, touchTarget, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { formatUpcoming, parseDateKey, toDateKey } from '../utils/dates';
 import { useCurrentTime } from '../utils/useCurrentTime';
 import { AppText } from './AppText';
@@ -54,6 +55,8 @@ function buildMonthDays(month: Date): (Date | null)[] {
 }
 
 export function DateField({ label, value, onChange, daysAhead = 365, disabled = false, error }: DateFieldProps) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const todayKey = toDateKey(useCurrentTime());
   const today = useMemo(() => {
     return parseDateKey(todayKey);
@@ -221,7 +224,7 @@ export function DateField({ label, value, onChange, daysAhead = 365, disabled = 
                 >
                   <AppText
                     variant={selected ? 'bodyBold' : 'body'}
-                    tone={selected ? 'inverse' : selectable ? 'default' : 'muted'}
+                    tone={selected ? 'onPrimary' : selectable ? 'default' : 'muted'}
                   >
                     {date.getDate()}
                   </AppText>
@@ -322,7 +325,7 @@ export function TimeField({ label, value, onChange, optional, disabled, error }:
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   wrap: { gap: spacing.sm },
   field: {
     minHeight: touchTarget,

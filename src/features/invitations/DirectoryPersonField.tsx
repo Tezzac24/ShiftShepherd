@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { ListRow } from '../../components/ListRow';
 import { ModalSurface } from '../../components/ModalSurface';
@@ -20,6 +21,8 @@ export function DirectoryPersonField({ value, onChange, disabled, scope }: {
   disabled: boolean;
   scope: ReturnType<typeof useOrganisationAdministration>;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [members, setMembers] = useState<OrganisationMemberSummary[]>([]);
@@ -80,7 +83,7 @@ export function DirectoryPersonField({ value, onChange, disabled, scope }: {
   </View>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   field: { gap: spacing.sm },
   trigger: { minHeight: touchTarget, borderWidth: 1.5, borderColor: colors.borderStrong, borderRadius: radius.md,
     backgroundColor: colors.surface, padding: spacing.lg, flexDirection: 'row', alignItems: 'center', gap: spacing.md },

@@ -8,7 +8,8 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, shadow, spacing } from '../../constants/theme';
+import { radius, shadow, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 import { Button } from './Button';
 
@@ -22,6 +23,8 @@ const STACK_HEADER_CLEARANCE = 56;
 const ROOT_ROUTES_WITHOUT_HEADER = new Set(['(tabs)', 'index', 'login']);
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const segments = useSegments();
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -94,7 +97,7 @@ export function useToast(): ShowToastFn {
   return ctx;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   holder: { position: 'absolute', left: spacing.gutter, right: spacing.gutter, alignItems: 'center' },
   toast: {
     flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center',

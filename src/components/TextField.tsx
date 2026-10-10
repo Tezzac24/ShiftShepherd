@@ -9,7 +9,8 @@ import {
   ViewStyle,
 } from 'react-native';
 
-import { colors, radius, spacing, touchTarget, type } from '../../constants/theme';
+import { radius, spacing, touchTarget, type, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 
 export interface TextFieldProps extends TextInputProps {
@@ -24,9 +25,11 @@ export interface TextFieldProps extends TextInputProps {
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField({
   label, helper, error, multiline, style, containerStyle, disabled, editable,
   accessibilityLabel, accessibilityHint, accessibilityState,
-  cursorColor = colors.primary, placeholderTextColor = colors.textMuted,
-  selectionColor = colors.primarySoft, onFocus, onBlur, ...rest
+  cursorColor, placeholderTextColor,
+  selectionColor, onFocus, onBlur, ...rest
 }, ref) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const [focused, setFocused] = useState(false);
   const { fontScale } = useWindowDimensions();
   const isDisabled = !!disabled || editable === false || !!accessibilityState?.disabled || !!rest['aria-disabled'];
@@ -50,9 +53,9 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         aria-busy={busy}
         editable={!isDisabled}
         multiline={multiline}
-        cursorColor={cursorColor}
-        placeholderTextColor={placeholderTextColor}
-        selectionColor={selectionColor}
+        cursorColor={cursorColor ?? colors.primary}
+        placeholderTextColor={placeholderTextColor ?? colors.textMuted}
+        selectionColor={selectionColor ?? colors.primarySoft}
         onFocus={(event) => { setFocused(true); onFocus?.(event); }}
         onBlur={(event) => { setFocused(false); onBlur?.(event); }}
         style={[
@@ -76,7 +79,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   );
 });
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   wrap: { gap: spacing.sm },
   input: {
     ...type.body,

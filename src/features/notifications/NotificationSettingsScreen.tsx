@@ -3,7 +3,8 @@ import { Stack } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
+import { spacing } from '../../../constants/theme';
+import { useThemeColors } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
@@ -37,6 +38,7 @@ const reminders: Preference[] = [
 /** Presentation only: the current profile owns every preference and the existing
  * registration lifecycle owns opt-in, hydration, rebind and cleanup. */
 export default function NotificationSettingsScreen() {
+  const colors = useThemeColors();
   const user = useRequiredUser();
   const data = useAppData();
   const showToast = useToast();

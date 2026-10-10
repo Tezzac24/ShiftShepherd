@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, spacing } from '../../constants/theme';
+import { spacing, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 
 interface ScreenProps {
   children: React.ReactNode;
@@ -37,6 +38,7 @@ export function Screen({
   keyboardVerticalOffset = Platform.OS === 'ios' ? 88 : 0,
   footer, footerStyle, style, contentStyle, scrollRef, scrollProps,
 }: ScreenProps) {
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const topPad = safeTop ? { paddingTop: insets.top + spacing.md } : null;
 
@@ -88,7 +90,7 @@ export function Screen({
   return <View style={[styles.flex, styles.bg, style]}>{inner}</View>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   flex: { flex: 1 },
   bg: { backgroundColor: colors.background },
   content: { padding: spacing.gutter, gap: spacing.md },

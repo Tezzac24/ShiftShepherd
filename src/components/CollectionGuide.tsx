@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 
 interface CollectionGuideProps {
@@ -12,6 +13,8 @@ interface CollectionGuideProps {
 
 /** Quiet, useful context after a short collection; never a substitute for its empty/error state. */
 export function CollectionGuide({ title, items }: CollectionGuideProps) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   return <View style={styles.panel}>
     <AppText variant="subheading" headingLevel={2}>{title}</AppText>
     {items.map((item) => <View key={item.title} style={styles.item}>
@@ -26,7 +29,7 @@ export function CollectionGuide({ title, items }: CollectionGuideProps) {
   </View>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   panel: { marginTop: spacing.xl, padding: spacing.lg, gap: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.primarySoft },
   item: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   icon: { paddingTop: spacing.xs },

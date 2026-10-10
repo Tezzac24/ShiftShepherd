@@ -1,7 +1,8 @@
 import React from 'react';
 import { Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 
 interface CardProps {
   children: React.ReactNode;
@@ -18,6 +19,7 @@ export function Card({
   children, onPress, style, tone = 'surface', disabled = false, testID,
   accessibilityLabel, accessibilityHint,
 }: CardProps) {
+  const styles = useThemedStyles(createStyles);
   const cardStyle = [styles.card, tone === 'quiet' && styles.quiet, style];
   if (onPress) {
     return (
@@ -39,7 +41,7 @@ export function Card({
   return <View testID={testID} style={cardStyle}>{children}</View>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   card: {
     backgroundColor: colors.card,
     borderRadius: radius.lg,

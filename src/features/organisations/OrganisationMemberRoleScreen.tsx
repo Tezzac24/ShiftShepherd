@@ -3,7 +3,8 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-rou
 import React, { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { useConfirm } from '../../components/ConfirmDialog';
@@ -32,6 +33,8 @@ export default function OrganisationMemberRoleScreen() {
 function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: {
   user: SessionUser; profileId: string; emailHint?: string; nameHint?: string; organisationHint?: string;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const data = useAppData();
   const scope = useOrganisationAdministration(user);
@@ -231,7 +234,7 @@ function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: 
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { gap: spacing.lg },
   identity: { gap: spacing.xs },
   options: { gap: spacing.md },

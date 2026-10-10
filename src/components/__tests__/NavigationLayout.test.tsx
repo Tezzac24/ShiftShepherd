@@ -20,6 +20,8 @@ let mockRootScreens: string[] = [];
 jest.mock('expo-router', () => {
   const React = jest.requireActual<typeof import('react')>('react');
   return {
+    DarkTheme: { colors: {} }, DefaultTheme: { colors: {} },
+    ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
     useRouter: () => ({ replace: mockReplace }),
     usePathname: () => '/events/example',
     useGlobalSearchParams: () => ({}),
@@ -42,7 +44,11 @@ jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 34, left: 0 }) }));
 jest.mock('react-native-paper', () => ({ PaperProvider: ({ children }: { children: React.ReactNode }) => children }));
-jest.mock('../../lib/theme/paperTheme', () => ({ paperTheme: {} }));
+jest.mock('../../lib/theme/paperTheme', () => ({ createPaperTheme: () => ({}) }));
+jest.mock('../../lib/theme/AppearanceContext', () => ({
+  ...jest.requireActual('../../lib/theme/AppearanceContext'),
+  AppearanceProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 jest.mock('../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn(), AppDataProvider: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock('../../lib/auth/AuthContext', () => ({ useAuth: jest.fn(), AuthProvider: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock('../ConfirmDialog', () => ({ ConfirmProvider: ({ children }: { children: React.ReactNode }) => children }));

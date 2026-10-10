@@ -3,7 +3,8 @@ import { useRouter } from 'expo-router';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, spacing, touchTarget } from '../../constants/theme';
+import { spacing, touchTarget, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { useAppData } from '../lib/appData/AppDataContext';
 import { useAuth } from '../lib/auth/AuthContext';
 import { AppText } from './AppText';
@@ -19,6 +20,8 @@ export function resolvedActiveOrganisation({ authMode, user, accountContext }: P
 
 /** Opt-in primary-screen context. Screen remains responsible for safe-area padding. */
 export function OrganisationHeader() {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const { user, authMode, accountContext, accountStatus, refreshAccountContext } = useAuth();
   const { organisation } = useAppData();
@@ -51,7 +54,7 @@ export function OrganisationHeader() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   header: {
     minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border,

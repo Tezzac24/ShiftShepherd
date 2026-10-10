@@ -1,7 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 
 export interface SegmentOption<T extends string> {
@@ -21,6 +22,7 @@ interface SegmentedControlProps<T extends string> {
 export function SegmentedControl<T extends string>({
   label, value, options, onChange,
 }: SegmentedControlProps<T>) {
+  const styles = useThemedStyles(createStyles);
   return (
     <View role="tablist" accessibilityLabel={label} style={styles.group}>
       {options.map((option) => {
@@ -42,7 +44,7 @@ export function SegmentedControl<T extends string>({
           >
             <AppText
               variant="label"
-              tone={selected ? 'inverse' : option.disabled ? 'muted' : 'secondary'}
+              tone={selected ? 'onPrimary' : option.disabled ? 'muted' : 'secondary'}
               style={styles.label}
             >
               {option.label}
@@ -54,7 +56,7 @@ export function SegmentedControl<T extends string>({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   group: {
     flexDirection: 'row', padding: spacing.xs, gap: spacing.xs,
     borderRadius: radius.md, backgroundColor: colors.surfaceRaised,

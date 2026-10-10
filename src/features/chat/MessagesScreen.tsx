@@ -2,7 +2,8 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, spacing, touchTarget } from '../../../constants/theme';
+import { spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { CountBadge } from '../../components/Badge';
@@ -20,6 +21,7 @@ import { useCurrentTime } from '../../utils/useCurrentTime';
 import { chatConversations, conversationPreview, conversationTimestamp } from './chatPresentation';
 
 export default function MessagesScreen() {
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const user = useRequiredUser();
   const data = useAppData();
@@ -116,7 +118,7 @@ export default function MessagesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { paddingHorizontal: spacing.gutter, paddingBottom: spacing.lg },
   header: { gap: spacing.md, marginBottom: spacing.sm },
   conversation: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md,

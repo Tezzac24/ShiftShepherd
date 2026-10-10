@@ -250,6 +250,18 @@ nonstandard times remain in chronological order without rounding them.
 
 ### Profile, identity and notifications
 
+Display is available under Profile's Preferences. Its reference-inspired screen
+has side-by-side Light/Dark previews and a Use device settings switch, using the
+app's teal selection colour. Changes apply immediately and persist on this device,
+independently of the active account/church; the initial default remains Light.
+Enabling device settings follows system appearance changes. Choosing Light or
+Dark turns that switch off; turning it off retains the current resolved mode.
+Use the paired light/dark semantic palettes in `constants/theme.ts`, including
+`onPrimary` for text on filled actions. Shared components and feature surfaces
+subscribe through `src/lib/theme/AppearanceContext.tsx`; do not add fixed light
+colours to new screens. Avatar fills and name-derived announcement accents retain
+their existing stable identities. Display adds no backend preference or API.
+
 Use a compact identity block with the existing edit/photo affordance, then
 notification preferences and current church context. Church-admin member and
 invitation actions are a distinct contextual section. Account/sign-out/leave

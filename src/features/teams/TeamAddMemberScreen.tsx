@@ -2,7 +2,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -27,6 +28,7 @@ export function TeamProfileCandidateRow({ profile, avatarUri, adding, disabled, 
   first?: boolean;
   last?: boolean;
 }) {
+  const styles = useThemedStyles(createStyles);
   return <View style={[styles.personRow, first && styles.firstRow, last && styles.lastRow]}>
     <View style={styles.person}>
       <Avatar name={profile.full_name} uri={avatarUri} size={48} />
@@ -56,6 +58,7 @@ export default function TeamAddMemberScreen() {
 }
 
 function TeamAddMemberContent({ team }: { team: Team }) {
+  const styles = useThemedStyles(createStyles);
   const { authMode } = useAuth();
   const user = useRequiredUser();
   const data = useAppData();
@@ -147,7 +150,7 @@ function TeamAddMemberContent({ team }: { team: Team }) {
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { padding: spacing.gutter, paddingBottom: spacing.xl },
   header: { gap: spacing.md, marginBottom: spacing.lg },
   feedback: { gap: spacing.sm },

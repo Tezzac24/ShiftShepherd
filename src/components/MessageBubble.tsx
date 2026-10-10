@@ -1,7 +1,8 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { formatTime } from '../utils/dates';
 import { AppText } from './AppText';
 import { ChatAttachmentImage } from './ChatAttachmentImage';
@@ -23,6 +24,7 @@ export function MessageBubble({
   hasImage = false,
   imageUri,
 }: MessageBubbleProps) {
+  const styles = useThemedStyles(createStyles);
   const caption = body.trim();
   return (
     <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}>
@@ -44,7 +46,7 @@ export function MessageBubble({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   row: { flexDirection: 'row', marginVertical: spacing.xs },
   rowMine: { justifyContent: 'flex-end' },
   rowTheirs: { justifyContent: 'flex-start' },

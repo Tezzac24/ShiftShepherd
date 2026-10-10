@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { forwardRef, useContext } from 'react';
 import { AccessibilityRole, AccessibilityState, Pressable, StyleSheet, Switch, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 import { ListGroupContext } from './ListGroup';
 
@@ -29,6 +30,8 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow({
   disabled = false, accessibilityLabel, accessibilityHint, accessibilityRole = 'button',
   accessibilityState, testID,
 }, ref) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const grouped = useContext(ListGroupContext);
   const blocked = disabled || !!accessibilityState?.disabled;
   const checked = ['switch', 'checkbox', 'radio'].includes(accessibilityRole) ? accessibilityState?.checked : undefined;
@@ -87,6 +90,7 @@ interface SwitchRowProps {
 
 /** Exactly one accessible switch and one change per full-row tap. */
 export function SwitchRow({ title, subtitle, value, onValueChange, disabled = false, busy = false }: SwitchRowProps) {
+  const colors = useThemeColors();
   return (
     <ListRow
       title={title}
@@ -111,7 +115,7 @@ export function SwitchRow({ title, subtitle, value, onValueChange, disabled = fa
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   row: {
     minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     backgroundColor: colors.surface, borderRadius: radius.md,

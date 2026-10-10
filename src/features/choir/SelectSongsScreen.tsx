@@ -3,7 +3,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { ListGroup, ListGroupContext } from '../../components/ListGroup';
@@ -31,6 +32,8 @@ interface SelectionSection { key: SelectionView; data: SelectionRow[] }
 function OrderArrow({ direction, label, disabled, onPress }: {
   direction: 'up' | 'down'; label: string; disabled: boolean; onPress: () => void;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   return <Pressable accessibilityRole="button" accessibilityLabel={label}
     accessibilityState={{ disabled }} aria-disabled={disabled} disabled={disabled}
     onPress={disabled ? undefined : onPress}
@@ -65,6 +68,8 @@ function SelectionScope({ scope, entryId, section }: { scope: ChoirScopeValue; e
 function SongSelection({ scope, entry, section, permitted }: {
   scope: ChoirScopeValue; entry?: RotaEntry; section: SongSection; permitted: boolean;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const { team, user } = scope;
   const data = useAppData();
   const router = useRouter();
@@ -250,7 +255,7 @@ function SongSelection({ scope, entry, section, permitted }: {
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { padding: spacing.gutter, paddingBottom: spacing.xl },
   header: { gap: spacing.sm, paddingBottom: spacing.md },
   sectionHeader: { gap: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.md, backgroundColor: colors.background },

@@ -1,9 +1,8 @@
-import { Stack, useRouter } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { PaperProvider } from 'react-native-paper';
 
-import { colors } from '@/constants/theme';
 import { AppText } from '@/src/components/AppText';
 import { Button } from '@/src/components/Button';
 import { ConfirmProvider } from '@/src/components/ConfirmDialog';
@@ -13,13 +12,16 @@ import { PushRegistrationProvider } from '@/src/features/notifications/useDevice
 import { ChurchEntryPresentationProvider } from '@/src/features/organisations/ChurchEntryPresentation';
 import { AppDataProvider, useAppData } from '@/src/lib/appData/AppDataContext';
 import { AuthProvider, useAuth } from '@/src/lib/auth/AuthContext';
-import { paperTheme } from '@/src/lib/theme/paperTheme';
+import { AppearanceProvider, useAppearance, useThemeColors } from '@/src/lib/theme/AppearanceContext';
+import { createPaperTheme } from '@/src/lib/theme/paperTheme';
 
 function RootStack({ hasStarted }: { hasStarted: React.MutableRefObject<boolean> }) {
+  const colors = useThemeColors();
   const router = useRouter();
   const { user, isLoading, isAuthenticated } = useAuth();
   const { isHydrated } = useAppData();
-  const ready = !isLoading && isHydrated;
+  const { hydrated } = useAppearance();
+  const ready = !isLoading && isHydrated && hydrated;
 
   React.useEffect(() => {
     if (ready) hasStarted.current = true;
@@ -110,6 +112,7 @@ function RootStack({ hasStarted }: { hasStarted: React.MutableRefObject<boolean>
         <Stack.Screen name="teams/[teamId]/songs/[songId]" options={{ title: 'Song' }} />
         <Stack.Screen name="teams/[teamId]/songs/edit" options={{ title: 'Song' }} />
         <Stack.Screen name="settings/notifications" options={{ title: 'Notifications' }} />
+        <Stack.Screen name="settings/display" options={{ title: 'Display' }} />
         <Stack.Screen name="organisations/invitations" options={{ title: 'Invitations' }} />
         <Stack.Screen name="organisations/members/index" options={{ title: 'Church members' }} />
         <Stack.Screen name="organisations/members/[profileId]" options={{ title: 'Member' }} />
@@ -137,21 +140,34 @@ export default function RootLayout() {
   // account-scoped remount below and can carry the one-time startup gate.
   const hasStarted = React.useRef(false);
   return (
-    <AuthProvider>
+    <AppearanceProvider><AuthProvider>
       <PushRegistrationProvider>
         <ChurchEntryPresentationProvider>
           <AccountScopedAppDataProvider>
-            <PaperProvider theme={paperTheme}>
+            <ThemedPresentation>
               <ConfirmProvider>
                 <ToastProvider>
                   <RootStack hasStarted={hasStarted} />
-                  <StatusBar style="dark" />
                 </ToastProvider>
               </ConfirmProvider>
-            </PaperProvider>
+            </ThemedPresentation>
           </AccountScopedAppDataProvider>
         </ChurchEntryPresentationProvider>
       </PushRegistrationProvider>
-    </AuthProvider>
+    </AuthProvider></AppearanceProvider>
   );
+}
+
+function ThemedPresentation({ children }: { children: React.ReactNode }) {
+  const { scheme, colors } = useAppearance();
+  const paper = React.useMemo(() => createPaperTheme(scheme), [scheme]);
+  const navigation = React.useMemo(() => ({
+    ...(scheme === 'dark' ? DarkTheme : DefaultTheme),
+    colors: { ...(scheme === 'dark' ? DarkTheme : DefaultTheme).colors,
+      primary: colors.primary, background: colors.background, card: colors.card,
+      text: colors.text, border: colors.border, notification: colors.primary },
+  }), [scheme, colors]);
+  return <ThemeProvider value={navigation}><PaperProvider theme={paper}>
+    {children}<StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+  </PaperProvider></ThemeProvider>;
 }

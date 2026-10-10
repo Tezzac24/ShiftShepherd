@@ -1,7 +1,8 @@
 import React, { Children, createContext } from 'react';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 
-import { colors, radius } from '../../constants/theme';
+import { radius, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 
 /** Internal context lets ListRow retain its stand-alone API outside a group. */
 export const ListGroupContext = createContext(false);
@@ -10,6 +11,7 @@ export function ListGroup({ children, style }: {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
+  const styles = useThemedStyles(createStyles);
   return (
     <ListGroupContext.Provider value>
       <View style={[styles.group, style]}>
@@ -23,7 +25,7 @@ export function ListGroup({ children, style }: {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   group: {
     backgroundColor: colors.surface, borderRadius: radius.lg,
     borderWidth: 1, borderColor: colors.border, overflow: 'hidden',

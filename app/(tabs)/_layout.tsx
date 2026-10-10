@@ -4,7 +4,8 @@ import React from 'react';
 import { useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, spacing, touchTarget, type } from '@/constants/theme';
+import { spacing, touchTarget, type } from '@/constants/theme';
+import { useThemeColors } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '@/src/components/AppText';
 import { useAppData } from '@/src/lib/appData/AppDataContext';
 import { sumUnread } from '@/src/lib/appData/chatUnread';
@@ -15,6 +16,7 @@ import { useAuth } from '@/src/lib/auth/AuthContext';
  * Five labelled tabs — no icon-only navigation.
  */
 export default function TabsLayout() {
+  const colors = useThemeColors();
   const { user } = useAuth();
   const data = useAppData();
   const insets = useSafeAreaInsets();
@@ -56,7 +58,7 @@ export default function TabsLayout() {
           </AppText>
         ),
         tabBarItemStyle: { minHeight: touchTarget, paddingHorizontal: 0 },
-        tabBarBadgeStyle: { backgroundColor: colors.primary, color: colors.white },
+        tabBarBadgeStyle: { backgroundColor: colors.primary, color: colors.onPrimary },
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,

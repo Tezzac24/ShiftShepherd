@@ -80,6 +80,15 @@ function edit() {
 }
 
 describe('Profile identity and names', () => {
+  it('opens Display directly from Preferences in live and demo modes', () => {
+    const screen = render(<ProfileScreen />);
+    fireEvent.press(screen.getByRole('button', { name: 'Display. Light' }));
+    expect(mockPush).toHaveBeenCalledWith('/settings/display');
+    demo();
+    screen.rerender(<ProfileScreen />);
+    expect(screen.getByRole('button', { name: 'Display. Light' })).toBeTruthy();
+  });
+
   it('shows compact identity, resolved church and read-only contact details before editing', () => {
     const screen = render(<ProfileScreen />);
     expect(screen.getByLabelText('Current church: Grace')).toBeTruthy();

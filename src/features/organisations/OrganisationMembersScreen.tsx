@@ -3,7 +3,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
@@ -36,6 +37,7 @@ export default function OrganisationMembersScreen() {
 }
 
 function Members({ user }: { user: SessionUser }) {
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const data = useAppData();
@@ -197,6 +199,7 @@ function Members({ user }: { user: SessionUser }) {
 function MemberRow({ member, first, last, avatarUri, disabled, onOpen }: {
   member: OrganisationMemberSummary; first: boolean; last: boolean; avatarUri?: string; disabled: boolean; onOpen: (opener: FocusRef) => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const opener = useRef<View>(null);
   return <View style={[styles.memberRow, first && styles.first, last && styles.last]}>
     <ListGroupContext.Provider value><ListRow ref={opener} title={member.full_name}
@@ -210,7 +213,7 @@ function MemberRow({ member, first, last, avatarUri, disabled, onOpen }: {
   </View>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { padding: spacing.gutter },
   header: { gap: spacing.lg, paddingBottom: spacing.xl },
   summary: { gap: spacing.sm },

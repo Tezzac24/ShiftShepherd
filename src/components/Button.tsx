@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { forwardRef } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, StyleProp, View, ViewStyle } from 'react-native';
 
-import { colors, radius, spacing, touchTarget } from '../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'destructive' | 'ghost';
@@ -20,24 +21,29 @@ export interface ButtonProps {
   testID?: string;
 }
 
-const backgrounds: Record<ButtonVariant, string> = {
+const createBackgrounds = (colors: ThemeColors) => ({
   primary: colors.primary,
   secondary: colors.primarySoft,
   destructive: colors.dangerSoft,
   ghost: 'transparent',
-};
-const foregrounds: Record<ButtonVariant, string> = {
-  primary: colors.white,
+});
+const createForegrounds = (colors: ThemeColors) => ({
+  primary: colors.onPrimary,
   secondary: colors.primary,
   destructive: colors.danger,
   ghost: colors.primary,
-};
+});
 
 /** A full-sized target whose label can wrap and grow with system text size. */
 export const Button = forwardRef<View, ButtonProps>(function Button({
   title, onPress, variant = 'primary', icon, disabled = false, loading = false,
   style, accessibilityLabel, accessibilityHint, testID,
 }, ref) {
+  const colors = useThemeColors();
+  const backgrounds = useThemedStyles(createBackgrounds);
+  const foregrounds = useThemedStyles(createForegrounds);
+  const styles = useThemedStyles(createStyles);
+  const pressedStyles = useThemedStyles(createPressedStyles);
   const blocked = disabled || loading;
   const labelColor = disabled ? colors.textMuted : foregrounds[variant];
 
@@ -73,7 +79,7 @@ export const Button = forwardRef<View, ButtonProps>(function Button({
   );
 });
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   base: {
     minHeight: touchTarget,
     minWidth: touchTarget,
@@ -91,7 +97,7 @@ const styles = StyleSheet.create({
   disabled: { backgroundColor: colors.surfaceRaised },
 });
 
-const pressedStyles = StyleSheet.create({
+const createPressedStyles = (colors: ThemeColors) => StyleSheet.create({
   primary: { backgroundColor: colors.primaryDark },
   secondary: { backgroundColor: colors.surfaceRaised, borderColor: colors.primary },
   destructive: { borderColor: colors.danger },

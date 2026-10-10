@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
+import { radius, spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -41,6 +42,8 @@ export function TeamMemberRow({ profile, membership, avatarUri, isCurrentUser, r
   first?: boolean;
   last?: boolean;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const removeRef = useRef<View>(null);
   const roleRef = useRef<View>(null);
   return <View style={[styles.memberRow, first && styles.firstMember, last && styles.lastMember]}>
@@ -96,6 +99,7 @@ export default function TeamMembersScreen() {
 }
 
 function TeamMembersContent({ team }: { team: Team }) {
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const confirm = useConfirm();
   const showToast = useToast();
@@ -278,7 +282,7 @@ function TeamMembersContent({ team }: { team: Team }) {
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { padding: spacing.gutter },
   header: { gap: spacing.md, marginBottom: spacing.lg },
   memberRow: { gap: spacing.sm, padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.border,

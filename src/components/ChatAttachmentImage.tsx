@@ -3,7 +3,8 @@ import { Image } from 'expo-image';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 
 /** Fixed-aspect chat photo with a calm, layout-stable failure fallback. */
@@ -20,6 +21,8 @@ export function ChatAttachmentImage({
   height?: number;
   accessibilityLabel?: string;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [uri]);
 
@@ -66,7 +69,7 @@ export function ChatAttachmentImage({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   fallback: {
     borderRadius: radius.md,
     alignItems: 'center',

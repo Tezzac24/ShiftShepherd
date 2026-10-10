@@ -1,10 +1,11 @@
 import React, { forwardRef } from 'react';
 import { StyleSheet, Text, TextProps } from 'react-native';
 
-import { colors, type } from '../../constants/theme';
+import { type, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 
 type Variant = keyof typeof type;
-type Tone = 'default' | 'secondary' | 'muted' | 'primary' | 'accent' | 'danger' | 'success' | 'warning' | 'inverse';
+type Tone = 'default' | 'secondary' | 'muted' | 'primary' | 'accent' | 'danger' | 'success' | 'warning' | 'inverse' | 'onPrimary';
 export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface AppTextProps extends TextProps {
@@ -15,7 +16,7 @@ export interface AppTextProps extends TextProps {
   headingLevel?: HeadingLevel;
 }
 
-const toneColor: Record<Tone, string> = {
+const createToneColor = (colors: ThemeColors) => ({
   default: colors.text,
   secondary: colors.textSecondary,
   muted: colors.textMuted,
@@ -25,11 +26,13 @@ const toneColor: Record<Tone, string> = {
   success: colors.success,
   warning: colors.warning,
   inverse: colors.white,
-};
+  onPrimary: colors.onPrimary,
+});
 
 export const AppText = forwardRef<Text, AppTextProps>(function AppText(
   { variant = 'body', tone = 'default', headingLevel, accessibilityRole, style, ...rest }, ref,
 ) {
+  const toneColor = useThemedStyles(createToneColor);
   const heading = headingLevel !== undefined && (!accessibilityRole || accessibilityRole === 'header');
   return (
     <Text

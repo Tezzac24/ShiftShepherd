@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, TextInput, TextInputProps, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, spacing, touchTarget, type } from '../../../constants/theme';
+import { radius, spacing, touchTarget, type, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -42,6 +43,8 @@ export default function TeamChatScreen() {
 function TeamChatContent({ teamId, user, authorityResolved, accountError }: {
   teamId: string; user: SessionUser; authorityResolved: boolean; accountError: boolean;
 }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const data = useAppData();
   const now = useCurrentTime();
   const router = useRouter();
@@ -285,7 +288,7 @@ function TeamChatContent({ teamId, user, authorityResolved, accountError }: {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   flex: { flex: 1 },
   context: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.gutter,
     paddingVertical: spacing.md, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },

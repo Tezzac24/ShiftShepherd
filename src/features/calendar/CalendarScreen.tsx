@@ -3,7 +3,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, spacing, touchTarget } from '../../../constants/theme';
+import { spacing, touchTarget, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { ListGroup } from '../../components/ListGroup';
@@ -22,6 +23,8 @@ import { ScheduleEventRow, ServingRow } from './ScheduleRows';
 import { ServingFeedback } from './ServingFeedback';
 
 export default function CalendarScreen() {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const router = useRouter();
   const { view } = useLocalSearchParams<{ view?: string | string[] }>();
   const selectedView = scheduleViewFromParam(view);
@@ -85,7 +88,7 @@ export default function CalendarScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   content: { paddingBottom: spacing.lg },
   sectionHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
   headingText: { flexGrow: 1, flexShrink: 1, flexBasis: 160 },

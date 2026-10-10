@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { AppText } from './AppText';
 import { Button } from './Button';
 
@@ -47,6 +48,7 @@ export function ModalSurface({
   visible, title, onClose, children, presentation = 'sheet',
   closeLabel = 'Close', footer, scroll = true, returnFocusRef, shouldRestoreFocus, slide = presentation === 'sheet',
 }: ModalSurfaceProps) {
+  const styles = useThemedStyles(createStyles);
   const [reducedMotion, setReducedMotion] = useState(true);
   const { height: windowHeight } = useWindowDimensions();
   const [panelOffset] = useState(() => new Animated.Value(0));
@@ -193,7 +195,7 @@ export function ModalSurface({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   overlay: { flex: 1 },
   backdrop: { backgroundColor: colors.overlay },
   sheetOverlay: { justifyContent: 'flex-end' },

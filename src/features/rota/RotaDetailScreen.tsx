@@ -3,7 +3,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { colors, radius, spacing } from '../../../constants/theme';
+import { radius, spacing, type ThemeColors } from '../../../constants/theme';
+import { useThemeColors, useThemedStyles } from '@/src/lib/theme/AppearanceContext';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
@@ -42,6 +43,8 @@ export default function RotaDetailScreen() {
 }
 
 function RotaDetail({ scope, entryId }: { scope: RotaScopeValue; entryId: string | null }) {
+  const colors = useThemeColors();
+  const styles = useThemedStyles(createStyles);
   const { user, team } = scope;
   const router = useRouter();
   const data = useAppData();
@@ -390,7 +393,7 @@ function RotaDetail({ scope, entryId }: { scope: RotaScopeValue; entryId: string
   </Screen>;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   context: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   contextLabel: { flexGrow: 1, flexShrink: 1, flexBasis: 150 },
   personal: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.primarySoft },

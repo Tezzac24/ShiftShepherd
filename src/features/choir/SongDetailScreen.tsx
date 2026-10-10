@@ -3,7 +3,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
+import { spacing } from '../../../constants/theme';
+import { useThemeColors } from '@/src/lib/theme/AppearanceContext';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
@@ -34,6 +35,7 @@ export default function SongDetailScreen() {
 }
 
 function SongDetail({ scope, songId }: { scope: ChoirScopeValue; songId: string | null }) {
+  const colors = useThemeColors();
   const { team, user } = scope;
   const router = useRouter();
   const data = useAppData();
