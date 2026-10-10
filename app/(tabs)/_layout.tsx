@@ -43,10 +43,10 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.textMuted,
         tabBarLabelPosition: 'below-icon',
         tabBarAllowFontScaling: true,
-        tabBarLabel: ({ color, children }) => (
+        tabBarLabel: ({ color, children, focused }) => (
           <AppText variant="navigation" accessible={false}
             accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden
-            style={{ color, textAlign: 'center', maxWidth: '100%' }}
+            style={{ color, textAlign: 'center', maxWidth: '100%', fontWeight: focused ? '700' : '600' }}
             onLayout={(event) => {
               const height = Math.ceil(event.nativeEvent.layout.height);
               setLabelHeights((current) => height <= (current[layoutKey] ?? 0)
@@ -73,7 +73,7 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarAccessibilityLabel: 'Home',
-          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />,
+          tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'home' : 'home-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />,
         }}
       />
       <Tabs.Screen
@@ -81,8 +81,8 @@ export default function TabsLayout() {
         options={{
           title: 'Schedule',
           tabBarAccessibilityLabel: 'Schedule',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'calendar' : 'calendar-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
@@ -91,8 +91,8 @@ export default function TabsLayout() {
         options={{
           title: 'Teams',
           tabBarAccessibilityLabel: 'Teams',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'people' : 'people-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
@@ -105,8 +105,8 @@ export default function TabsLayout() {
             unreadTotal > 0
               ? `Messages, ${unreadTotal} unread`
               : 'Messages',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubbles-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'chatbubbles' : 'chatbubbles-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
@@ -115,8 +115,8 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarAccessibilityLabel: 'Profile',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-circle-outline" size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'person-circle' : 'person-circle-outline'} size={focused ? size + 2 : size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
           ),
         }}
       />
