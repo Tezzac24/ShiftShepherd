@@ -15,6 +15,7 @@ import { SelectField } from '../../components/SelectField';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { canCreateAnyAnnouncement, canCreateChurchAnnouncements, canEditAnnouncement } from '../../lib/permissions';
@@ -126,6 +127,10 @@ function AnnouncementForm({ params, user, authorityResolved }: { params: Params;
   useEffect(() => { if (saveError || imageError) scrollRef.current?.scrollTo({ y: 0, animated: false }); }, [saveError, imageError]);
 
   const cancel = () => router.canGoBack() ? router.back() : router.replace('/announcements');
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    value: draft, blocked: step === 'saving' || step === 'image-saving' || image.picking, saved: saved !== null, uncertain: saveError !== null,
+    message: 'Your announcement changes will not be saved.', onDiscard: cancel, extraChanges: image.draft.kind === 'replace' || (image.draft.kind === 'remove' && existingHasImage),
+  });
   const change = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((previous) => previous ? { ...previous, [key]: value } : previous);
   const focusField = (field: Field) => {
     scrollRef.current?.scrollTo({ y: Math.max(0, positions.current[field] - spacing.md), animated: false });
@@ -173,7 +178,7 @@ function AnnouncementForm({ params, user, authorityResolved }: { params: Params;
       <Button title="Try image change again" icon="image-outline" onPress={() => { if (current.current.allowed && current.current.authorityResolved) setStep('image-pending'); }} />
       <Button title="View announcement" variant="secondary" onPress={() => router.replace({ pathname: '/announcements/[id]', params: { id: saved.id } })} />
     </> : undefined}>
-    <Stack.Screen options={{ title: 'Announcement saved' }} />
+    <Stack.Screen options={{ headerLeft, title: 'Announcement saved' }} />
     <PageHeading title={editing ? 'Changes saved' : 'Announcement posted'} description="Your title, message and audience are saved." />
     {imageError ? <StatePanel compact kind="error" title={submittedImage.current.kind === 'remove' ? "Image wasn't removed" : "Image wasn't saved"}
       message={`${imageError} ${waitingForAuthority ? 'You can close and change the image later.' : 'You can retry now or view your announcement and change the image later.'}`} /> : null}
@@ -190,36 +195,36 @@ function AnnouncementForm({ params, user, authorityResolved }: { params: Params;
     <AppText variant="heading" headingLevel={2}>{saved.title}</AppText>
     {submittedImage.current.kind === 'replace' ? <AnnouncementImage uri={submittedImage.current.previewUri} height={180} presentation="full" accessibilityLabel="Selected announcement image" /> : null}
   </Screen>;
-  if (!authorityResolved) return <Screen><Stack.Screen options={{ title: screenTitle }} />
+  if (!authorityResolved) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} />
     <StatePanel headingLevel={1} kind="loading" title="Checking announcement permissions…" />
-    <Button title="Cancel" variant="secondary" onPress={cancel} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
-  if (editing && !existing && !saved) return <Screen><Stack.Screen options={{ title: screenTitle }} />
+  if (editing && !existing && !saved) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} />
     {data.announcementsLoading ? <StatePanel headingLevel={1} kind="loading" title="Loading announcement…" />
       : data.announcementsError ? <StatePanel headingLevel={1} kind="error" title="Couldn't load this announcement" message={data.announcementsError}
         action={{ label: 'Retry announcement', onPress: () => void data.refreshAnnouncements() }} />
         : <StatePanel headingLevel={1} title="Announcement unavailable" message="This announcement may have been removed or is not available in your current church." />}
     <Button title="All announcements" variant="secondary" onPress={() => router.replace('/announcements')} />
   </Screen>;
-  if (waitingForTeam) return <Screen><Stack.Screen options={{ title: screenTitle }} />
+  if (waitingForTeam) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} />
     <StatePanel headingLevel={1} kind={data.teamsLoading ? 'loading' : 'error'} title={data.teamsLoading ? 'Loading announcement audiences…' : "Couldn't load announcement audiences"}
       message={data.teamsLoading ? undefined : data.teamsError ?? undefined}
       action={data.teamsLoading ? undefined : { label: 'Retry teams', onPress: () => void data.refreshTeams() }} />
-    <Button title="Cancel" variant="secondary" onPress={cancel} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
-  if (!allowed) return <Screen><Stack.Screen options={{ title: screenTitle }} />
+  if (!allowed) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} />
     <StatePanel headingLevel={1} title="No permission" icon="lock-closed-outline" message="You can no longer manage this announcement or its team is unavailable." />
     <Button title="All announcements" variant="secondary" onPress={() => router.replace('/announcements')} />
   </Screen>;
-  if (!draft) return <Screen><Stack.Screen options={{ title: screenTitle }} /><StatePanel headingLevel={1} kind="loading" title="Preparing announcement…" /></Screen>;
+  if (!draft) return <Screen><Stack.Screen options={{ headerLeft, title: screenTitle }} /><StatePanel headingLevel={1} kind="loading" title="Preparing announcement…" /></Screen>;
 
   const busy = step !== 'draft';
   const optionalSummary = [draft.pinned ? 'Pinned' : null, draft.linkedEventId ? 'Event linked' : null, showsImage ? 'Image selected' : null].filter(Boolean).join(' · ');
   return <Screen keyboard scrollRef={scrollRef} footer={<View style={styles.actions}>
-    <Button title="Cancel" variant="secondary" disabled={busy || image.picking} onPress={cancel} style={styles.cancel} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" disabled={busy || image.picking} onPress={() => requestExit()} style={styles.cancel} />
     <Button title={editing ? 'Save changes' : 'Post announcement'} loading={busy} disabled={image.picking} onPress={() => void save()} style={styles.save} />
   </View>}>
-    <Stack.Screen options={{ title: screenTitle }} />
+    <Stack.Screen options={{ headerLeft, title: screenTitle }} />
     <PageHeading title={screenTitle} description={editing ? undefined : 'Share an update with your church or team.'} />
     {saveError ? <StatePanel compact kind="error" title={editing ? 'Couldn’t save changes' : 'Couldn’t post announcement'} message={saveError} /> : null}
     {data.announcementsError && editing ? <StatePanel compact kind="error" title="Couldn't refresh this announcement" message={data.announcementsError}

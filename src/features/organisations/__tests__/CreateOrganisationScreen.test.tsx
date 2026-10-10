@@ -9,11 +9,14 @@ const mockBack = jest.fn();
 const mockCanGoBack = jest.fn(() => false);
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null }, useGlobalSearchParams: () => ({}), usePathname: () => '/organisations/create',
   useRouter: () => ({ replace: mockReplace, back: mockBack, canGoBack: mockCanGoBack }) }));
+const mockDiscardConfirm = jest.fn().mockResolvedValue(true);
+jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: () => mockDiscardConfirm }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('../../../lib/auth/AuthContext', () => ({ useAuth: jest.fn() }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }));
 
-beforeEach(() => { jest.clearAllMocks(); mockCanGoBack.mockReturnValue(false); });
+beforeEach(() => {
+  mockDiscardConfirm.mockReset().mockResolvedValue(true); jest.clearAllMocks(); mockCanGoBack.mockReturnValue(false); });
 
 it('validates the existing church-name rule and does not call Auth for a short name', () => {
   const state = authState(); const view = renderEntry(<CreateOrganisationScreen />, state);
@@ -131,4 +134,13 @@ it('offers a safe Cancel for a direct link', () => {
   const view = renderEntry(<CreateOrganisationScreen />, authState());
   fireEvent.press(view.getByRole('button', { name: 'Cancel' }));
   expect(mockReplace).toHaveBeenCalledWith('/');
+});
+
+it('keeps a church name when discard is dismissed', async () => {
+  mockDiscardConfirm.mockResolvedValue(false);
+  const state = authState(); const view = renderEntry(<CreateOrganisationScreen />, state);
+  fireEvent.changeText(view.getByLabelText('Church name'), 'My church draft');
+  await act(async () => fireEvent.press(view.getByRole('button', { name: 'Cancel' })));
+  expect(mockDiscardConfirm).toHaveBeenCalledTimes(1); expect(mockReplace).not.toHaveBeenCalled();
+  expect(view.getByDisplayValue('My church draft')).toBeTruthy(); expect(state.createOrganisation).not.toHaveBeenCalled();
 });

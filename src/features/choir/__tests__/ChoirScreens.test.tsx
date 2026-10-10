@@ -464,3 +464,14 @@ describe('song creation and editing', () => {
     expect(data.updateSong).not.toHaveBeenCalled();
   });
 });
+
+it.each(['Song title', 'Lyrics'])('keeps an edited %s when song discard is dismissed', async (field) => {
+  mockConfirm.mockResolvedValue(false);
+  const screen = form();
+  fireEvent.changeText(screen.getByLabelText(field), 'My unsaved song draft');
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your song changes will not be saved.' }));
+  expect(screen.getByDisplayValue('My unsaved song draft')).toBeTruthy();
+  expect(mockBack).not.toHaveBeenCalled();
+  expect(data.updateSong).not.toHaveBeenCalled();
+});

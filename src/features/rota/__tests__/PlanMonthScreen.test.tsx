@@ -274,3 +274,15 @@ describe('Plan the month', () => {
     expect(data.refreshRotas).toHaveBeenCalledTimes(1);
   });
 });
+
+it('keeps a changed month pattern when discard is dismissed and skips a reverted pattern', async () => {
+  mockConfirm.mockResolvedValue(false);
+  const screen = render(<PlanMonthScreen />);
+  fireEvent.press(screen.getByRole('switch', { name: /Weekly rehearsal/ }));
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your month plan, date choices and people will not be saved.' }));
+  expect(mockBack).not.toHaveBeenCalled(); expect(data.addRotaEntries).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole('switch', { name: /Weekly rehearsal/ }));
+  fireEvent.press(screen.getByLabelText('Cancel'));
+  expect(mockConfirm).toHaveBeenCalledTimes(1); expect(mockBack).toHaveBeenCalledTimes(1);
+});

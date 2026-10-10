@@ -11,6 +11,7 @@ import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
 import { StatePanel } from '../../components/StatePanel';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
 import { ORGANISATION_ROLE_OPTIONS } from '../../lib/permissions';
@@ -87,6 +88,11 @@ function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: 
     if (savedRole && !scope.permitted) { router.replace('/(tabs)/profile'); return; }
     if (router.canGoBack()) router.back(); else router.replace('/');
   };
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    hasChanges: !!member && selectedRole !== null && selectedRole !== member.role,
+    blocked: busy, saved: savedRole !== null, uncertain: saveError !== null,
+    message: 'Your church role choice will not be saved.', onDiscard: close,
+  });
   const checkAccess = async () => {
     if (!savedRole || !correctChurch || !scope.isPresent() || pending.current || data.teamsLoading) return;
     const ticket = capture();
@@ -141,8 +147,7 @@ function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: 
   };
   const targetAvailable = member?.access_status === 'active' && member.linked;
   const canEdit = scope.ready && targetAvailable && correctChurch && !savedRole;
-  const header = <Stack.Screen options={{ title: 'Church role', headerLeft: () =>
-    <Button title="Back" variant="ghost" icon="chevron-back" onPress={close} disabled={busy} /> }} />;
+  const header = <Stack.Screen options={{ title: 'Church role', headerLeft }} />;
 
   if (savedRole) return <Screen>{header}
     <PageHeading title="Role saved" eyebrow={scope.churchName} description={`${member?.full_name ?? 'This person'} is now ${organisationRoleLabel(savedRole)}.`} />
@@ -150,10 +155,10 @@ function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: 
       : data.teamsError || refreshFailed ? <StatePanel compact kind="error" title="Couldn’t refresh church access" message="The role is saved. Check access again before doing more administration."
       action={{ label: 'Check church access', onPress: () => void checkAccess() }} />
       : null}
-    <Button title="Done" onPress={close} disabled={busy} />
+    <Button title="Done" onPress={() => requestExit()} disabled={busy} />
   </Screen>;
 
-  const fallback = <Button title="Back to Members" variant="secondary" onPress={close} />;
+  const fallback = <Button title="Back to Members" variant="secondary" onPress={() => requestExit()} />;
   if (!scope.permitted || !correctChurch) return <Screen>{header}<PageHeading title="Church role" />
     <StatePanel icon="lock-closed-outline" title={!scope.permitted ? 'No permission' : 'Different church'}
       message={!scope.permitted ? 'Only a church admin can manage organisation roles.' : 'This selection belongs to another church. Return to Members in your current church.'} />{fallback}
@@ -187,7 +192,7 @@ function MemberRole({ user, profileId, emailHint, nameHint, organisationHint }: 
       : <Button ref={saveOpener} title="Save role" icon="checkmark-outline" onPress={() => void save()} loading={busy}
       disabled={!canEdit || loading || busy || !selectedRole || selectedRole === member.role || (member.is_last_church_admin && selectedRole !== 'church_admin')} />
     }
-    <Button title="Cancel" variant="ghost" onPress={close} disabled={busy} />
+    <Button ref={exitRef} title="Cancel" variant="ghost" onPress={() => requestExit()} disabled={busy} />
   </>}>{header}
     <PageHeading title="Church role" eyebrow={scope.churchName} />
     <View style={styles.identity}><AppText variant="bodyBold">{member.full_name}</AppText>

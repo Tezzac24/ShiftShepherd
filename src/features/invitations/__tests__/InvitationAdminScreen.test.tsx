@@ -250,3 +250,15 @@ it.each(['general_member', 'demo'])('makes no invitation calls for %s', (mode) =
   const user = { ...ADMIN, orgRole: mode === 'general_member' ? 'general_member' as const : ADMIN.orgRole }; requiredUser.mockReturnValue(user); auth.mockReturnValue(adminAuth(user, mode === 'demo' ? { authMode: 'demo' } : {}));
   const view = render(<InvitationAdminScreen />); expect(view.getByText('No permission')).toBeTruthy(); expect(list).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled();
 });
+
+it('keeps invitation details when Cancel confirmation is dismissed, and never sends on discard', async () => {
+  confirm.mockResolvedValue(false);
+  const view = render(<InvitationAdminScreen />); await view.findByText('person@example.com');
+  await createEmail(view, 'draft@example.com');
+  await act(async () => fireEvent.press(view.getByLabelText('Cancel')));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your invitation details will not be sent.' }));
+  expect(view.getByDisplayValue('draft@example.com')).toBeTruthy(); expect(send).not.toHaveBeenCalled();
+  confirm.mockResolvedValue(true);
+  await act(async () => fireEvent.press(view.getByLabelText('Cancel')));
+  expect(view.queryByLabelText('Email')).toBeNull(); expect(send).not.toHaveBeenCalled();
+});

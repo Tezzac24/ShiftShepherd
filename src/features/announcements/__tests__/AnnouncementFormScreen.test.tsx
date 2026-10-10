@@ -6,6 +6,8 @@ import AnnouncementFormScreen from '../AnnouncementFormScreen';
 import { AnnouncementImageDraft } from '../useAnnouncementImageDraft';
 import { deferred, makeAuth, makeData, NOTICE, PROFILE, TEAM } from './noticeTestData';
 
+const mockDiscardConfirm = jest.fn().mockResolvedValue(true);
+jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: () => mockDiscardConfirm }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 const mockBack = jest.fn();
 const mockReplace = jest.fn();
@@ -29,6 +31,7 @@ jest.mock('../useAnnouncementImageDraft', () => ({ useAnnouncementImageDraft: ()
 let data: ReturnType<typeof makeData>;
 let auth: ReturnType<typeof makeAuth>;
 beforeEach(() => {
+  mockDiscardConfirm.mockReset().mockResolvedValue(true);
   jest.clearAllMocks(); data = makeData(); auth = makeAuth(); mockParams = {}; mockCanGoBack.mockReturnValue(true);
   (useAppData as jest.Mock).mockImplementation(() => data);
   (useAuth as jest.Mock).mockImplementation(() => auth);
@@ -136,10 +139,10 @@ test('edit retains pin and unresolved linked-event values through an ordinary te
   expect(data.addAnnouncement).not.toHaveBeenCalled();
 });
 
-test('image controls remain absent in demo and Cancel never writes', () => {
+test('image controls remain absent in demo and confirmed Cancel never writes', async () => {
   auth.authMode = 'demo'; const screen = render(<AnnouncementFormScreen />); more(screen);
   expect(screen.queryByLabelText('Add image')).toBeNull(); fill(screen);
-  fireEvent.press(screen.getByLabelText('Cancel')); expect(mockBack).toHaveBeenCalled();
+  fireEvent.press(screen.getByLabelText('Cancel')); await waitFor(() => expect(mockBack).toHaveBeenCalled());
   expect(data.addAnnouncement).not.toHaveBeenCalled(); expect(data.setAnnouncementImage).not.toHaveBeenCalled();
 });
 
@@ -282,4 +285,24 @@ test('a direct successful create has an explicit detail destination when no hist
   mockCanGoBack.mockReturnValue(false); const screen = render(<AnnouncementFormScreen />); fill(screen);
   fireEvent.press(screen.getByLabelText('Post announcement'));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith({ pathname: '/announcements/[id]', params: { id: 'created-notice' } }));
+});
+
+test.each(['Title', 'Message'])('keeps announcement changes to %s when discard is dismissed', async (field) => {
+  mockDiscardConfirm.mockResolvedValue(false); mockParams = { id: NOTICE.id };
+  const screen = render(<AnnouncementFormScreen />);
+  fireEvent.changeText(screen.getByLabelText(field), 'My unsaved notice');
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(mockDiscardConfirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your announcement changes will not be saved.' }));
+  expect(screen.getByDisplayValue('My unsaved notice')).toBeTruthy();
+  expect(mockBack).not.toHaveBeenCalled(); expect(data.updateAnnouncement).not.toHaveBeenCalled();
+});
+
+test('confirms discarding a selected announcement image even when text is unchanged', async () => {
+  data.announcementsLive = true;
+  mockDiscardConfirm.mockResolvedValue(false); mockParams = { id: NOTICE.id };
+  const screen = render(<AnnouncementFormScreen />); more(screen);
+  await act(async () => fireEvent.press(screen.getByLabelText('Add image')));
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(mockDiscardConfirm).toHaveBeenCalledTimes(1); expect(mockBack).not.toHaveBeenCalled();
+  expect(data.setAnnouncementImage).not.toHaveBeenCalled();
 });

@@ -292,3 +292,14 @@ test('invalid occurrence params retain base times and valid occurrence days use 
   const times = eventDetailTimes(event, new Date(2026, 9, 11, 8).toISOString());
   expect(times.start.getDate()).toBe(11); expect(times.start.getHours()).toBe(10); expect(times.end.getHours()).toBe(12);
 });
+
+test.each(['Event title', 'Location', 'Description (optional)'])('keeps event changes to %s when discard is dismissed', async (field) => {
+  const confirm = jest.fn().mockResolvedValue(false); (useConfirm as jest.Mock).mockReturnValue(confirm);
+  mockParams = { id: EVENT.id };
+  const screen = render(<EventFormScreen />);
+  fireEvent.changeText(screen.getByLabelText(field), 'My unsaved event');
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your event changes will not be saved.' }));
+  expect(screen.getByDisplayValue('My unsaved event')).toBeTruthy();
+  expect(mockBack).not.toHaveBeenCalled(); expect(data.updateEvent).not.toHaveBeenCalled();
+});

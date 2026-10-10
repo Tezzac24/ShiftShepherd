@@ -16,6 +16,7 @@ import { Screen } from '../../components/Screen';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
 import { buildProfileUpdatePayload, PROFILE_NAME_REQUIRED, PROFILE_NAME_TOO_LONG } from '../../lib/supabase/services/profiles';
 import { useProfileAvatar } from './useProfileAvatar';
@@ -50,6 +51,10 @@ export default function EditProfileScreen() {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)/profile');
   };
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    value: { fullName, organisationName }, blocked, saved, onDiscard: exit,
+    message: 'Your changes to your name and username at this church will not be saved.',
+  });
   const focusName = () => {
     scrollRef.current?.scrollTo({ y: Math.max(0, formTop.current + fieldTop.current - spacing.md), animated: false });
     nameRef.current?.focus();
@@ -98,10 +103,10 @@ export default function EditProfileScreen() {
   return (
     <Screen safeTop keyboard keyboardVerticalOffset={0} scrollRef={scrollRef}
       footer={<View style={styles.actions}>
-        <Button title="Cancel" variant="secondary" onPress={exit} disabled={blocked} style={styles.flex} />
+        <Button ref={exitRef} title="Cancel" variant="secondary" onPress={() => requestExit()} disabled={blocked} style={styles.flex} />
         <Button title="Save" onPress={() => void save()} loading={saving} disabled={busy !== null} style={styles.flex} />
       </View>}>
-      <View style={styles.back}><Button title="Back" icon="chevron-back" variant="ghost" onPress={exit} disabled={blocked} /></View>
+      <View style={styles.back}>{headerLeft()}</View>
       <PageHeading title="Edit profile" />
       <View style={styles.form} testID="profile-edit-form" onLayout={(event) => { formTop.current = event.nativeEvent.layout.y; }}>
         <View style={styles.photo}>

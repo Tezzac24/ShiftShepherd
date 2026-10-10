@@ -10,6 +10,7 @@ import { PageHeading } from '../../components/PageHeading';
 import { Screen } from '../../components/Screen';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { AccountIdentity, AccountReadState } from '../auth/AccountEntrySupport';
 import { useChurchEntryPresentation } from './ChurchEntryPresentation';
@@ -56,6 +57,10 @@ function CreateChurch() {
     closed.current = true; entry.clear();
     if (router.canGoBack()) router.back(); else router.replace('/');
   };
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    hasChanges: name !== '', blocked: busy, saved: request?.status === 'complete', uncertain: request?.status === 'uncertain',
+    message: 'The church name you entered will not be saved.', onDiscard: close,
+  });
   const retryRead = async () => {
     if (refreshing.current) return;
     refreshing.current = true; setRetrying(true); setReadFailed(false);
@@ -74,13 +79,13 @@ function CreateChurch() {
     if (validation) { requestAnimationFrame(() => { if (active.current) focusName(); }); return; }
     entry.create(name);
   };
-  const header = <Stack.Screen options={{ title: 'Create church', headerLeft: () => <Button title="Back" variant="ghost" icon="chevron-back" disabled={busy} onPress={close} /> }} />;
+  const header = <Stack.Screen options={{ title: 'Create church', headerLeft }} />;
 
   if (request?.status === 'complete') return <Screen>{header}
     <PageHeading title="Church created" description="Your church is saved. Checking your account before opening it." />
     <StatePanel kind={accountStatus === 'error' ? 'error' : 'loading'} title={accountStatus === 'error' ? 'Couldn’t open your church yet' : 'Opening your church…'} />
     {accountStatus === 'error' ? <Button title="Check my churches" loading={request.checking} onPress={entry.checkAccount} /> : null}
-    <Button title="Close" variant="secondary" onPress={close} />
+    <Button title="Close" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
 
   if (!request && !eligible) return <Screen>{header}
@@ -92,7 +97,7 @@ function CreateChurch() {
         : !hasName ? <StatePanel title="Confirm your name first" message="Your church needs a name for its first admin. Return to your account to confirm your full name." />
           : <StatePanel title="Confirm your email first" message="Open the confirmation link in your email, then check your account again." />}
     {ready && !hasChurch && hasName ? <Button title="Check my account" loading={retrying} onPress={() => void retryRead()} /> : null}
-    <Button title={hasChurch ? 'Back to my churches' : 'Back to my account'} variant="secondary" onPress={close} />
+    <Button title={hasChurch ? 'Back to my churches' : 'Back to my account'} variant="secondary" onPress={() => requestExit()} />
   </Screen>;
 
   const uncertain = request?.status === 'uncertain';
@@ -100,7 +105,7 @@ function CreateChurch() {
     {uncertain ? <Button title="Check my churches" loading={request.checking} onPress={entry.checkAccount} /> : null}
     <Button title={uncertain ? 'Try creating again' : 'Create church'} variant={uncertain ? 'secondary' : 'primary'}
       loading={request?.status === 'pending'} disabled={!eligible || busy} onPress={submit} />
-    <Button title="Cancel" variant="ghost" disabled={busy} onPress={close} />
+    <Button ref={exitRef} title="Cancel" variant="ghost" disabled={busy} onPress={() => requestExit()} />
   </View>} contentStyle={styles.content}>
     {header}
     <PageHeading title="Set up your church" description="Set up your church on Shift Shepherd. If your church already uses the app, ask its admin for an invitation instead." />

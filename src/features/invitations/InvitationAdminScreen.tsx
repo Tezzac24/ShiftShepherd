@@ -19,6 +19,7 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth, useRequiredUser } from '../../lib/auth/AuthContext';
 import { invitationExpiryLabel } from '../../lib/invitations';
@@ -167,6 +168,12 @@ function Invitations({ user, targetProfileId, targetEmail, targetName, organisat
     scope.close();
     if (router.canGoBack()) router.back(); else router.replace('/');
   };
+  const { requestExit: cancelDraft, exitRef: cancelDraftRef, headerLeft: draftBack } = useDiscardChanges({
+    hasChanges: creating && (email !== '' || mode !== (targetProfileId ? 'directory' : 'email')
+      || (!!selected && selected.profile_id !== targetProfileId)),
+    blocked: busy, uncertain: creating && outcome?.kind === 'uncertain',
+    message: 'Your invitation details will not be sent.', onDiscard: () => setCreating(false),
+  });
   const focusEmail = () => {
     form.current?.scrollTo({ y: Math.max(0, fieldY.current - spacing.md), animated: false });
     emailField.current?.focus();
@@ -260,8 +267,8 @@ function Invitations({ user, targetProfileId, targetEmail, targetName, organisat
     message={outcome.kind === 'uncertain' ? `${outcome.message} An invitation may already be saved. Check current invitations before trying again.` : outcome.message} /> : null;
   const accessCheck = !scope.ready ? <StatePanel compact kind={scope.accountError ? 'error' : 'loading'} title={scope.accountError ? 'Couldn’t check church access' : 'Checking church access…'}
     message="Your invitation draft and results are kept while your account is checked." action={scope.accountError ? { label: 'Check church access', onPress: () => void scope.retryAccount().catch(() => undefined) } : undefined} /> : null;
-  const header = <Stack.Screen options={{ title: creating ? 'Invite to church' : 'Church invitations', headerLeft: () =>
-    <Button title="Back" variant="ghost" icon="chevron-back" disabled={busy} onPress={creating ? () => setCreating(false) : close} /> }} />;
+  const header = <Stack.Screen options={{ title: creating ? 'Invite to church' : 'Church invitations', headerLeft: creating ? draftBack : () =>
+    <Button title="Back" variant="ghost" icon="chevron-back" disabled={busy} onPress={close} /> }} />;
   if (!scope.permitted || !correctChurch) return <Screen>{header}<PageHeading title="Church invitations" />
     <StatePanel icon="lock-closed-outline" title={!scope.permitted ? 'No permission' : 'Different church'} message={!scope.permitted
       ? 'Only a church administrator can send and manage organisation invitations.' : 'This selection belongs to another church. Return to Members in your current church.'} />
@@ -274,7 +281,7 @@ function Invitations({ user, targetProfileId, targetEmail, targetName, organisat
       <Button title={outcome?.kind === 'uncertain' ? 'Try sending again' : 'Send invitation'} variant={outcome?.kind === 'uncertain' ? 'secondary' : 'primary'}
         onPress={() => void send()} loading={busyKey === 'new'} disabled={!scope.ready || busy || targetLoading || !!targetError} />
     </>}
-    <Button title="Cancel" variant="ghost" onPress={() => setCreating(false)} disabled={busy} />
+    <Button ref={cancelDraftRef} title="Cancel" variant="ghost" onPress={() => cancelDraft()} disabled={busy} />
   </>}>{header}
     <PageHeading title="Invite to church" eyebrow={scope.churchName} description="They join using an account with the same confirmed email. The invitation adds church membership; it doesn’t assign new team or admin roles." />
     {accessCheck}{feedback}

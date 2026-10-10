@@ -14,6 +14,7 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { searchSongs, selectionsForEntrySection } from '../../lib/appData/selectors';
 import { canManageSongSectionForRotaEntry, songSectionLabels } from '../../lib/permissions';
@@ -107,6 +108,10 @@ function SongSelection({ scope, entry, section, permitted }: {
     else if (team) router.replace({ pathname: '/teams/[teamId]/rota', params: { teamId: team.id } });
     else router.replace('/(tabs)/teams');
   };
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    value: selectedIds, blocked: saving, saved: saved, uncertain: saveError !== null,
+    message: 'Your song choices and order will not be saved.', onDiscard: close,
+  });
   const editable = () => active.current && !closed.current && current.current.ready && !pending.current && !completed.current && current.current.selectedIds !== null;
   const switchView = (next: SelectionView) => {
     if (!editable()) return;
@@ -144,24 +149,24 @@ function SongSelection({ scope, entry, section, permitted }: {
     }
   };
 
-  if (saved) return <Screen><Stack.Screen options={{ title: 'Songs saved' }} />
+  if (saved) return <Screen><Stack.Screen options={{ headerLeft, title: 'Songs saved' }} />
     <PageHeading eyebrow={team?.name} title={`${label} songs saved`} description="Your song order is saved for this date." />
     {!ready ? <StatePanel compact kind="loading" title="Checking your access…" message="You can close this screen or wait to continue." /> : null}
-    <Button title="Close" variant="secondary" onPress={close} />
+    <Button title="Close" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
-  if (!scope.ready || !team) return <ChoirAccessState scope={scope} title={`${label} songs`} onExit={close} exitLabel="Cancel" />;
-  if (!entry) return <Screen><Stack.Screen options={{ title: `${label} songs` }} />
+  if (!scope.ready || !team) return <ChoirAccessState scope={scope} title={`${label} songs`} onExit={() => requestExit()} exitLabel="Cancel" />;
+  if (!entry) return <Screen><Stack.Screen options={{ headerLeft, title: `${label} songs` }} />
     {data.rotasLoading ? <StatePanel headingLevel={1} kind="loading" title="Loading this date…" />
       : data.rotasError ? <StatePanel headingLevel={1} kind="error" title="Couldn't load this date" message={data.rotasError}
         action={{ label: 'Retry rota', onPress: () => void data.refreshRotas() }} />
         : <StatePanel headingLevel={1} title="Date unavailable" message="This date may have been removed or belongs to a different team." />}
     <Button title="Back to rota" variant="secondary" onPress={() => { closed.current = true; router.replace({ pathname: '/teams/[teamId]/rota', params: { teamId: team.id } }); }} />
   </Screen>;
-  if (entry.status === 'cancelled' || !permitted) return <Screen><Stack.Screen options={{ title: `${label} songs` }} />
+  if (entry.status === 'cancelled' || !permitted) return <Screen><Stack.Screen options={{ headerLeft, title: `${label} songs` }} />
     {entry.status === 'cancelled' ? <StatePanel headingLevel={1} title="This date is cancelled" message="Songs cannot be changed for a cancelled date." />
       : <StatePanel headingLevel={1} icon="lock-closed-outline" title="No permission"
         message={`Only this date's ${label} Leader, Song Leader, team admin or a church admin can change the ${label.toLowerCase()} songs.`} />}
-    <Button title="Back to date" variant="secondary" onPress={close} />
+    <Button title="Back to date" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
 
   const results = searchSongs(teamSongs, query);
@@ -207,12 +212,12 @@ function SongSelection({ scope, entry, section, permitted }: {
     </View> : null}
     {invalidSelection ? <Button title="Review song order before saving" variant="ghost" onPress={() => switchView('order')} /> : null}
     <View style={styles.actions}>
-      <Button title="Cancel" variant="secondary" disabled={saving} onPress={close} style={styles.cancel} />
+      <Button ref={exitRef} title="Cancel" variant="secondary" disabled={saving} onPress={() => requestExit()} style={styles.cancel} />
       <Button title={`Save ${label.toLowerCase()} songs`} loading={saving} disabled={selectedIds === null || invalidSelection}
         onPress={() => void save()} style={styles.save} />
     </View>
   </View>}>
-    <Stack.Screen options={{ title: `${label} songs` }} />
+    <Stack.Screen options={{ headerLeft, title: `${label} songs` }} />
     <ListGroupContext.Provider value><SectionList ref={listRef} sections={sections} keyExtractor={(item) => item.kind === 'selected' ? `selected:${item.id}` : `song:${item.song.id}`}
       contentContainerStyle={styles.content} stickySectionHeadersEnabled keyboardShouldPersistTaps="handled"
       ListHeaderComponent={<View style={styles.header}>

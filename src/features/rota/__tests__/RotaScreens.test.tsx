@@ -742,3 +742,29 @@ describe('date management and choir section links', () => {
     expect(screen.queryByLabelText('Open A song for Sunday')).toBeNull();
   });
 });
+
+it('keeps rota assignments when Cancel discard is dismissed', async () => {
+  mockConfirm.mockResolvedValue(false);
+  const screen = openForm();
+  fireEvent.press(screen.getByLabelText('Add person or role'));
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your date and assignment changes will not be saved.' }));
+  expect(mockBack).not.toHaveBeenCalled(); expect(data.updateRotaEntry).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(/^Person 4:/)).toBeTruthy();
+});
+
+it('keeps an availability choice and note until discard is confirmed', async () => {
+  mockConfirm.mockResolvedValue(false);
+  const screen = openDetail();
+  fireEvent.press(screen.getByLabelText('Confirm availability'));
+  fireEvent.press(screen.getByRole('radio', { name: 'Unavailable' }));
+  fireEvent.changeText(screen.getByLabelText('Note (optional)'), 'Away this weekend');
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your availability choice and note will not be saved.' }));
+  expect(screen.getByDisplayValue('Away this weekend')).toBeTruthy();
+  expect(data.setAvailability).not.toHaveBeenCalled();
+  mockConfirm.mockResolvedValue(true);
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(screen.queryByLabelText('Note (optional)')).toBeNull();
+  expect(data.setAvailability).not.toHaveBeenCalled();
+});

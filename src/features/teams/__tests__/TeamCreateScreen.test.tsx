@@ -6,6 +6,8 @@ import { Team, UserProfile } from '../../../types';
 import TeamCreateScreen from '../TeamCreateScreen';
 import { useTeamAvatarDraft } from '../useTeamAvatarDraft';
 
+const mockDiscardConfirm = jest.fn().mockResolvedValue(true);
+jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: () => mockDiscardConfirm }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
@@ -87,6 +89,7 @@ function makeData(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  mockDiscardConfirm.mockReset().mockResolvedValue(true);
   jest.clearAllMocks();
   mockCanGoBack.mockReturnValue(true);
   mockMintedRequestIds = 0;
@@ -617,4 +620,14 @@ describe('TeamCreateScreen chooser and scope recovery', () => {
     await act(async () => finish());
     expect(createTeam).toHaveBeenCalledTimes(1);
   });
+});
+
+it('keeps a new team description when discard is dismissed', async () => {
+  mockDiscardConfirm.mockResolvedValue(false);
+  const screen = render(<TeamCreateScreen />);
+  fireEvent.changeText(screen.getByLabelText('Description (optional)'), 'My team draft');
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(mockDiscardConfirm).toHaveBeenCalledTimes(1); expect(mockBack).not.toHaveBeenCalled();
+  expect(screen.getByDisplayValue('My team draft')).toBeTruthy();
+  expect(mockUseAppData().createTeam).not.toHaveBeenCalled();
 });

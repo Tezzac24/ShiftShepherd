@@ -19,6 +19,7 @@ import { SectionHeader } from '../../components/SectionHeader';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { availabilitySummaryForEntry, peopleForEntry, selectionsForEntrySection, userName } from '../../lib/appData/selectors';
 import { canCancelRotaEntry, canManageSongSectionForRotaEntry, canManageTeamRota, canRespondToAssignment, sectionLeaderAssignment, songSectionLabels } from '../../lib/permissions';
@@ -55,6 +56,7 @@ function RotaDetail({ scope, entryId }: { scope: RotaScopeValue; entryId: string
   const [responding, setResponding] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<AvailabilityStatus | null>(null);
   const [note, setNote] = useState('');
+  const [initialResponse, setInitialResponse] = useState<{ status: AvailabilityStatus | null; note: string } | null>(null);
   const [savingResponse, setSavingResponse] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
   const [responseSaved, setResponseSaved] = useState(false);
@@ -140,10 +142,16 @@ function RotaDetail({ scope, entryId }: { scope: RotaScopeValue; entryId: string
     // draft stays available for review rather than being replaced by a partial
     // saved response from the first of several roles.
     if (responseError) { setResponding(true); return; }
+    setInitialResponse({ status: state.me.status !== 'not_responded' ? state.me.status : null, note: state.me.note ?? '' });
     setPendingStatus(state.me.status !== 'not_responded' ? state.me.status : null);
     setNote(state.me.note ?? ''); setResponseError(null); setResponseSaved(false); reportedResponse.current = false;
     setResponding(true);
   };
+  const { requestExit: discardResponse, exitRef: responseCancelRef } = useDiscardChanges({
+    hasChanges: responding && initialResponse !== null && (pendingStatus !== initialResponse.status || note !== initialResponse.note),
+    blocked: savingResponse, saved: responseSaved, uncertain: responding && responseError !== null,
+    message: 'Your availability choice and note will not be saved.', onDiscard: () => setResponding(false),
+  });
   const saveResponse = async () => {
     const state = current.current;
     if (!active.current || closed.current || !state.ready || !state.me || !state.entry || state.entry.status === 'cancelled' || !pendingStatus || requestPending.current) return;
@@ -364,10 +372,10 @@ function RotaDetail({ scope, entryId }: { scope: RotaScopeValue; entryId: string
         value={cancellationReason} onChangeText={setCancellationReason} multiline editable={!actionBusy} />
     </ModalSurface> : null}
     {me && !cancelled ? <ModalSurface visible={responding} title="Your availability" returnFocusRef={responseRef}
-      onClose={() => setResponding(false)} footer={<View style={styles.sheetActions}>
+      onClose={() => { if (savingResponse) setResponding(false); else discardResponse(); }} footer={<View style={styles.sheetActions}>
         {responseError ? <AppText tone="danger" accessibilityRole="alert" accessibilityLiveRegion="polite">{responseError}</AppText> : null}
         <Button title="Save response" loading={savingResponse} disabled={!pendingStatus} onPress={() => void saveResponse()} />
-        <Button title="Cancel" variant="secondary" disabled={savingResponse} onPress={() => setResponding(false)} />
+        <Button ref={responseCancelRef} title="Cancel" variant="secondary" disabled={savingResponse} onPress={() => discardResponse()} />
       </View>}>
       <AppText variant="bodyBold">{entry.title}</AppText>
       <AppText tone="secondary">{fullScheduleDate(date)}</AppText>

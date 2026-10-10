@@ -15,6 +15,7 @@ import { SectionHeader } from '../../components/SectionHeader';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { canManageTeamLifecycle } from '../../lib/permissions';
@@ -55,6 +56,7 @@ function TeamCreateForm({ user, authorityResolved }: { user: SessionUser; author
   const [choosingAdmin, setChoosingAdmin] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<TeamFormErrors>({});
   const [actionError, setActionError] = useState<string | null>(null);
+  const [saveUncertain, setSaveUncertain] = useState(false);
   const [step, setStep] = useState<CreationStep>('draft');
   const [createdTeam, setCreatedTeam] = useState<{ id: string; name: string } | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -85,6 +87,11 @@ function TeamCreateForm({ user, authorityResolved }: { user: SessionUser; author
   };
 
   const cancel = () => router.canGoBack() ? router.back() : router.replace('/(tabs)/teams');
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    hasChanges: name !== '' || description !== '' || initialAdminProfileId !== null || avatar.draft !== null,
+    blocked: saving || avatar.picking, saved: createdTeam !== null, uncertain: saveUncertain, onDiscard: cancel,
+    message: 'Your team details, initial admin choice and selected photo will not be saved.',
+  });
   const reportError = (error: unknown, fallback: string) => {
     if (!active.current) return;
     setActionError(error instanceof Error ? error.message : fallback);
@@ -142,6 +149,7 @@ function TeamCreateForm({ user, authorityResolved }: { user: SessionUser; author
     }
     saveGuard.current = true;
     submittedPhoto.current = data.teamsLive ? avatar.draft : null;
+    setSaveUncertain(false);
     setStep('creating');
     try {
       const draft = JSON.stringify([validated.value.name, validated.value.description, initialAdminProfileId]);
@@ -156,22 +164,22 @@ function TeamCreateForm({ user, authorityResolved }: { user: SessionUser; author
       saveGuard.current = false;
       if (error instanceof Error && error.message === TEAM_LIFECYCLE_CONFLICT_ERROR) requestKey.current = null;
       reportError(error, "We couldn't create this team right now. Please try again.");
-      if (active.current) setStep('draft');
+      if (active.current) { setSaveUncertain(true); setStep('draft'); }
     }
   };
 
   if (!authorityResolved) return <Screen>
-    <Stack.Screen options={{ title: 'New team' }} />
+    <Stack.Screen options={{ headerLeft, title: 'New team' }} />
     <OrganisationHeader />
     <StatePanel headingLevel={1} kind="loading" title="Checking team permissions..." />
-    <Button title="Back to teams" variant="secondary" onPress={() => router.replace('/(tabs)/teams')} />
+    <Button title="Back to teams" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
 
   if (createdTeam) return <Screen footer={avatarError ? <>
     <Button title="Try photo again" icon="image-outline" loading={retryingAvatar} disabled={!submittedPhoto.current} onPress={retryAvatar} />
     <Button title="Continue without photo" variant="secondary" disabled={retryingAvatar} onPress={() => { completionToast.current = 'Team created.'; setStep('complete'); }} />
   </> : undefined}>
-    <Stack.Screen options={{ title: 'Team created' }} />
+    <Stack.Screen options={{ headerLeft, title: 'Team created' }} />
     <OrganisationHeader />
     <PageHeading title={`${createdTeam.name} is ready`} description="Your team was created successfully. You can add its photo now or later." />
     {avatarError ? <StatePanel compact kind="error" title="Team photo wasn't added" message={avatarError} />
@@ -179,20 +187,20 @@ function TeamCreateForm({ user, authorityResolved }: { user: SessionUser; author
   </Screen>;
 
   if (data.teamsLive && data.users.length === 0 && (data.teamsLoading || data.teamsError)) return <Screen>
-    <Stack.Screen options={{ title: 'New team' }} />
+    <Stack.Screen options={{ headerLeft, title: 'New team' }} />
     <OrganisationHeader />
     <StatePanel headingLevel={1} kind={data.teamsLoading ? 'loading' : 'error'}
       title={data.teamsLoading ? 'Loading your church directory...' : "Couldn't load your church directory"}
       message={data.teamsLoading ? undefined : data.teamsError ?? undefined}
       action={data.teamsLoading ? undefined : { label: 'Try Again', onPress: () => void data.refreshTeams() }} />
-    <Button title="Cancel" variant="secondary" onPress={cancel} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
 
   return <Screen keyboard scrollRef={scrollRef} footer={<View style={styles.actions}>
-    <Button title="Cancel" variant="secondary" disabled={saving || avatar.picking} onPress={cancel} style={styles.cancel} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" disabled={saving || avatar.picking} onPress={() => requestExit()} style={styles.cancel} />
     <Button title="Create team" loading={saving} disabled={avatar.picking || !!createdTeam} onPress={() => void save()} style={styles.save} />
   </View>}>
-    <Stack.Screen options={{ title: 'New team' }} />
+    <Stack.Screen options={{ headerLeft, title: 'New team' }} />
     <OrganisationHeader />
     <PageHeading title="New team" />
     {actionError ? <StatePanel compact kind="error" title="Couldn't finish creating the team" message={actionError} /> : null}

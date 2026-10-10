@@ -16,6 +16,7 @@ import { SelectField } from '../../components/SelectField';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { teamMembers, userName } from '../../lib/appData/selectors';
 import { CHOIR_MEMBER_ROLE } from '../../lib/permissions';
@@ -80,6 +81,10 @@ function RotaForm({ scope, entryId, editing }: { scope: RotaScopeValue; entryId:
     else if (team) router.replace({ pathname: '/teams/[teamId]/rota', params: { teamId: team.id } });
     else router.replace('/(tabs)/teams');
   };
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    value: draft, blocked: saving, saved: savedId !== null, uncertain: saveError !== null,
+    message: 'Your date and assignment changes will not be saved.', onDiscard: close,
+  });
   const focusField = (field: RotaField) => {
     if (field.startsWith('assignment:')) {
       const assignment = draft?.assignments[Number(field.split(':')[1])];
@@ -138,29 +143,29 @@ function RotaForm({ scope, entryId, editing }: { scope: RotaScopeValue; entryId:
     } finally { requestPending.current = false; if (active.current) setSaving(false); }
   };
 
-  if (savedId) return <Screen><Stack.Screen options={{ title: 'Date saved' }} />
+  if (savedId) return <Screen><Stack.Screen options={{ headerLeft, title: 'Date saved' }} />
     <PageHeading title={editing ? 'Changes saved' : 'Date added'} description="Your date is saved on the team rota." />
     {!scope.ready ? <StatePanel compact kind="loading" title="Checking your access…" message="You can close this screen or wait to continue." /> : null}
-    <Button title="Close" variant="secondary" onPress={close} />
+    <Button title="Close" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
-  if (!scope.ready || !team) return <RotaAccessState scope={scope} title={heading} onExit={close} exitLabel="Cancel" />;
-  if (editing && !existing) return <Screen><Stack.Screen options={{ title: heading }} />
+  if (!scope.ready || !team) return <RotaAccessState scope={scope} title={heading} onExit={() => requestExit()} exitLabel="Cancel" />;
+  if (editing && !existing) return <Screen><Stack.Screen options={{ headerLeft, title: heading }} />
     {data.rotasLoading ? <StatePanel headingLevel={1} kind="loading" title="Loading this date…" />
       : data.rotasError ? <StatePanel headingLevel={1} kind="error" title="Couldn't load this date" message={data.rotasError}
         action={{ label: 'Retry rota', onPress: () => void data.refreshRotas() }} />
         : <StatePanel headingLevel={1} title="Date unavailable" message="This date may have been removed or belongs to a different team." />}
     <Button title="Back to rota" variant="secondary" onPress={() => { closed.current = true; router.replace({ pathname: '/teams/[teamId]/rota', params: { teamId: team.id } }); }} />
   </Screen>;
-  if (!draft) return <Screen><Stack.Screen options={{ title: heading }} /><StatePanel headingLevel={1} kind="loading" title="Preparing the date…" /></Screen>;
+  if (!draft) return <Screen><Stack.Screen options={{ headerLeft, title: heading }} /><StatePanel headingLevel={1} kind="loading" title="Preparing the date…" /></Screen>;
 
   const members = teamMembers(team.id, data.memberships, data.users).filter(({ profile }) => profile.organisation_id === user.profile.organisation_id);
   const basePeople = members.map(({ profile }) => ({ label: profile.full_name, value: profile.id }));
   const roles = rotaRoles[team.type] ?? rotaRoles.generic;
   return <Screen keyboard scrollRef={scrollRef} footer={<View style={styles.actions}>
-    <Button title="Cancel" variant="secondary" disabled={saving} onPress={close} style={styles.cancel} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" disabled={saving} onPress={() => requestExit()} style={styles.cancel} />
     <Button title={editing ? 'Save changes' : 'Save date'} loading={saving} onPress={() => void save()} style={styles.save} />
   </View>}>
-    <Stack.Screen options={{ title: heading }} />
+    <Stack.Screen options={{ headerLeft, title: heading }} />
     <PageHeading eyebrow={team.name} title={heading} />
     {existing?.status === 'cancelled' ? <StatePanel compact kind="info" title="This date is cancelled" message="Saving changes keeps it cancelled. You can restore it from the date's Manage menu." /> : null}
     {saveError ? <StatePanel compact kind="error" title="Couldn't save the date" message={saveError} /> : null}

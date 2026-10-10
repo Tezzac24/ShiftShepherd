@@ -9,6 +9,8 @@ import { SessionUser } from '../../../types';
 import SelectSongsScreen from '../SelectSongsScreen';
 import { admin, assignments, deferred, entry, makeChoirData, member, profile, secondSong, selections, singer, song, team, thirdSong } from './choirFixtures';
 
+const mockDiscardConfirm = jest.fn().mockResolvedValue(true);
+jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: () => mockDiscardConfirm }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 let mockParams: { teamId: string; entryId: string; section?: string } = { teamId: 'choir', entryId: 'date-1' };
 const mockReplace = jest.fn();
@@ -28,6 +30,7 @@ let data: ReturnType<typeof useAppData>;
 let auth: { user: SessionUser; authMode: string; isLoading: boolean; accountStatus: string };
 
 beforeEach(() => {
+  mockDiscardConfirm.mockReset().mockResolvedValue(true);
   jest.useFakeTimers({ now: new Date(2026, 9, 1, 12) }); jest.clearAllMocks();
   mockParams = { teamId: team.id, entryId: entry.id };
   mockCanGoBack.mockReturnValue(true);
@@ -248,4 +251,47 @@ describe('section-specific song choices', () => {
     expect(mockReplace).toHaveBeenCalledWith({ pathname: '/teams/[teamId]/rota/[entryId]', params: { teamId: team.id, entryId: entry.id } });
     expect(data.setSongSelections).not.toHaveBeenCalled();
   });
+});
+
+it.each(['add', 'remove', 'reorder'])('confirms Cancel after a song selection %s and keeps the order when dismissed', async (change) => {
+  mockDiscardConfirm.mockResolvedValue(false);
+  if (change === 'reorder') data.songSelections = [...selections, { ...selections[0], id: 'second', song_id: secondSong.id, order_index: 1 }];
+  const screen = render(<SelectSongsScreen />);
+  if (change === 'add') fireEvent.press(screen.getByRole('checkbox', { name: 'Beta song' }));
+  else {
+    order(screen);
+    fireEvent.press(screen.getByLabelText(change === 'remove' ? 'Remove Alpha song from praise songs' : 'Move Beta song up'));
+  }
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(mockDiscardConfirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your song choices and order will not be saved.' }));
+  expect(mockBack).not.toHaveBeenCalled();
+  expect(data.setSongSelections).not.toHaveBeenCalled();
+  expect(screen.getByRole('tab', { name: change === 'remove' ? 'Song order (0)' : 'Song order (2)' })).toBeTruthy();
+  mockDiscardConfirm.mockResolvedValue(true);
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+it('ignores search and segment changes and a reverted song choice when cancelling', () => {
+  const screen = render(<SelectSongsScreen />);
+  fireEvent.changeText(screen.getByLabelText('Search songs'), 'Alpha');
+  order(screen);
+  fireEvent.press(screen.getByLabelText('Remove Alpha song from praise songs'));
+  fireEvent.press(screen.getByRole('tab', { name: 'Choose songs' }));
+  fireEvent.press(screen.getByRole('checkbox', { name: 'Alpha song' }));
+  fireEvent.press(screen.getByLabelText('Cancel'));
+  expect(mockDiscardConfirm).not.toHaveBeenCalled();
+  expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+it('keeps a refreshed selection draft until discard is confirmed, without navigating after profile replacement', async () => {
+  const pending = deferred<boolean>(); mockDiscardConfirm.mockReturnValue(pending.promise);
+  const screen = render(<SelectSongsScreen />);
+  fireEvent.press(screen.getByRole('checkbox', { name: 'Beta song' }));
+  data = { ...data, songSelections: [] }; screen.rerender(<SelectSongsScreen />);
+  fireEvent.press(screen.getByLabelText('Cancel'));
+  auth.user = { ...member, profile: singer }; screen.rerender(<SelectSongsScreen />);
+  await act(async () => pending.resolve(true));
+  expect(mockBack).not.toHaveBeenCalled();
+  expect(data.setSongSelections).not.toHaveBeenCalled();
 });

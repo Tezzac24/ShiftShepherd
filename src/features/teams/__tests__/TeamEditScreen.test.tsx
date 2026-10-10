@@ -288,7 +288,7 @@ describe('TeamEditScreen draft, access and async boundaries', () => {
     expect(refreshTeams).toHaveBeenCalledTimes(1);
   });
 
-  it('validates both fields and offers a safe Cancel without saving the draft', () => {
+  it('validates both fields and offers a confirmed Cancel without saving the draft', async () => {
     mockCanGoBack.mockReturnValue(false);
     const data = makeData();
     mockUseAppData.mockReturnValue(data);
@@ -300,7 +300,7 @@ describe('TeamEditScreen draft, access and async boundaries', () => {
     expect(screen.getAllByText('Keep the description to 500 characters or fewer.').length).toBeGreaterThan(0);
     expect(data.updateTeam).not.toHaveBeenCalled();
     fireEvent.press(screen.getByLabelText('Cancel'));
-    expect(mockReplace).toHaveBeenCalledWith({ pathname: '/teams/[teamId]', params: { teamId: TEAM.id } });
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith({ pathname: '/teams/[teamId]', params: { teamId: TEAM.id } }));
   });
 
   it('prevents same-frame duplicate saves and ignores completion after scope change', async () => {
@@ -351,4 +351,15 @@ describe('TeamEditScreen draft, access and async boundaries', () => {
     expect(mockToast).not.toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
   });
+});
+
+it('keeps the team name and description when discard is dismissed', async () => {
+  const confirm = jest.fn().mockResolvedValue(false); mockUseConfirm.mockReturnValue(confirm);
+  const data = makeData(); mockUseAppData.mockReturnValue(data);
+  const screen = render(<TeamEditScreen />);
+  fireEvent.changeText(screen.getByLabelText('Description (optional)'), 'My team draft');
+  await act(async () => fireEvent.press(screen.getByLabelText('Cancel')));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your team name and description changes will not be saved.' }));
+  expect(mockBack).not.toHaveBeenCalled(); expect(data.updateTeam).not.toHaveBeenCalled();
+  expect(screen.getByDisplayValue('My team draft')).toBeTruthy();
 });

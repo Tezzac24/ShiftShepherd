@@ -110,17 +110,64 @@ describe('Profile identity and names', () => {
     expect(screen.getByTestId('profile-organisation-name-input')).toHaveProp('value', 'Sarah Choir');
   });
 
-  it('Cancel leaves without saving, and a fresh visit starts with the current names', () => {
+  it('Cancel confirms before leaving without saving, and a fresh visit starts with the current names', async () => {
     const screen = edit();
     fireEvent.changeText(screen.getByTestId('profile-full-name-input'), 'Someone Else');
     fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), 'Other Name');
     fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
-    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Discard changes?',
+      message: 'Your changes to your name and username at this church will not be saved.',
+      confirmLabel: 'Discard changes', cancelLabel: 'Keep editing',
+    }));
+    await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
     expect(setProfileDisplayNames).not.toHaveBeenCalled();
     screen.unmount();
     const reopened = edit();
     expect(reopened.getByDisplayValue('Sarah Williams')).toBeTruthy();
     expect(reopened.getByTestId('profile-organisation-name-input')).toHaveProp('value', '');
+  });
+
+  it.each([
+    ['profile-full-name-input', 'Sarah W.'],
+    ['profile-organisation-name-input', 'Choir Sarah'],
+    ['profile-full-name-input', 'Sarah Williams '],
+    ['profile-organisation-name-input', ' '],
+  ])('keeps the draft when discard confirmation is dismissed after changing %s to %j', async (field, value) => {
+    confirm.mockResolvedValue(false);
+    const screen = edit();
+    fireEvent.changeText(screen.getByTestId(field), value);
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Cancel' })));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(setProfileDisplayNames).not.toHaveBeenCalled();
+    expect(screen.getByTestId(field)).toHaveProp('value', value);
+  });
+
+  it('leaves immediately without confirmation when the fields are unchanged or reverted', () => {
+    const screen = edit();
+    fireEvent.changeText(screen.getByTestId('profile-full-name-input'), 'Sarah W.');
+    fireEvent.changeText(screen.getByTestId('profile-full-name-input'), 'Sarah Williams');
+    fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), 'Choir Sarah');
+    fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), '');
+    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(setProfileDisplayNames).not.toHaveBeenCalled();
+  });
+
+  it('waits for one discard decision when Cancel or visible Back is pressed repeatedly', async () => {
+    let finish!: (discard: boolean) => void;
+    confirm.mockReturnValue(new Promise<boolean>((resolve) => { finish = resolve; }));
+    const screen = edit();
+    fireEvent.changeText(screen.getByTestId('profile-organisation-name-input'), 'Choir Sarah');
+    fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(mockBack).not.toHaveBeenCalled();
+    await act(async () => finish(true));
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(setProfileDisplayNames).not.toHaveBeenCalled();
   });
 
   it('saves exactly the two trimmed names in one atomic action, with no contact or role payload', async () => {
@@ -166,7 +213,7 @@ describe('Profile identity and names', () => {
     expect(screen.getByDisplayValue('Choir Sarah')).toBeTruthy();
     expect(mockToast).not.toHaveBeenCalled();
     fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
-    expect(mockBack).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
     screen.unmount();
     const reopened = edit();
     expect(reopened.queryByText('Please try again when you are connected.')).toBeNull();

@@ -217,3 +217,13 @@ it.each([REMOVED, DIRECTORY])('offers the exact $full_name invitation path inste
   fireEvent.press(view.getByText('Invite to church')); expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({ params: expect.objectContaining({ targetProfileId: member.profile_id }) }));
   expect(setRole).not.toHaveBeenCalled();
 });
+
+it('keeps an unsaved church role choice when discard is dismissed', async () => {
+  confirm.mockResolvedValue(false);
+  const view = render(<OrganisationMemberRoleScreen />); await view.findByText('Ruth Johnson');
+  fireEvent.press(view.getByTestId('organisation-role-event_manager'));
+  await act(async () => fireEvent.press(view.getByLabelText('Cancel')));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Your church role choice will not be saved.' }));
+  expect(mockBack).not.toHaveBeenCalled(); expect(setRole).not.toHaveBeenCalled();
+  expect(view.getByTestId('organisation-role-event_manager').props.accessibilityState.checked).toBe(true);
+});

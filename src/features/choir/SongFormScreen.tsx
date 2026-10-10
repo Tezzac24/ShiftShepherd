@@ -14,6 +14,7 @@ import { SelectField } from '../../components/SelectField';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { suggestedSongTags } from '../../lib/mockData';
 import { Song, SongLink, SongPlatform } from '../../types';
@@ -82,6 +83,10 @@ function SongForm({ scope, songId, editing }: { scope: ChoirScopeValue; songId: 
     else if (team) router.replace({ pathname: '/teams/[teamId]/songs', params: { teamId: team.id } });
     else router.replace('/(tabs)/teams');
   };
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    value: draft, blocked: saving, saved: savedId !== null, uncertain: saveError !== null,
+    message: 'Your song changes will not be saved.', onDiscard: close,
+  });
   const editable = () => active.current && !closed.current && current.current.ready && !requestPending.current && !completed.current
     && (!editing || !!current.current.existing);
   const focusField = (field: SongField) => {
@@ -136,32 +141,32 @@ function SongForm({ scope, songId, editing }: { scope: ChoirScopeValue; songId: 
     }
   };
 
-  if (savedId) return <Screen><Stack.Screen options={{ title: 'Song saved' }} />
+  if (savedId) return <Screen><Stack.Screen options={{ headerLeft, title: 'Song saved' }} />
     <PageHeading title={editing ? 'Changes saved' : 'Song added'} description="Your song is saved in the team library." />
     {!scope.ready ? <StatePanel compact kind="loading" title="Checking your access…" message="You can close this screen or wait to continue." /> : null}
-    <Button title="Close" variant="secondary" onPress={close} />
+    <Button title="Close" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
-  if (!scope.ready || !team) return <ChoirAccessState scope={scope} title={heading} onExit={close} exitLabel="Cancel" />;
-  if (editing && !existing) return <Screen><Stack.Screen options={{ title: heading }} />
+  if (!scope.ready || !team) return <ChoirAccessState scope={scope} title={heading} onExit={() => requestExit()} exitLabel="Cancel" />;
+  if (editing && !existing) return <Screen><Stack.Screen options={{ headerLeft, title: heading }} />
     {data.songsLoading ? <StatePanel headingLevel={1} kind="loading" title="Loading this song…" />
       : data.songsError ? <StatePanel headingLevel={1} kind="error" title="Couldn't load this song" message={data.songsError}
         action={{ label: 'Retry songs', onPress: () => void data.refreshSongs() }} />
         : <StatePanel headingLevel={1} title="Song unavailable" message="This song may have been deleted or belongs to a different team." />}
     <Button title="Back to songs" variant="secondary" onPress={() => { closed.current = true; router.replace({ pathname: '/teams/[teamId]/songs', params: { teamId: team.id } }); }} />
   </Screen>;
-  if (!draft) return <Screen><Stack.Screen options={{ title: heading }} /><StatePanel headingLevel={1} kind="loading" title="Preparing the song…" /></Screen>;
+  if (!draft) return <Screen><Stack.Screen options={{ headerLeft, title: heading }} /><StatePanel headingLevel={1} kind="loading" title="Preparing the song…" /></Screen>;
 
   const availableTags = [...new Set([...suggestedSongTags, ...draft.tags])];
   const uncertainCreation = !editing && failedCreationTitle !== null;
   return <Screen keyboard scrollRef={scrollRef} footer={<View style={styles.fields}>
     {uncertainCreation ? <Button title="Check song library" variant="primary" disabled={saving} onPress={checkLibrary} /> : null}
     <View style={styles.actions}>
-      <Button title="Cancel" variant={uncertainCreation ? 'ghost' : 'secondary'} disabled={saving} onPress={close} style={styles.cancel} />
+      <Button ref={exitRef} title="Cancel" variant={uncertainCreation ? 'ghost' : 'secondary'} disabled={saving} onPress={() => requestExit()} style={styles.cancel} />
       <Button title={uncertainCreation ? 'Try saving again' : editing ? 'Save changes' : 'Save song'} variant={uncertainCreation ? 'secondary' : 'primary'}
         loading={saving} onPress={() => void save()} style={styles.save} />
     </View>
   </View>}>
-    <Stack.Screen options={{ title: heading }} />
+    <Stack.Screen options={{ headerLeft, title: heading }} />
     <PageHeading eyebrow={team.name} title={heading} description="Start with the title and lyrics." />
     {saveError || uncertainCreation ? <View style={styles.fields}><StatePanel compact kind="error" title="Couldn't confirm the save"
       message={editing ? 'Some changes may already be saved. Your draft is kept here.' : 'This song may already be in the library. Check before trying again; your draft is kept here.'} />

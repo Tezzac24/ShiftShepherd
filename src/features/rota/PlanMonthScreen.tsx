@@ -17,6 +17,7 @@ import { SectionHeader } from '../../components/SectionHeader';
 import { SelectField } from '../../components/SelectField';
 import { StatePanel } from '../../components/StatePanel';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { teamMembers } from '../../lib/appData/selectors';
 import { CHOIR_MEMBER_ROLE, PRAISE_LEADER_ROLE, WORSHIP_LEADER_ROLE } from '../../lib/permissions';
@@ -104,6 +105,19 @@ function MonthPlan({ scope }: { scope: RotaScopeValue }) {
     else if (team) router.replace({ pathname: '/teams/[teamId]/rota', params: { teamId: team.id } });
     else router.replace('/(tabs)/teams');
   };
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    value: [monthKey, includeSundays, serviceTime, includeRehearsals, rehearsalDay, rehearsalTime, defaultPraiseId, defaultWorshipId,
+      Object.entries(overrides).map(([key, override]) => {
+        const date = plannedDates.find((item) => plannedDateKey(item) === key);
+        return [key, {
+          ...(override.included !== undefined && override.included !== (date ? !date.alreadyPlanned : true) ? { included: override.included } : {}),
+          ...(override.praiseId !== undefined && override.praiseId !== defaultPraiseId ? { praiseId: override.praiseId } : {}),
+          ...(override.worshipId !== undefined && override.worshipId !== defaultWorshipId ? { worshipId: override.worshipId } : {}),
+        }];
+      }).filter(([, override]) => Object.keys(override!).length).sort(([a], [b]) => String(a).localeCompare(String(b)))],
+    blocked: creating, saved: result !== null, onDiscard: close,
+    message: 'Your month plan, date choices and people will not be saved.',
+  });
   const viewRota = () => {
     if (!scope.ready || !team) return;
     closed.current = true;
@@ -166,10 +180,10 @@ function MonthPlan({ scope }: { scope: RotaScopeValue }) {
   };
 
   if (result) return <Screen footer={<View style={styles.actions}>
-    <Button title="Close" variant="secondary" onPress={close} style={styles.cancel} />
+    <Button title="Close" variant="secondary" onPress={() => requestExit()} style={styles.cancel} />
     {result.error ? <Button title="View rota" disabled={!scope.ready} onPress={viewRota} style={styles.save} /> : null}
   </View>}>
-    <Stack.Screen options={{ title: 'Plan the month' }} />
+    <Stack.Screen options={{ headerLeft, title: 'Plan the month' }} />
     <PageHeading eyebrow={result.teamName}
       title={result.unknown ? 'Check the rota' : result.error ? `${result.created.length} of ${result.total} ${result.total === 1 ? 'date' : 'dates'} created` : `${result.created.length} ${result.created.length === 1 ? 'date' : 'dates'} created`}
       description={result.error && !result.unknown
@@ -180,14 +194,14 @@ function MonthPlan({ scope }: { scope: RotaScopeValue }) {
     {result.created.length ? <><SectionHeader title={result.created.length === 1 ? 'Date created' : 'Dates created'} /><ListGroup>{result.created.map((entry) => <ListRow key={entry.id} title={entry.title}
       subtitle={fullScheduleDate(parseDateKey(entry.date))} leading={<ScheduleDateMarker date={parseDateKey(entry.date)} label={fullScheduleDate(parseDateKey(entry.date))} />} />)}</ListGroup></> : null}
   </Screen>;
-  if (!scope.ready || !team) return <RotaAccessState scope={scope} title="Plan the month" onExit={close} exitLabel="Cancel" />;
+  if (!scope.ready || !team) return <RotaAccessState scope={scope} title="Plan the month" onExit={() => requestExit()} exitLabel="Cancel" />;
   // Creating a plan needs the existing-date read so duplicates are deliberate.
-  if (data.rotasLoading && data.rotaEntries.length === 0) return <Screen><Stack.Screen options={{ title: 'Plan the month' }} />
-    <StatePanel headingLevel={1} kind="loading" title="Checking existing dates…" /><Button title="Cancel" variant="secondary" onPress={close} />
+  if (data.rotasLoading && data.rotaEntries.length === 0) return <Screen><Stack.Screen options={{ headerLeft, title: 'Plan the month' }} />
+    <StatePanel headingLevel={1} kind="loading" title="Checking existing dates…" /><Button ref={exitRef} title="Cancel" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
-  if (data.rotasError && data.rotaEntries.length === 0) return <Screen><Stack.Screen options={{ title: 'Plan the month' }} />
+  if (data.rotasError && data.rotaEntries.length === 0) return <Screen><Stack.Screen options={{ headerLeft, title: 'Plan the month' }} />
     <StatePanel headingLevel={1} kind="error" title="Couldn't check existing dates" message={data.rotasError}
-      action={{ label: 'Retry rota', onPress: () => void data.refreshRotas() }} /><Button title="Cancel" variant="secondary" onPress={close} />
+      action={{ label: 'Retry rota', onPress: () => void data.refreshRotas() }} /><Button ref={exitRef} title="Cancel" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
 
   const leaderOptions = [{ label: 'Decide later', value: NO_LEADER }, ...members.map(({ profile }) => ({ label: profile.full_name, value: profile.id }))];
@@ -195,10 +209,10 @@ function MonthPlan({ scope }: { scope: RotaScopeValue }) {
     : [{ label: 'Selected person (no longer in this team)', value: id }, ...leaderOptions];
   const nameFor = (id: string) => leaderOptions.find((option) => option.value === id)?.label ?? 'Selected person is no longer in this team';
   return <Screen keyboard scrollRef={scrollRef} footer={<View style={styles.actions}>
-    <Button title="Cancel" variant="secondary" disabled={creating} onPress={close} style={styles.cancel} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" disabled={creating} onPress={() => requestExit()} style={styles.cancel} />
     <Button title={includedDates.length ? `Create ${includedDates.length} ${includedDates.length === 1 ? 'date' : 'dates'}` : 'Create dates'} loading={creating} onPress={() => void create()} style={styles.save} />
   </View>}>
-    <Stack.Screen options={{ title: 'Plan the month' }} />
+    <Stack.Screen options={{ headerLeft, title: 'Plan the month' }} />
     <PageHeading eyebrow={team.name} title="Plan the month" description="Set the pattern, choose the usual people, then review each date." />
     {saveError ? <StatePanel compact kind="error" title="Couldn't create the plan" message={saveError} /> : null}
     {data.rotasError ? <StatePanel compact kind="error" title="Couldn't refresh existing dates" message="The dates below use the last rota loaded. Check for updates before creating."

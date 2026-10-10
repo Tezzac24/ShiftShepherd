@@ -15,6 +15,7 @@ import { SectionHeader } from '../../components/SectionHeader';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { canManageTeamLifecycle } from '../../lib/permissions';
@@ -67,6 +68,7 @@ function TeamEditContent({ teamId, organisationId, authorityResolved }: { teamId
   const team = candidate?.archived_at === null ? candidate : undefined;
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [initialDetails, setInitialDetails] = useState<{ name: string; description: string } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<TeamFormErrors>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -93,6 +95,7 @@ function TeamEditContent({ teamId, organisationId, authorityResolved }: { teamId
     // Hydrate when this scope's team arrives; a refresh must not overwrite a draft.
     if (!team || hydrated.current) return;
     hydrated.current = true;
+    setInitialDetails({ name: team.name, description: team.description });
     setName(team.name);
     setDescription(team.description);
   }, [team]);
@@ -110,6 +113,11 @@ function TeamEditContent({ teamId, organisationId, authorityResolved }: { teamId
   }, [saveError, archiveError]);
 
   const goBack = () => router.canGoBack() ? router.back() : router.replace({ pathname: '/teams/[teamId]', params: { teamId } });
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    hasChanges: initialDetails !== null && (name !== initialDetails.name || description !== initialDetails.description),
+    blocked: saving || confirmingArchive || archiving, saved: completedAction !== null, uncertain: saveError !== null, onDiscard: goBack,
+    message: 'Your team name and description changes will not be saved.',
+  });
   useEffect(() => {
     if (!authorityResolved || !completedAction || navigated.current || (completedAction === 'save' && !team)) return;
     navigated.current = true;
@@ -171,13 +179,13 @@ function TeamEditContent({ teamId, organisationId, authorityResolved }: { teamId
   };
 
   if (!authorityResolved) return <Screen>
-    <Stack.Screen options={{ title: 'Edit team' }} />
+    <Stack.Screen options={{ headerLeft, title: 'Edit team' }} />
     <StatePanel headingLevel={1} kind="loading" title="Checking team permissions..." />
-    <Button title="Back to teams" variant="secondary" onPress={() => router.replace('/(tabs)/teams')} />
+    <Button title="Back to teams" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
 
   if (archived || !team) return <Screen>
-    <Stack.Screen options={{ title: 'Edit team' }} />
+    <Stack.Screen options={{ headerLeft, title: 'Edit team' }} />
     {archived ? <StatePanel headingLevel={1} title="Team is archived" icon="archive-outline"
       message="Restore this team before changing its details or photo." action={{ label: 'View archived teams', onPress: () => router.replace('/teams/archived') }} />
       : data.teamsLoading ? <StatePanel headingLevel={1} kind="loading" title="Loading this team..." />
@@ -189,10 +197,10 @@ function TeamEditContent({ teamId, organisationId, authorityResolved }: { teamId
 
   const busy = saving || confirmingArchive || archiving || completedAction !== null;
   return <Screen keyboard scrollRef={scrollRef} footer={<View style={styles.actions}>
-    <Button title="Cancel" variant="secondary" disabled={busy} onPress={goBack} style={styles.cancel} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" disabled={busy} onPress={() => requestExit()} style={styles.cancel} />
     <Button title="Save changes" loading={saving} disabled={confirmingArchive || archiving || completedAction !== null} onPress={() => void save()} style={styles.save} />
   </View>}>
-    <Stack.Screen options={{ title: 'Edit team' }} />
+    <Stack.Screen options={{ headerLeft, title: 'Edit team' }} />
     <PageHeading title="Edit team" eyebrow={team.name} />
     {saveError ? <StatePanel compact kind="error" title="Couldn't finish saving" message={saveError} /> : null}
     {data.teamsError ? <StatePanel compact kind="error" title="Couldn't refresh this team" message={data.teamsError}

@@ -15,6 +15,7 @@ import { SelectField } from '../../components/SelectField';
 import { StatePanel } from '../../components/StatePanel';
 import { TextField } from '../../components/TextField';
 import { useToast } from '../../components/Toast';
+import { useDiscardChanges } from '../../components/useDiscardChanges';
 import { useAppData } from '../../lib/appData/AppDataContext';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { canManageEvents } from '../../lib/permissions';
@@ -88,6 +89,10 @@ function EventForm({ id, editing, occurrenceStart, user, authorityResolved }: {
     else if (editing && id) router.replace({ pathname: '/events/[id]', params: { id, ...(occurrenceStart ? { occurrenceStart } : {}) } });
     else router.replace('/(tabs)/calendar');
   };
+  const { requestExit, exitRef, headerLeft } = useDiscardChanges({
+    value: draft, blocked: saving, saved: savedId !== null, uncertain: saveError !== null,
+    message: 'Your event changes will not be saved.', onDiscard: cancel,
+  });
   const focusField = (field: EventField) => {
     if (field === 'teamId') setOptionalOpen(true);
     scrollRef.current?.scrollTo({ y: Math.max(0, (positions.current[field] ?? 0) - spacing.md), animated: false });
@@ -129,25 +134,25 @@ function EventForm({ id, editing, occurrenceStart, user, authorityResolved }: {
   };
 
   const title = editing ? 'Edit event' : 'New event';
-  if (!authorityResolved) return <Screen><Stack.Screen options={{ title: savedId ? 'Event saved' : title }} />
+  if (!authorityResolved) return <Screen><Stack.Screen options={{ headerLeft, title: savedId ? 'Event saved' : title }} />
     {savedId ? <PageHeading title={editing ? 'Changes saved' : 'Event created'} description="Your event is saved." /> : null}
     <StatePanel compact={!!savedId} headingLevel={savedId ? undefined : 1} kind="loading" title="Checking event permissions…"
       message={savedId ? 'You can close this screen or wait to continue.' : undefined} />
-    <Button title={savedId ? 'Close' : 'Cancel'} variant="secondary" onPress={() => { if (savedId) navigated.current = true; cancel(); }} />
+    <Button title={savedId ? 'Close' : 'Cancel'} variant="secondary" onPress={() => { if (savedId) navigated.current = true; requestExit(); }} />
   </Screen>;
-  if (editing && !existing && !savedId) return <Screen><Stack.Screen options={{ title }} />
+  if (editing && !existing && !savedId) return <Screen><Stack.Screen options={{ headerLeft, title }} />
     {data.eventsLoading ? <StatePanel headingLevel={1} kind="loading" title="Loading event…" />
       : data.eventsError ? <StatePanel headingLevel={1} kind="error" title="Couldn't load this event" message={data.eventsError}
         action={{ label: 'Retry event', onPress: () => void data.refreshEvents() }} />
         : <StatePanel headingLevel={1} title="Event unavailable" message="This event may have been removed or is not available in your current church." />}
     <Button title="Back to schedule" variant="secondary" onPress={() => router.replace('/(tabs)/calendar')} />
   </Screen>;
-  if (archivedTeam) return <Screen><Stack.Screen options={{ title }} />
+  if (archivedTeam) return <Screen><Stack.Screen options={{ headerLeft, title }} />
     <StatePanel headingLevel={1} title="Related team is archived" icon="archive-outline"
       message="A church admin must restore the team before this event can be edited or deleted." />
-    <Button title="Back to event" variant="secondary" onPress={cancel} />
+    <Button title="Back to event" variant="secondary" onPress={() => requestExit()} />
   </Screen>;
-  if (!draft || savedId) return <Screen><Stack.Screen options={{ title }} /><StatePanel headingLevel={1} kind="loading" title={savedId ? 'Finishing up…' : 'Preparing event…'} /></Screen>;
+  if (!draft || savedId) return <Screen><Stack.Screen options={{ headerLeft, title }} /><StatePanel headingLevel={1} kind="loading" title={savedId ? 'Finishing up…' : 'Preparing event…'} /></Screen>;
 
   const busy = saving || savedId !== null;
   const timeErrors = eventTimeErrors(draft, original.current);
@@ -163,10 +168,10 @@ function EventForm({ id, editing, occurrenceStart, user, authorityResolved }: {
   const optionalSummary = [repeatLabel, draft.teamId ? selectedTeam?.name ?? 'Related team saved' : null].filter(Boolean).join(' · ');
 
   return <Screen keyboard scrollRef={scrollRef} footer={<View style={styles.actions}>
-    <Button title="Cancel" variant="secondary" disabled={busy} onPress={cancel} style={styles.cancel} />
+    <Button ref={exitRef} title="Cancel" variant="secondary" disabled={busy} onPress={() => requestExit()} style={styles.cancel} />
     <Button title={editing ? 'Save changes' : 'Create event'} loading={saving} disabled={!!savedId} onPress={() => void save()} style={styles.save} />
   </View>}>
-    <Stack.Screen options={{ title }} />
+    <Stack.Screen options={{ headerLeft, title }} />
     <PageHeading title={title} description="Church events are visible to everyone in your church." />
     {original.current?.is_recurring ? <StatePanel compact kind="info" title="Editing the whole series"
       message="These changes apply to every occurrence. The date below is the series start date." /> : null}
