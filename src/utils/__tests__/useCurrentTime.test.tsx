@@ -40,6 +40,20 @@ test('the next local hour refreshes a changed greeting', () => {
   expect(greetingForNow(result.current)).toBe('Good afternoon');
 });
 
+test('refreshes at presentation boundaries between hours and then resumes the hourly clock', () => {
+  jest.setSystemTime(new Date(2026, 9, 7, 10, 14, 59));
+  const start = new Date(2026, 9, 7, 10, 15).getTime();
+  const end = new Date(2026, 9, 7, 10, 16).getTime();
+  const { result } = renderHook(() => useCurrentTime(start, end));
+  act(() => jest.advanceTimersByTime(1000));
+  expect(result.current.getTime()).toBe(start);
+  act(() => jest.advanceTimersByTime(60000));
+  expect(result.current.getTime()).toBe(end);
+  act(() => jest.advanceTimersByTime(44 * 60000));
+  expect(result.current.getHours()).toBe(11);
+  expect(jest.getTimerCount()).toBe(1);
+});
+
 test('background time is unscheduled and foreground resumes immediately after skipped days', () => {
   const { result } = renderHook(useCurrentTime);
   act(() => notify('background'));

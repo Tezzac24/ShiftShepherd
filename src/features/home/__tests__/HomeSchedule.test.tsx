@@ -50,6 +50,23 @@ beforeEach(() => {
 afterEach(() => jest.useRealTimers());
 
 describe('Home overview', () => {
+  it('shows the unanswered-duty warning at the 48-hour boundary while mounted and clears it on response', () => {
+    jest.setSystemTime(new Date(2026, 8, 21, 10, 14, 59));
+    data.rotaEntries = [makeEntry({ date: '2026-09-23', time: '10:15' })];
+    const screen = render(<HomeScreen />);
+    expect(screen.queryByText(/Response needed/)).toBeNull();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.getByText('Response needed · Starts in 48 hours')).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Confirm availability' }));
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/teams/[teamId]/rota/[entryId]', params: { teamId: 'team-a', entryId: 'date-a' } });
+    expect(data.availabilityResponses).toEqual([]);
+    data.availabilityResponses = [{ id: 'response', rota_assignment_id: 'assignment-a', user_id: profile.id,
+      status: 'available', note: null, updated_at: '' }];
+    screen.rerender(<HomeScreen />);
+    expect(screen.queryByText(/Response needed/)).toBeNull();
+    expect(screen.getByText('Available')).toBeOnTheScreen();
+  });
+
   it('updates the date, greeting and next serving at midnight without changing saved data', () => {
     jest.setSystemTime(new Date(2026, 8, 21, 23, 59, 59));
     data.rotaEntries = [makeEntry({ date: '2026-09-21', title: 'Today serving' }), makeEntry({ id: 'tomorrow', date: '2026-09-22', title: 'Next day serving' })];
