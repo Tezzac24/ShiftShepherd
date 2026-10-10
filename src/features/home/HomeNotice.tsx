@@ -8,6 +8,15 @@ import { AppText } from '../../components/AppText';
 import { Announcement } from '../../types';
 import { formatRelative } from '../../utils/dates';
 
+function teamAccentColor(teamName: string): string {
+  // Hash the name into an RGB hex color, consistently across every card.
+  let hash = 2166136261;
+  for (const character of teamName.trim().toLowerCase()) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  }
+  return `#${(hash & 0xffffff).toString(16).padStart(6, '0')}`;
+}
+
 export function HomeNotice({ announcement, authorName, teamName, imageUri, onPress }: {
   announcement: Announcement; authorName: string; teamName?: string; imageUri?: string; onPress: () => void;
 }) {
@@ -15,7 +24,10 @@ export function HomeNotice({ announcement, authorName, teamName, imageUri, onPre
     <Pressable onPress={onPress} accessibilityRole="button"
       accessibilityLabel={`Announcement: ${announcement.title}. ${teamName ?? (announcement.team_id ? 'Team announcement' : 'Church announcement')}. ${formatRelative(announcement.created_at)}`}
       accessibilityHint="Opens the full announcement"
-      style={({ pressed }) => [styles.notice, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.notice,
+        { borderLeftColor: announcement.team_id && teamName ? teamAccentColor(teamName) : colors.accent },
+        pressed && styles.pressed,
+      ]}>
       <AppText variant="small" tone="secondary">
         {teamName ?? (announcement.team_id ? 'Team announcement' : 'Church announcement')} · {formatRelative(announcement.created_at)}
       </AppText>
