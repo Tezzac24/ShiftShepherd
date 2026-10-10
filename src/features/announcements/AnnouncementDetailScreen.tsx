@@ -1,11 +1,13 @@
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { colors, spacing } from '../../../constants/theme';
+import { colors, radius, spacing } from '../../../constants/theme';
 import { ActionSheet } from '../../components/ActionSheet';
 import { AnnouncementImage } from '../../components/AnnouncementImage';
 import { AppText } from '../../components/AppText';
+import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { ListGroup } from '../../components/ListGroup';
@@ -22,6 +24,7 @@ import { canEditAnnouncement } from '../../lib/permissions';
 import { SessionUser } from '../../types';
 import { formatFullDate, formatTime, formatUpcoming } from '../../utils/dates';
 import { useCurrentTime } from '../../utils/useCurrentTime';
+import { announcementAccentColor } from './announcementAccent';
 import { accessibleAnnouncements, announcementAuthorityKey, announcementTeam } from './announcementPresentation';
 
 export default function AnnouncementDetailScreen() {
@@ -35,6 +38,7 @@ export default function AnnouncementDetailScreen() {
 
 function AnnouncementDetail({ id, user, authorityResolved }: { id: string | null; user: SessionUser; authorityResolved: boolean }) {
   const router = useRouter();
+  const navigation = useNavigation('/');
   const data = useAppData();
   useCurrentTime();
   const confirm = useConfirm();
@@ -82,34 +86,74 @@ function AnnouncementDetail({ id, user, authorityResolved }: { id: string | null
     }
   };
 
+  const handleViewTeam = () => {
+    if (!team) return;
+    const state = navigation.getState();
+    if (state?.type === 'stack') {
+      // Match the actual team, not just the shared dynamic route name.
+      for (let index = state.index - 1; index >= 0; index--) {
+        const route = state.routes[index];
+        if (route.name === 'teams/[teamId]/index' && route.params &&
+          'teamId' in route.params && route.params.teamId === team.id) {
+          router.dismiss(state.index - index);
+          return;
+        }
+      }
+    }
+    router.push({ pathname: '/teams/[teamId]', params: { teamId: team.id } });
+  };
+
   if (!authorityResolved || !announcement || deleted) return <Screen>
     <Stack.Screen options={{ title: 'Announcement' }} />
     {!authorityResolved || data.announcementsLoading || deleted ? <StatePanel headingLevel={1} kind="loading" title={deleted ? 'Returning to announcements…' : 'Loading announcement…'} />
       : data.announcementsError ? <StatePanel headingLevel={1} kind="error" title="Couldn't load this announcement" message={data.announcementsError}
         action={{ label: 'Retry announcement', onPress: () => void data.refreshAnnouncements() }} />
         : <StatePanel headingLevel={1} icon="megaphone-outline" title="Announcement unavailable" message="This announcement may have been removed or is not available in your current church." />}
-    <Button title="All announcements" variant="secondary" onPress={() => router.replace('/announcements')} />
+    <Button title="All announcements" variant="secondary" onPress={() => router.dismissTo('/announcements')} />
   </Screen>;
 
   const linkedEvent = data.events.find((event) => event.id === announcement.linked_event_id && event.organisation_id === user.profile.organisation_id);
+  const author = data.users.find((profile) => profile.id === announcement.created_by && profile.organisation_id === user.profile.organisation_id);
+  const authorName = userName(author ? [author] : [], announcement.created_by);
+  const accentColor = announcementAccentColor(announcement.team_id ? team?.name : undefined);
+  const imageUri = data.getAnnouncementImageUri(announcement);
   return <Screen scrollRef={scrollRef}>
     <Stack.Screen options={{ title: 'Announcement' }} />
     {deleteError ? <StatePanel compact kind="error" title="Announcement wasn't deleted" message={deleteError}
       action={{ label: 'Try deleting again', onPress: () => void handleDelete() }} /> : null}
     {data.announcementsError ? <StatePanel compact kind="error" title="Couldn't refresh this announcement" message={data.announcementsError}
       action={{ label: 'Retry announcement', onPress: () => void data.refreshAnnouncements() }} /> : null}
-    <View style={styles.notice}>
-      <View style={styles.context}>
-        <AppText variant="label" tone="primary" style={styles.contextLabel}>{team?.name ?? (announcement.team_id ? 'Team announcement' : 'Whole church')}</AppText>
-        {allowed ? <Button ref={manageRef} title="Manage" accessibilityLabel="Manage announcement" variant="ghost" icon="options-outline"
-          loading={deleting} onPress={() => setManaging(true)} /> : null}
+    <View style={[styles.notice, { borderTopColor: accentColor }]}>
+      <View style={styles.heading}>
+        <View style={styles.context}>
+          <View style={styles.noticeIcon}>
+            <Ionicons name="megaphone-outline" size={26} color={colors.primary} accessible={false}
+              accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
+          </View>
+          <AppText variant="label" tone="primary" style={styles.contextLabel}>{team?.name ?? (announcement.team_id ? 'Team announcement' : 'Whole church')}</AppText>
+          {allowed ? <Button ref={manageRef} title="Manage" accessibilityLabel="Manage announcement" variant="ghost" icon="options-outline"
+            loading={deleting} onPress={() => setManaging(true)} /> : null}
+        </View>
+        <PageHeading title={announcement.title} />
+        <View style={styles.date}>
+          {announcement.pinned ? <View accessible accessibilityRole="image" accessibilityLabel="Pinned announcement">
+            <Ionicons name="pin" size={22} color={colors.primary} accessible={false}
+              accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden />
+          </View> : null}
+          <AppText variant="small" tone="secondary" style={styles.dateText}>{formatFullDate(new Date(announcement.created_at))} · {formatTime(announcement.created_at)}</AppText>
+        </View>
       </View>
-      <PageHeading title={announcement.title} />
-      {announcement.pinned ? <AppText variant="small" tone="accent">Pinned · Kept at the top of announcements</AppText> : null}
-      <AppText variant="small" tone="secondary">Posted by {userName(data.users, announcement.created_by)}</AppText>
-      <AppText variant="small" tone="muted">{formatFullDate(new Date(announcement.created_at))} · {formatTime(announcement.created_at)}</AppText>
-      <AnnouncementImage uri={data.getAnnouncementImageUri(announcement)} height={220} presentation="full" accessibilityLabel={`Image for ${announcement.title}`} />
-      <AppText style={styles.body}>{announcement.body}</AppText>
+      <View style={styles.message}>
+        <AnnouncementImage uri={imageUri} height={220} presentation="full" accessibilityLabel={`Image for ${announcement.title}`} />
+        <AppText>{announcement.body}</AppText>
+      </View>
+      <View style={styles.author}>
+        <Avatar name={authorName} uri={data.getAvatarUri(author)} decorative />
+        <View style={styles.authorText}>
+          <AppText variant="small" tone="secondary">Posted by</AppText>
+          <AppText variant="bodyBold">{authorName}</AppText>
+        </View>
+      </View>
     </View>
     {linkedEvent ? <View style={styles.section}>
       <SectionHeader title="Linked event" />
@@ -117,6 +161,15 @@ function AnnouncementDetail({ id, user, authorityResolved }: { id: string | null
         subtitle={formatUpcoming(new Date(linkedEvent.start_time))}
         onPress={() => router.push({ pathname: '/events/[id]', params: { id: linkedEvent.id } })} /></ListGroup>
     </View> : null}
+    <View style={styles.section}>
+      <SectionHeader title="Keep exploring" />
+      <ListGroup>
+        {team ? <ListRow icon="people-outline" title="View team" subtitle={team.name}
+          onPress={handleViewTeam} /> : null}
+        <ListRow icon="megaphone-outline" title="All announcements" subtitle="More updates from your church"
+          onPress={() => router.dismissTo('/announcements')} />
+      </ListGroup>
+    </View>
     {allowed ? <>
       <ActionSheet visible={managing} title="Manage announcement" onClose={() => setManaging(false)} returnFocusRef={manageRef}
         actions={[
@@ -130,9 +183,15 @@ function AnnouncementDetail({ id, user, authorityResolved }: { id: string | null
 }
 
 const styles = StyleSheet.create({
-  notice: { gap: spacing.sm, borderTopWidth: spacing.xs, borderTopColor: colors.accent, paddingTop: spacing.lg },
+  notice: { borderWidth: 1, borderColor: colors.border, borderTopWidth: spacing.xs, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface },
+  heading: { padding: spacing.gutter, gap: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   context: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
-  contextLabel: { flexGrow: 1, flexShrink: 1, flexBasis: 160 },
-  body: { marginTop: spacing.md },
+  noticeIcon: { width: 40, height: 40, flexShrink: 0, borderRadius: radius.sm, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  contextLabel: { flexGrow: 1, flexShrink: 1, flexBasis: 104, minWidth: 0 },
+  date: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  dateText: { flex: 1, minWidth: 0 },
+  message: { padding: spacing.gutter, gap: spacing.lg, minHeight: 140 },
+  author: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, padding: spacing.gutter },
+  authorText: { flex: 1, minWidth: 0, gap: spacing.xs },
   section: { gap: spacing.sm, marginTop: spacing.md },
 });

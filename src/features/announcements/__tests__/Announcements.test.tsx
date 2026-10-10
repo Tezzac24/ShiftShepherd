@@ -12,11 +12,13 @@ jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 const mockPush = jest.fn();
 const mockBack = jest.fn();
 const mockReplace = jest.fn();
+const mockDismissTo = jest.fn();
 const mockCanGoBack = jest.fn();
 const mockToast = jest.fn();
 let mockParams: Record<string, string | string[] | undefined> = {};
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null }, useLocalSearchParams: () => mockParams,
-  useRouter: () => ({ push: mockPush, back: mockBack, replace: mockReplace, canGoBack: mockCanGoBack }) }));
+  useNavigation: () => ({ getState: () => undefined }),
+  useRouter: () => ({ push: mockPush, back: mockBack, replace: mockReplace, dismissTo: mockDismissTo, canGoBack: mockCanGoBack }) }));
 jest.mock('../../../components/ConfirmDialog', () => ({ useConfirm: jest.fn() }));
 jest.mock('../../../components/Toast', () => ({ useToast: () => mockToast }));
 jest.mock('../../../lib/appData/AppDataContext', () => ({ useAppData: jest.fn() }));
@@ -50,7 +52,7 @@ test('team filtering narrows visible same-church notices, preserves pin ordering
   fireEvent.press(screen.getByLabelText('New announcement'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/announcements/edit', params: { teamId: TEAM.id } });
   fireEvent.press(screen.getByLabelText('All announcements'));
-  expect(mockReplace).toHaveBeenCalledWith('/announcements');
+  expect(mockDismissTo).toHaveBeenCalledWith('/announcements');
 });
 
 test.each(['missing', ['team-1', 'elsewhere'], ''])('invalid team filter never falls back to a broader feed: %j', (teamId) => {
@@ -97,7 +99,7 @@ test('list and detail distinguish loading, failure and missing data and retry th
   data.announcementsError = null; detail.rerender(<AnnouncementDetailScreen />);
   expect(detail.getByText('Announcement unavailable')).toBeTruthy();
   fireEvent.press(detail.getByLabelText('All announcements'));
-  expect(mockReplace).toHaveBeenCalledWith('/announcements');
+  expect(mockDismissTo).toHaveBeenCalledWith('/announcements');
 });
 
 test('detail denies cross-organisation and inaccessible-team IDs without exposing title or actions', () => {
@@ -118,6 +120,29 @@ test('detail uses signed image resolver and links only current-church events', (
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/events/[id]', params: { id: EVENT.id } });
   data.events = [{ ...EVENT, organisation_id: 'other' }]; screen.rerender(<AnnouncementDetailScreen />);
   expect(screen.queryByText(EVENT.title)).toBeNull();
+});
+
+test('a short text-only notice keeps its author and an all-announcements exit for members', () => {
+  mockParams = { id: NOTICE.id }; auth.user.orgRole = 'general_member';
+  data.announcements = [{ ...NOTICE, body: 'See you on Sunday.' }];
+  const screen = render(<AnnouncementDetailScreen />);
+  expect(screen.getByText('See you on Sunday.')).toBeTruthy();
+  expect(screen.getByText(PROFILE.full_name)).toBeTruthy();
+  expect(data.getAvatarUri).toHaveBeenCalledWith(PROFILE);
+  expect(screen.queryByLabelText('Manage announcement')).toBeNull();
+  fireEvent.press(screen.getByRole('button', { name: /^All announcements/ }));
+  expect(mockDismissTo).toHaveBeenCalledWith('/announcements');
+});
+
+test('the team shortcut uses resolved accessible metadata and disappears when that team is unavailable', () => {
+  mockParams = { id: NOTICE.id };
+  data.announcements = [{ ...NOTICE, team_id: TEAM.id, audience: 'team' }];
+  const screen = render(<AnnouncementDetailScreen />);
+  fireEvent.press(screen.getByRole('button', { name: /^View team/ }));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/teams/[teamId]', params: { teamId: TEAM.id } });
+  data.teams = [{ ...TEAM, organisation_id: 'another-church' }];
+  screen.rerender(<AnnouncementDetailScreen />);
+  expect(screen.queryByRole('button', { name: /^View team/ })).toBeNull();
 });
 
 test('management is contextual; delete cancellation writes nothing and failure remains recoverable', async () => {

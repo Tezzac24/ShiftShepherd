@@ -7,31 +7,27 @@ import { AnnouncementImage } from '../../components/AnnouncementImage';
 import { AppText } from '../../components/AppText';
 import { Announcement } from '../../types';
 import { formatRelative } from '../../utils/dates';
-
-function teamAccentColor(teamName: string): string {
-  // Hash the name into an RGB hex color, consistently across every card.
-  let hash = 2166136261;
-  for (const character of teamName.trim().toLowerCase()) {
-    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
-  }
-  return `#${(hash & 0xffffff).toString(16).padStart(6, '0')}`;
-}
+import { announcementAccentColor } from '../announcements/announcementAccent';
 
 export function HomeNotice({ announcement, authorName, teamName, imageUri, onPress }: {
   announcement: Announcement; authorName: string; teamName?: string; imageUri?: string; onPress: () => void;
 }) {
+  const accentColor = announcementAccentColor(announcement.team_id ? teamName : undefined);
   return (
     <Pressable onPress={onPress} accessibilityRole="button"
-      accessibilityLabel={`Announcement: ${announcement.title}. ${teamName ?? (announcement.team_id ? 'Team announcement' : 'Church announcement')}. ${formatRelative(announcement.created_at)}`}
+      accessibilityLabel={`Announcement: ${announcement.title}. ${teamName ?? (announcement.team_id ? 'Team announcement' : 'Church announcement')}. ${formatRelative(announcement.created_at)}${announcement.pinned ? '. Pinned' : ''}`}
       accessibilityHint="Opens the full announcement"
       style={({ pressed }) => [styles.notice,
-        { borderLeftColor: announcement.team_id && teamName ? teamAccentColor(teamName) : colors.accent },
+        { borderLeftColor: accentColor },
         pressed && styles.pressed,
       ]}>
-      <AppText variant="small" tone="secondary">
-        {teamName ?? (announcement.team_id ? 'Team announcement' : 'Church announcement')} · {formatRelative(announcement.created_at)}
-      </AppText>
-      {announcement.pinned ? <AppText variant="small" tone="accent">Pinned</AppText> : null}
+      <View style={styles.metadata}>
+        <AppText variant="small" tone="secondary" style={styles.context}>
+          {teamName ?? (announcement.team_id ? 'Team announcement' : 'Church announcement')} · {formatRelative(announcement.created_at)}
+        </AppText>
+        {announcement.pinned ? <Ionicons name="pin" size={20} color={accentColor} accessible={false}
+          accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden /> : null}
+      </View>
       <AppText variant="subheading">{announcement.title}</AppText>
       <AppText tone="secondary" numberOfLines={2}>{announcement.body}</AppText>
       <AnnouncementImage uri={imageUri} height={120} accessibilityLabel={`Image for ${announcement.title}`} />
@@ -46,6 +42,8 @@ export function HomeNotice({ announcement, authorName, teamName, imageUri, onPre
 
 const styles = StyleSheet.create({
   notice: { gap: spacing.sm, padding: spacing.lg, borderLeftWidth: spacing.xs, borderLeftColor: colors.accent, borderRadius: radius.sm, backgroundColor: colors.surface },
+  metadata: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  context: { flex: 1, minWidth: 0 },
   pressed: { backgroundColor: colors.surfaceRaised },
   read: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, paddingTop: spacing.xs },
 });

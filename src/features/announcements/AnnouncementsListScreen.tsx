@@ -31,7 +31,7 @@ export default function AnnouncementsListScreen() {
       description={filtered ? undefined : 'Updates from your church and teams.'}
       centerAction={!filtered && canCreate}
       action={canCreate ? <Button title="New announcement" icon="add-outline" onPress={() => router.push({ pathname: '/announcements/edit', params: team ? { teamId: team.id } : {} })} /> : undefined} />
-    {filtered ? <Button title="All announcements" variant="secondary" icon="megaphone-outline" onPress={() => router.replace('/announcements')} /> : null}
+    {filtered ? <Button title="All announcements" variant="secondary" icon="megaphone-outline" onPress={() => router.dismissTo('/announcements')} /> : null}
     {filtered && !team ? data.teamsLoading ? <StatePanel kind="loading" title="Loading this team…" />
       : data.teamsError ? <StatePanel kind="error" title="Couldn't load this team" message={data.teamsError}
         action={{ label: 'Retry team', onPress: () => void data.refreshTeams() }} />

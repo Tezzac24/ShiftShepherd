@@ -21,7 +21,7 @@ export function makeData() {
     teams: [TEAM] as Team[], archivedTeams: [] as Team[], teamsLoading: false, teamsError: null as string | null,
     events: [EVENT] as Event[], eventsLoading: false, eventsError: null as string | null,
     categories: [{ id: 'cat-service', name: 'Service' }], users: [PROFILE],
-    refreshAnnouncements: jest.fn(), refreshEvents: jest.fn(), refreshTeams: jest.fn(), getAnnouncementImageUri: jest.fn(),
+    refreshAnnouncements: jest.fn(), refreshEvents: jest.fn(), refreshTeams: jest.fn(), getAnnouncementImageUri: jest.fn(), getAvatarUri: jest.fn(),
     addAnnouncement: jest.fn(async (input: Partial<Announcement>) => ({ ...NOTICE, ...input, id: 'created-notice' })),
     updateAnnouncement: jest.fn().mockResolvedValue(undefined), deleteAnnouncement: jest.fn().mockResolvedValue(undefined),
     setAnnouncementImage: jest.fn().mockResolvedValue(undefined), removeAnnouncementImage: jest.fn().mockResolvedValue(undefined),
