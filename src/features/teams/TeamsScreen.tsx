@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing, touchTarget } from '../../../constants/theme';
 import { ActionSheet } from '../../components/ActionSheet';
@@ -28,7 +27,6 @@ export default function TeamsScreen() {
   const { authMode, accountStatus, isLoading } = useAuth();
   const data = useAppData();
   useCurrentTime();
-  const insets = useSafeAreaInsets();
   const [view, setView] = useState<'mine' | 'all'>('mine');
   const [search, setSearch] = useState('');
   const [manageOpen, setManageOpen] = useState(false);
@@ -51,7 +49,7 @@ export default function TeamsScreen() {
         data={filtered}
         keyExtractor={(team) => team.id}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl * 2 + insets.bottom }]}
+        contentContainerStyle={styles.content}
         ListHeaderComponent={<View style={styles.header}>
           <OrganisationHeader />
           <PageHeading title="Teams" action={showAdminActions ? (
@@ -110,7 +108,7 @@ export default function TeamsScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: spacing.gutter },
+  content: { paddingHorizontal: spacing.gutter, paddingBottom: spacing.lg },
   header: { gap: spacing.md, marginBottom: spacing.md },
   manage: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md },
   team: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },

@@ -1,6 +1,7 @@
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing } from '../../../constants/theme';
 import { ActionSheet } from '../../components/ActionSheet';
@@ -35,6 +36,7 @@ export default function OrganisationMembersScreen() {
 }
 
 function Members({ user }: { user: SessionUser }) {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const data = useAppData();
   const confirm = useConfirm();
@@ -147,7 +149,7 @@ function Members({ user }: { user: SessionUser }) {
   return <Screen scroll={false} keyboard>{header}
     <FlatList ref={list} data={loading || searchPending || !scope.ready ? [] : members}
       keyExtractor={(member) => member.profile_id} keyboardShouldPersistTaps="handled"
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: Math.max(spacing.lg, insets.bottom) }]}
       ListHeaderComponent={<View style={styles.header}>
         <OrganisationHeader />
         <PageHeading title="Church members" description="Find a person, then open their access and role details."
@@ -209,7 +211,7 @@ function MemberRow({ member, first, last, avatarUri, disabled, onOpen }: {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: spacing.gutter, paddingBottom: spacing.xxxl },
+  content: { padding: spacing.gutter },
   header: { gap: spacing.lg, paddingBottom: spacing.xl },
   summary: { gap: spacing.sm },
   memberRow: { backgroundColor: colors.surface, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, overflow: 'hidden' },

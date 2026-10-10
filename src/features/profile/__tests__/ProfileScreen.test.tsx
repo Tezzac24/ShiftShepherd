@@ -247,7 +247,7 @@ describe('Profile identity and names', () => {
     demo();
     const screen = render(<ProfileScreen />);
     expect(screen.queryByTestId('edit-profile-action')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Leave this church' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Disconnect this church' })).toBeNull();
     expect(screen.getByText('Demo only')).toBeTruthy();
   });
 });
@@ -327,7 +327,7 @@ describe('Profile church context and destinations', () => {
     expect(screen.getByText('Loading church…')).toBeTruthy();
     expect(screen.queryByText('Fallback church')).toBeNull();
     expect(screen.queryByText('Manage church')).toBeNull();
-    fireEvent.press(screen.getByRole('button', { name: 'Leave this church' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Disconnect this church' }));
     expect(confirm).not.toHaveBeenCalled();
     expect(leaveOrganisation).not.toHaveBeenCalled();
   });
@@ -350,7 +350,7 @@ describe('Profile account actions', () => {
     expect(mockToast).not.toHaveBeenCalled();
   });
 
-  it.each(['Sign out', 'Leave this church'])('does nothing when %s is cancelled', async (label) => {
+  it.each(['Sign out', 'Disconnect this church'])('does nothing when %s is cancelled', async (label) => {
     confirm.mockResolvedValue(false);
     const screen = render(<ProfileScreen />);
     fireEvent.press(screen.getByRole('button', { name: label }));
@@ -364,8 +364,8 @@ describe('Profile account actions', () => {
     let finish!: (value: boolean) => void;
     confirm.mockReturnValue(new Promise<boolean>((resolve) => { finish = resolve; }));
     const screen = render(<ProfileScreen />);
-    fireEvent.press(screen.getByRole('button', { name: 'Leave this church' }));
-    fireEvent.press(screen.getByRole('button', { name: 'Leave this church' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Disconnect this church' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Disconnect this church' }));
     fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
     expect(confirm).toHaveBeenCalledTimes(1);
     await act(async () => finish(false));
@@ -378,7 +378,7 @@ describe('Profile account actions', () => {
     fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
     await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
     fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
-    fireEvent.press(screen.getByRole('button', { name: 'Leave this church' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Disconnect this church' }));
     expect(signOut).toHaveBeenCalledTimes(1);
     expect(leaveOrganisation).not.toHaveBeenCalled();
     await act(async () => finish());
@@ -397,19 +397,20 @@ describe('Profile account actions', () => {
     let finish!: () => void;
     leaveOrganisation.mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
     const screen = render(<ProfileScreen />);
-    fireEvent.press(screen.getByRole('button', { name: 'Leave this church' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Disconnect this church' }));
     await waitFor(() => expect(leaveOrganisation).toHaveBeenCalledTimes(1));
     expect(leaveOrganisation).toHaveBeenCalledWith();
-    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Leave Grace?', confirmLabel: 'Leave church', destructive: true }));
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Disconnect from Grace?', confirmLabel: 'Disconnect', destructive: true }));
     const message = confirm.mock.calls[0][0].message;
+    expect(message).toMatch(/removes your app access to this church and its teams/);
     expect(message).toMatch(/church role, team memberships and notification registration/);
     expect(message).toMatch(/profile, messages, rota history and account will be kept/);
     expect(message).toMatch(/access to any other churches/);
     expect(message).toMatch(/new invitation/);
-    fireEvent.press(screen.getByRole('button', { name: 'Leave this church' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Disconnect this church' }));
     expect(leaveOrganisation).toHaveBeenCalledTimes(1);
     await act(async () => finish());
-    expect(mockToast).toHaveBeenCalledWith('You have left the organisation.');
+    expect(mockToast).toHaveBeenCalledWith('Grace has been disconnected from your account.');
     expect(mockPush).not.toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
   });
@@ -418,19 +419,19 @@ describe('Profile account actions', () => {
     mockUseRequiredUser.mockReturnValue({ ...LIVE_USER, orgRole: 'church_admin' });
     leaveOrganisation.mockRejectedValue(new Error('Another church admin must be appointed first.'));
     const screen = render(<ProfileScreen />);
-    fireEvent.press(screen.getByRole('button', { name: 'Leave this church' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Disconnect this church' }));
     await waitFor(() => expect(mockToast).toHaveBeenCalledWith('Another church admin must be appointed first.', 'error'));
     expect(confirm.mock.calls[0][0].message).toMatch(/final church admin/);
-    expect(screen.getByRole('button', { name: 'Leave this church' })).not.toBeDisabled();
-    fireEvent.press(screen.getByRole('button', { name: 'Leave this church' }));
+    expect(screen.getByRole('button', { name: 'Disconnect this church' })).not.toBeDisabled();
+    fireEvent.press(screen.getByRole('button', { name: 'Disconnect this church' }));
     await waitFor(() => expect(leaveOrganisation).toHaveBeenCalledTimes(2));
   });
 
   it('uses friendly fallback copy for an unknown leave failure', async () => {
     leaveOrganisation.mockRejectedValue('not-an-error');
     const screen = render(<ProfileScreen />);
-    fireEvent.press(screen.getByRole('button', { name: 'Leave this church' }));
-    await waitFor(() => expect(mockToast).toHaveBeenCalledWith('We couldn’t leave this organisation.', 'error'));
+    fireEvent.press(screen.getByRole('button', { name: 'Disconnect this church' }));
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith('We couldn’t disconnect this church.', 'error'));
   });
 
   it('reset requires confirmation and only delegates to the existing demo reset action', async () => {

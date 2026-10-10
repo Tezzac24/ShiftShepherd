@@ -1,6 +1,7 @@
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing } from '../../../constants/theme';
 import { ActionSheet } from '../../components/ActionSheet';
@@ -52,6 +53,7 @@ export default function InvitationAdminScreen() {
 function Invitations({ user, targetProfileId, targetEmail, targetName, organisationHint, startCreating }: {
   user: SessionUser; targetProfileId?: string; targetEmail?: string; targetName?: string; organisationHint?: string; startCreating: boolean;
 }) {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const data = useAppData();
   const scope = useOrganisationAdministration(user);
@@ -304,7 +306,7 @@ function Invitations({ user, targetProfileId, targetEmail, targetName, organisat
     && (!showPersonInvitations || (selected && invitation.target_profile_id === selected.profile_id)));
   const selectedPendingVisible = selected && invitations.some((invitation) => invitation.status === 'pending' && invitation.target_profile_id === selected.profile_id);
   return <Screen scroll={false}>{header}<FlatList ref={list} data={scope.ready ? rows : []}
-    keyExtractor={(invitation) => invitation.id} contentContainerStyle={styles.content}
+    keyExtractor={(invitation) => invitation.id} contentContainerStyle={[styles.content, { paddingBottom: Math.max(spacing.lg, insets.bottom) }]}
     ListHeaderComponent={<View style={styles.listHeader}>
       <OrganisationHeader />
       <PageHeading title="Church invitations" description={showPersonInvitations ? undefined : 'Invite people and manage links you’ve sent.'} />
@@ -366,7 +368,7 @@ function InvitationHistoryRow({ invitation, first, last, disabled, loading, expa
 
 const styles = StyleSheet.create({
   form: { gap: spacing.lg },
-  content: { padding: spacing.gutter, paddingBottom: spacing.xxxl },
+  content: { padding: spacing.gutter },
   listHeader: { gap: spacing.lg, paddingBottom: spacing.xl },
   emailHelp: { marginTop: spacing.sm },
   selectedPerson: { backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },

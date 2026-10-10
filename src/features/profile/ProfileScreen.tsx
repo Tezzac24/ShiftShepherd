@@ -262,21 +262,21 @@ export default function ProfileScreen() {
     accountPending.current = true;
     try {
       const ok = await confirm({
-        title: `Leave ${activeOrganisation.name}?`,
-        message: `${isChurchAdmin(user) ? "If you are the final church admin, another church admin must be appointed first. " : ""}You will lose access to this church and all its teams. Your church role, team memberships and notification registration for this church will be removed. Your profile, messages, rota history and account will be kept, along with access to any other churches. You can return only with a new invitation.`,
-        confirmLabel: "Leave church",
+        title: `Disconnect from ${activeOrganisation.name}?`,
+        message: `${isChurchAdmin(user) ? "If you are the final church admin, another church admin must be appointed first. " : ""}This removes your app access to this church and its teams. Your church role, team memberships and notification registration for this church will be removed. Your profile, messages, rota history and account will be kept, along with access to any other churches. To reconnect, you’ll need a new invitation.`,
+        confirmLabel: "Disconnect",
         destructive: true,
         returnFocusRef: leaveRef,
       });
       if (!ok) return;
       setLeavingOrganisation(true);
       await leaveOrganisation();
-      showToast("You have left the organisation.");
+      showToast(`${activeOrganisation.name} has been disconnected from your account.`);
     } catch (cause) {
       showToast(
         cause instanceof Error
           ? cause.message
-          : "We couldn’t leave this organisation.",
+          : "We couldn’t disconnect this church.",
         "error",
       );
       setLeavingOrganisation(false);
@@ -546,7 +546,7 @@ export default function ProfileScreen() {
             {authMode === "supabase" ? (
               <Button
                 ref={leaveRef}
-                title="Leave"
+                title="Disconnect this church"
                 variant="destructive"
                 icon="exit-outline"
                 onPress={() => void handleLeaveOrganisation()}

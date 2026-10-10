@@ -103,7 +103,7 @@ function RotaList({ scope }: { scope: RotaScopeValue }) {
     <Stack.Screen options={{ title: editingDates ? 'Edit dates' : 'Rota' }} />
     <SectionList<RotaEntry, RotaSection>
       sections={sections} keyExtractor={(entry) => entry.id} stickySectionHeadersEnabled={false}
-      contentContainerStyle={[styles.content, { paddingBottom: editingDates ? spacing.xl : spacing.xxl * 2 + insets.bottom }]}
+      contentContainerStyle={[styles.content, { paddingBottom: editingDates ? spacing.xl : Math.max(spacing.lg, insets.bottom) }]}
       ListHeaderComponent={<View style={styles.heading}>
         <PageHeading eyebrow={team.name} title={editingDates ? 'Edit dates' : 'Rota'}
           description={editingDates ? 'Choose a date below to edit its details or people. Select Done to return to reading the rota.' : 'Serving dates for your team.'}

@@ -1,7 +1,6 @@
 import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
@@ -61,7 +60,6 @@ function ArchivedTeamsContent({ organisationId }: { organisationId: string }) {
   const confirm = useConfirm();
   const showToast = useToast();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [confirmingTeamId, setConfirmingTeamId] = useState<string | null>(null);
   const [restoringTeamId, setRestoringTeamId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<{ name: string; message: string } | null>(null);
@@ -108,7 +106,7 @@ function ArchivedTeamsContent({ organisationId }: { organisationId: string }) {
   return <Screen scroll={false} footer={<Button title="Back to teams" variant="ghost" onPress={() => router.replace('/(tabs)/teams')} />}>
     <Stack.Screen options={{ title: 'Archived teams' }} />
     <FlatList ref={listRef} data={teams} keyExtractor={(team) => team.id}
-      contentContainerStyle={[styles.content, { paddingBottom: spacing.xl + insets.bottom }]}
+      contentContainerStyle={styles.content}
       ListHeaderComponent={<View style={styles.header}>
         <PageHeading title="Archived teams" description="These teams are out of active use. Restore one to bring back its members and history." />
         {restoredTeam ? <StatePanel compact kind="info" icon="checkmark-circle-outline" title={`${restoredTeam.name} was restored`}
@@ -129,7 +127,7 @@ function ArchivedTeamsContent({ organisationId }: { organisationId: string }) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: spacing.gutter },
+  content: { padding: spacing.gutter, paddingBottom: spacing.xl },
   header: { gap: spacing.md, marginBottom: spacing.lg },
   teamRow: { gap: spacing.md, padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.border,
     borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: StyleSheet.hairlineWidth },

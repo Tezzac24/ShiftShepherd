@@ -1,7 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, spacing, touchTarget } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
@@ -24,7 +23,6 @@ export default function MessagesScreen() {
   const user = useRequiredUser();
   const data = useAppData();
   const now = useCurrentTime();
-  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
 
   // List visits refresh previews and authoritative counts but never mark read.
@@ -62,7 +60,7 @@ export default function MessagesScreen() {
         data={filtered}
         keyExtractor={({ team }) => team.id}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl * 2 + insets.bottom }]}
+        contentContainerStyle={styles.content}
         ListHeaderComponent={<View style={styles.header}>
           <OrganisationHeader />
           <PageHeading title="Messages" description="Keep in touch with your teams." />
@@ -112,7 +110,7 @@ export default function MessagesScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: spacing.gutter },
+  content: { paddingHorizontal: spacing.gutter, paddingBottom: spacing.lg },
   header: { gap: spacing.md, marginBottom: spacing.sm },
   conversation: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md,
     paddingVertical: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },

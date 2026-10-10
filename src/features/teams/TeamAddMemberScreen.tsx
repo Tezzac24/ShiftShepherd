@@ -1,7 +1,6 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing } from '../../../constants/theme';
 import { AppText } from '../../components/AppText';
@@ -62,7 +61,6 @@ function TeamAddMemberContent({ team }: { team: Team }) {
   const data = useAppData();
   const showToast = useToast();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [addingProfileId, setAddingProfileId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<{ profileId: string; name: string; message: string } | null>(null);
@@ -118,7 +116,7 @@ function TeamAddMemberContent({ team }: { team: Team }) {
     <Stack.Screen options={{ title: 'Add member' }} />
     <FlatList ref={listRef} data={candidates} keyExtractor={(profile) => profile.id}
       keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
-      contentContainerStyle={[styles.content, { paddingBottom: spacing.xl + insets.bottom }]}
+      contentContainerStyle={styles.content}
       ListHeaderComponent={<View style={styles.header}>
         <PageHeading title="Add member" eyebrow={team.name} description="Choose from active members of your church." />
         <TextField label="Search people" placeholder="Name or email" value={query} onChangeText={setQuery}
@@ -150,7 +148,7 @@ function TeamAddMemberContent({ team }: { team: Team }) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: spacing.gutter },
+  content: { padding: spacing.gutter, paddingBottom: spacing.xl },
   header: { gap: spacing.md, marginBottom: spacing.lg },
   feedback: { gap: spacing.sm },
   personRow: { gap: spacing.md, padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.border,

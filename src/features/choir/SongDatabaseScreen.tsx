@@ -51,7 +51,7 @@ function SongLibrary({ scope, initialQuery }: { scope: ChoirScopeValue; initialQ
   return <Screen scroll={false}>
     <Stack.Screen options={{ title: 'Songs' }} />
     <ListGroupContext.Provider value><FlatList data={songs} keyExtractor={(song) => song.id} keyboardShouldPersistTaps="handled"
-      contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl * 2 + insets.bottom }]}
+      contentContainerStyle={[styles.content, { paddingBottom: Math.max(spacing.lg, insets.bottom) }]}
       ListHeaderComponent={<View style={styles.header}>
         <PageHeading eyebrow={team.name} title="Songs" action={<Button title="Add song" icon="add-outline" onPress={() => open()} />} />
         <TextField label="Search songs" placeholder="Title, artist or tag" value={query} onChangeText={setQuery} autoCapitalize="none" returnKeyType="search" />

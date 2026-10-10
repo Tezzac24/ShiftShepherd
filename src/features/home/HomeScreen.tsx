@@ -44,7 +44,7 @@ export default function HomeScreen() {
   const openServing = () => router.push(scheduleDestination('serving'));
 
   return (
-    <Screen safeTop>
+    <Screen safeTop contentStyle={styles.content}>
       <OrganisationHeader />
       <View>
         <PageHeading title={`${greetingForNow(now)}, ${firstName}`} eyebrow={formatFullDate(now)} />
@@ -106,6 +106,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  content: { paddingBottom: spacing.lg },
   section: { gap: spacing.sm, marginBottom: spacing.sm },
   noDuty: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   noDutyText: { flexGrow: 1, flexShrink: 1, flexBasis: 180 },

@@ -49,7 +49,7 @@ export function Screen({
           style={styles.flex}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: footer ? spacing.xl : spacing.xxl * 2 + insets.bottom },
+            { paddingBottom: footer ? spacing.xl : Math.max(spacing.lg, insets.bottom) },
             topPad,
             contentStyle,
           ]}

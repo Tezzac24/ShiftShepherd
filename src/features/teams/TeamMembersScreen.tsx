@@ -241,7 +241,7 @@ function TeamMembersContent({ team }: { team: Team }) {
     <Stack.Screen options={{ title: 'Members' }} />
     <FlatList ref={listRef} data={filtered} keyExtractor={({ profile }) => profile.id}
       keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
-      contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl * 2 + insets.bottom }]}
+      contentContainerStyle={[styles.content, { paddingBottom: Math.max(spacing.lg, insets.bottom) }]}
       ListHeaderComponent={<View style={styles.header}>
         <PageHeading title="Members" eyebrow={team.name} action={canManage ? <Button title="Add member" icon="person-add-outline"
           onPress={() => router.push({ pathname: '/teams/[teamId]/settings/members/add', params: { teamId: team.id } })} /> : undefined} />

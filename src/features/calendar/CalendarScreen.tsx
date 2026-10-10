@@ -37,7 +37,7 @@ export default function CalendarScreen() {
   const servingSettled = !data.rotasLoading && !data.teamsLoading && !data.rotasError && !data.teamsError;
 
   return (
-    <Screen safeTop>
+    <Screen safeTop contentStyle={styles.content}>
       <OrganisationHeader />
       <PageHeading title="Schedule" description="Church life and the dates you’re serving." />
       <SegmentedControl label="Schedule view" value={selectedView} options={[
@@ -86,6 +86,7 @@ export default function CalendarScreen() {
 }
 
 const styles = StyleSheet.create({
+  content: { paddingBottom: spacing.lg },
   sectionHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
   headingText: { flexGrow: 1, flexShrink: 1, flexBasis: 160 },
   pastToggle: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm,
